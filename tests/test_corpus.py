@@ -165,6 +165,9 @@ def main() -> int:
     contr_ok = [x for x in nuevos if sin_pregunta(x, {"contratista"})]
     ambos_ok = [x for x in nuevos if sin_pregunta(x, {"obra", "clasificacion", "contratista"})]
     con_llm = [x for x in con_texto if usa_llm(x)]
+    # Un contratista dual (R2) SIEMPRE pregunta: es el diseño, no una falla del parser.
+    duales = [x for x in nuevos if any(p["campo"] == "clasificacion" for p in x["respuesta"]["preguntas"])]
+    ambos_ok_sin_duales = [x for x in nuevos if x in ambos_ok or x in duales]
     n = len(nuevos)
 
     def pct(a):
@@ -191,6 +194,8 @@ def main() -> int:
     print(f"  Obra/destino resuelto sin preguntar:  {pct(obra_ok)}")
     print(f"  Contratista resuelto sin preguntar:   {pct(contr_ok)}")
     print(f"  Obra Y contratista sin preguntar:     {pct(ambos_ok)}")
+    print(f"  ídem, contando los duales como bien:  {pct(ambos_ok_sin_duales)}  "
+          f"({len(duales)} preguntan obra/personal porque el contratista está marcado DUAL)")
     print(f"  Necesitaron LLM:                      {len(con_llm)}/{len(con_texto)}  "
           f"(solo diccionario: {len(con_texto) - len(con_llm)})")
     print(f"  Adjuntos sin texto (no se pueden imputar sin leer el comprobante): {len(solo_adjunto)}")
