@@ -199,14 +199,14 @@ python -m tests.test_corpus --url http://localhost:8000   # contra un motor corr
 ```
 
 Las 101 filas de CAPTURA se reagrupan en 57 mensajes (50 con texto, 5 correcciones, 2
-adjuntos sin texto). Al 2026-09-17:
+adjuntos sin texto). Al 2026-09-17, contra el Sheet en vivo:
 
 | | |
 |---|---|
 | Obra/destino resuelto sin preguntar | 41/50 (82%) |
-| Contratista resuelto sin preguntar | 49/50 (98%) |
-| Las dos cosas | 40/50 (80%) |
-| Ídem, contando como bien los 4 duales (preguntan a propósito) | 44/50 (88%) |
+| Contratista resuelto sin preguntar | **50/50 (100%)** |
+| Las dos cosas | 41/50 (82%) |
+| Ídem, contando como bien los 4 duales (preguntan a propósito) | 45/50 (90%) |
 | Necesitaron LLM | 10 de 55 mensajes; solo 1 cambió el resultado |
 | Casos obligatorios del brief | 6/6 |
 
@@ -215,8 +215,8 @@ adjuntos sin texto). Al 2026-09-17:
 código o porque se regeneró el snapshot a propósito (`scripts/snapshot_maestros.py`).
 
 Lo que queda preguntando hoy: 4 capturas cuyo único texto es «ingreso» (sin obra; se
-resolverían leyendo el comprobante), `Valen/Austral` (no existe ningún «Valen» en los
-maestros) y `Electricidad Angostura/Retiro` (pregunta la obra, es lo correcto).
+resolverían leyendo el CUIT del comitente en el comprobante) y `Electricidad
+Angostura/Retiro` (pregunta la obra, que es lo correcto). Los otros 4 son los duales.
 
 ## 5. Configuración y deploy
 
@@ -298,10 +298,14 @@ Dos detalles del corpus que el gateway tiene que contemplar al agrupar:
    aparte en `clasificacion`. **Hay que decidir si se agrega la columna** (y, si se agrega,
    el motor solo tiene que sumarla a `COLUMNAS_MOVIMIENTOS`). Además la hoja real tiene 25
    columnas: `cargado_por` y `ts` se completan al confirmar.
-2. **Alias que apuntan a nombres que no existen en CONTRATISTAS**: `marce` → «Marcela»
-   (por contexto parece Marcelo Maragaño), `andina` → «Ferretería Andina» (el contratista se
-   llama «Ferr. Andina»), `pinturería andina` → «Pinturería Andina» (es «Pint Andina»). El
-   motor los resuelve igual pero deja una advertencia.
+2. **Alias que apuntan a nombres que no existen en CONTRATISTAS**: `andina` → «Ferretería
+   Andina» (el contratista se llama «Ferr. Andina») y `pinturería andina` → «Pinturería
+   Andina» (es «Pint Andina»). El motor los resuelve igual pero deja una advertencia.
+   El caso `marce` se resolvió el 2026-09-17 creando la contratista «Marcela», **pero queda
+   abierto**: «Marce» puede ser Marcela (la esposa, que aparece en `Marce/Casa`) o alguien
+   que trabaja en obra (`Marce/Moreno`). Si son dos personas distintas, la forma de que el
+   bot pregunte cuál es cargar **dos filas de ALIAS con el mismo `como_lo_dice`** apuntando
+   a cada una: el resolver detecta el empate y pregunta.
 3. **Filas repetidas en CONTRATISTAS**: Marcelo Maragaño (una con rubro y otra sin),
    Maderera Misiones, Silla Cuadruple/Cuádruple. El motor las fusiona y lo avisa en
    `/maestros/recargar`.

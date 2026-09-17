@@ -1,214 +1,1299 @@
 {
   "_meta": {
-    "fuente": "FACHADO - Gestion de Obras (1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A)",
+    "fuente": "1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A",
     "tomado": "2026-09-17",
-    "nota": "Copia literal de las hojas maestras, en el mismo formato que devuelve Sheets values.get. Se regenera con scripts/snapshot_maestros.py. NO editar a mano: la fuente de verdad es el Sheet."
+    "nota": "Copia literal de las hojas maestras. Se regenera con scripts/snapshot_maestros.py."
   },
   "OBRAS": [
-    ["obra", "codigo", "tipo", "servicio", "comitente", "estado", "cuit_comitente", "notas"],
-    ["Lennon", "Lennon", "obra_terceros", "administración", "Lucas Mariano Lennon", "activa", "20-13851988-1", "El comitente paga directo a los contratistas. El estudio no mueve esa plata"],
-    ["Moreno", "Moreno", "obra_terceros", "administración", "Gonzalo Fernández Moreno", "activa", "", "Se financia por certificados numerados que cobra en efectivo"],
-    ["Cerro Bayo", "Bayo", "obra_terceros", "proyecto y dirección", "Cerro Bayo S.A.", "activa", "30-64086161-0", "Solo honorarios. No lleva cuenta corriente de costos"],
-    ["Lumaia", "Lumaia", "obra_terceros", "proyecto y dirección", "Bosque de Lumas S.A.", "activa", "", "Solo honorarios"],
-    ["Muelle de piedra", "Muelle", "obra_terceros", "proyecto y dirección", "Muelle de Piedra Consorcio", "activa", "", "Solo honorarios"],
-    ["Tonga", "Tonga", "obra_terceros", "proyecto y dirección", "Gastón Maggi", "activa", "", "Solo honorarios"],
-    ["Moquehue", "Moquehue", "obra_terceros", "todo", "Alicia Marson", "activa", "", ""],
-    ["Gonzalo", "Gonzalo", "obra_propia", "todo", "El arquitecto", "activa", "", "Inversión propia. Tiene costo y contratistas, no tiene a quién rendirle"],
-    ["Hua Huan", "Hua Huan", "obra_propia", "todo", "El arquitecto", "activa", "", "Inversión propia"],
-    ["Grigera Galpón", "Grigera", "obra_propia", "todo", "El arquitecto", "activa", "", "Inversión propia"],
-    ["Tres Cerros", "Tres Cerros", "obra_propia", "¿ A DEFINIR ?", "El arquitecto", "activa", "", "FALTA: es la única obra sin tipo de servicio"],
-    ["Austral", "Austral", "estructura", "", "", "activa", "", "Indirectos del estudio: contador, consultoría A&C, gastos bancarios, IVA"],
-    ["Sur", "Sur", "personal", "", "", "activa", "", "Inmueble personal"],
-    ["Abucoque", "Abucoque", "personal", "", "", "activa", "", "Inmueble personal"],
-    ["Belelli", "Belelli", "personal", "", "", "activa", "", "Inmueble personal. Recibe las facturas de Edesur y Metrogas"],
-    ["Jardín Maternal", "Jardín", "obra_terceros", "administración", "", "cerrada", "", "Obra de referencia del relevamiento. No se borra: el histórico la referencia"]
+    [
+      "obra",
+      "codigo",
+      "tipo",
+      "servicio",
+      "comitente",
+      "estado",
+      "cuit_comitente",
+      "notas"
+    ],
+    [
+      "Lennon",
+      "Lennon",
+      "obra_terceros",
+      "administración",
+      "Lucas Mariano Lennon",
+      "activa",
+      "20-13851988-1",
+      "El comitente paga directo a los contratistas. El estudio no mueve esa plata"
+    ],
+    [
+      "Moreno",
+      "Moreno",
+      "obra_terceros",
+      "administración",
+      "Gonzalo Fernández Moreno",
+      "activa",
+      "",
+      "Se financia por certificados numerados que cobra en efectivo"
+    ],
+    [
+      "Cerro Bayo",
+      "Bayo",
+      "obra_terceros",
+      "proyecto y dirección",
+      "Cerro Bayo S.A.",
+      "activa",
+      "30-64086161-0",
+      "Solo honorarios. No lleva cuenta corriente de costos"
+    ],
+    [
+      "Lumaia",
+      "Lumaia",
+      "obra_terceros",
+      "proyecto y dirección",
+      "Bosque de Lumas S.A.",
+      "activa",
+      "",
+      "Solo honorarios"
+    ],
+    [
+      "Muelle de piedra",
+      "Muelle",
+      "obra_terceros",
+      "proyecto y dirección",
+      "Muelle de Piedra Consorcio",
+      "activa",
+      "",
+      "Solo honorarios"
+    ],
+    [
+      "Tonga",
+      "Tonga",
+      "obra_terceros",
+      "proyecto y dirección",
+      "Gastón Maggi",
+      "activa",
+      "",
+      "Solo honorarios"
+    ],
+    [
+      "Moquehue",
+      "Moquehue",
+      "obra_terceros",
+      "todo",
+      "Alicia Marson",
+      "activa"
+    ],
+    [
+      "Gonzalo",
+      "Gonzalo",
+      "obra_propia",
+      "todo",
+      "El arquitecto",
+      "activa",
+      "",
+      "Inversión propia. Tiene costo y contratistas, no tiene a quién rendirle"
+    ],
+    [
+      "Hua Huan",
+      "Hua Huan",
+      "obra_propia",
+      "todo",
+      "El arquitecto",
+      "activa",
+      "",
+      "Inversión propia"
+    ],
+    [
+      "Grigera Galpón",
+      "Grigera",
+      "obra_propia",
+      "todo",
+      "El arquitecto",
+      "activa",
+      "",
+      "Inversión propia"
+    ],
+    [
+      "Tres Cerros",
+      "Tres Cerros",
+      "obra_propia",
+      "¿ A DEFINIR ?",
+      "El arquitecto",
+      "activa",
+      "",
+      "FALTA: es la única obra sin tipo de servicio"
+    ],
+    [
+      "Austral",
+      "Austral",
+      "estructura",
+      "",
+      "",
+      "activa",
+      "",
+      "Indirectos del estudio: contador, consultoría A&C, gastos bancarios, IVA"
+    ],
+    [
+      "Sur",
+      "Sur",
+      "personal",
+      "",
+      "",
+      "activa",
+      "",
+      "Inmueble personal"
+    ],
+    [
+      "Abucoque",
+      "Abucoque",
+      "personal",
+      "",
+      "",
+      "activa",
+      "",
+      "Inmueble personal"
+    ],
+    [
+      "Belelli",
+      "Belelli",
+      "personal",
+      "",
+      "",
+      "activa",
+      "",
+      "Inmueble personal. Recibe las facturas de Edesur y Metrogas"
+    ],
+    [
+      "Jardín Maternal",
+      "Jardín",
+      "obra_terceros",
+      "administración",
+      "",
+      "cerrada",
+      "",
+      "Obra de referencia del relevamiento. No se borra: el histórico la referencia"
+    ]
   ],
   "CONTRATISTAS": [
-    ["contratista", "cuit", "rubro_habitual_1", "rubro_habitual_2", "estado", "notas"],
-    ["Maderera Misiones", "30-11111111-1", "Materiales", "Maderas", "activo", "Lo llama \"Lalo\""],
-    ["Abertex", "", "Materiales", "Aberturas", "activo", ""],
-    ["Afip Vep", "", "Impuestos y tasas", "AFIP", "activo", ""],
-    ["Agrimensor Jorge", "", "Servicios de obra", "Agrimensura", "activo", ""],
-    ["Albañiles", "", "Mano de obra", "Jornales", "activo", ""],
-    ["Andres Fernandez", "", "", "", "activo", ""],
-    ["Ariel Romero", "", "", "", "activo", ""],
-    ["Barbagelata", "", "", "", "activo", ""],
-    ["Baños químicos", "", "Servicios de obra", "Baños químicos", "activo", ""],
-    ["Bernardi", "", "", "", "activo", ""],
-    ["Camilo Barria", "", "Mano de obra", "Contratistas", "activo", ""],
-    ["Camuzzi", "", "Servicios públicos", "Camuzzi", "activo", ""],
-    ["Carlos Arballo", "", "", "", "activo", ""],
-    ["Claudio Cisterna", "", "", "", "activo", ""],
-    ["Contador Pasolli", "", "Honorarios", "Terceros", "activo", ""],
-    ["Cristian mendi", "", "", "", "activo", ""],
-    ["Dario", "", "", "", "activo", ""],
-    ["David Rivera", "", "", "", "activo", ""],
-    ["Edesur", "", "Servicios públicos", "Agua", "activo", ""],
-    ["Electricidad Angostura", "", "Materiales", "Electricidad", "activo", ""],
-    ["Epen", "", "Servicios públicos", "EPEN", "activo", ""],
-    ["Fabian Martinez", "", "", "", "activo", ""],
-    ["Fabrica de calcos", "", "", "", "activo", ""],
-    ["Fede Basualdo", "", "", "", "activo", ""],
-    ["Ferr. Andina", "", "Materiales", "Ferretería", "activo", ""],
-    ["Flecha", "", "", "", "activo", ""],
-    ["Franco pintor", "", "", "", "activo", ""],
-    ["Fredy", "", "", "", "activo", ""],
-    ["Guillermo pintor", "", "", "", "activo", ""],
-    ["Guillermo Vazquez", "", "", "", "activo", ""],
-    ["Gustavo Ibarra", "", "", "", "activo", ""],
-    ["Honorarios Arquitectura", "", "Honorarios", "Arquitectura", "activo", ""],
-    ["Hugo pintos", "", "", "", "activo", ""],
-    ["Ibañez - Ybañez Fleitas", "", "", "", "activo", ""],
-    ["Insucom", "", "Materiales", "Terminaciones", "activo", ""],
-    ["Javier Electricista", "", "Mano de obra", "Especialistas", "activo", ""],
-    ["La casa del cerco", "", "Servicios de obra", "Alquiler de equipos", "activo", ""],
-    ["La Nueva", "", "", "", "activo", ""],
-    ["Laure", "", "", "", "activo", ""],
-    ["Luis Pereira", "", "Mano de obra", "Contratistas", "activo", ""],
-    ["Maderera Misiones", "", "Materiales", "Maderas", "activo", ""],
-    ["Marcelo Maragaño", "", "", "", "activo", ""],
-    ["Mario", "", "", "", "activo", ""],
-    ["Martin", "", "", "", "activo", ""],
-    ["Mathias Flores", "", "", "", "activo", ""],
-    ["Maximiliano pelegrini", "", "", "", "activo", ""],
-    ["Metro Gas", "", "Servicios públicos", "Metrogas", "activo", ""],
-    ["Miguel Matuz", "", "", "", "activo", ""],
-    ["Miguel Soto", "20-21726325-6", "", "", "activo", "También cobra con el CUIT 23-31960242-9, a nombre de Alexis Matamala. Es el mismo proveedor"],
-    ["Nacho Sanitarista", "", "Mano de obra", "Especialistas", "activo", ""],
-    ["Pint Andina", "", "Materiales", "Pinturería", "activo", ""],
-    ["Pipes claudio", "", "", "", "activo", ""],
-    ["Ranger", "", "", "", "activo", ""],
-    ["Rentas", "", "Impuestos y tasas", "Municipales", "activo", ""],
-    ["Ricardo Ramos", "", "", "", "activo", ""],
-    ["Roberto Ramos", "", "", "", "activo", ""],
-    ["Rodrigo Sanitarista", "", "Mano de obra", "Especialistas", "activo", ""],
-    ["Silla Cuadruple", "", "", "", "activo", ""],
-    ["Sofia Cervera", "", "", "", "activo", "DUAL: mezcla trabajos de obra y personales. El bot siempre pregunta"],
-    ["Tucu", "", "", "", "activo", ""],
-    ["Victor pintura", "", "", "", "activo", ""],
-    ["Zaico", "", "", "", "activo", ""],
-    ["Zona Nodo", "", "Materiales", "Estructura", "activo", ""],
-    ["Juanma", "", "", "", "", "DUAL: mezcla trabajos de obra y personales. El bot siempre pregunta"],
-    ["Volquete", "", "", "", "", ""],
-    ["Luis Pereyra", "", "Pintura", "", "", ""],
-    ["Sanos Sanitarios", "", "", "", "", ""],
-    ["Felipe Andrés Scherer", "20-40613900-0", "Mano de obra", "Contratistas", "activo", "Él escribe «Felipe J». Cobra en Mercado Pago"],
-    ["Sergio González", "20-23805429-0", "Materiales", "Terminaciones", "activo", "Él escribe «Fábrica de Calcos». Confirmado por comprobante"],
-    ["Marcos Ezequiel Lenton", "20-36398961-7", "Mano de obra", "Contratistas", "activo", "Él escribe «Marcos Carpintero». El apellido es Lenton, no Carpintero"],
-    ["Eco Aislación SRL", "30-71506515-7", "Materiales", "Aislación", "activo", "Él escribe «Ecoaislaciones»"],
-    [],
-    ["Mariela Escribana", "", "Honorarios", "Escribanía", "activo", "Apareció en «Mariela Escribana/Gonzalo»"],
-    ["Marcelo Maragaño", "", "Mano de obra", "Contratistas", "activo", "Él escribe «Marcelo» y «Maragaño». Trabaja en obra y también en su casa"],
-    ["Municipalidad", "", "Impuestos y tasas", "Municipales", "activo", "A DEFINIR: ¿es un contratista o debería ser solo un rubro?"],
-    ["Estudio", "", "Estructura del estudio", "Servicios", "activo", "Apareció en «Estudio/Austral». Confirmar qué es"],
-    ["Silla Cuádruple", "", "Personal", "Club y deporte", "activo", "Las cuotas de esquí. Es gasto personal, no de obra"],
-    ["Swiss Medical", "", "Personal", "Salud y prepaga", "activo", "Prepaga familiar. $742.256,88 en el extracto de julio"],
-    ["Mercado Libre", "", "", "", "activo", "DUAL: mezcla compras de obra y personales. El bot siempre pregunta"]
+    [
+      "contratista",
+      "cuit",
+      "rubro_habitual_1",
+      "rubro_habitual_2",
+      "estado",
+      "notas"
+    ],
+    [
+      "Maderera Misiones",
+      "30-11111111-1",
+      "Materiales",
+      "Maderas",
+      "activo",
+      "Lo llama \"Lalo\""
+    ],
+    [
+      "Abertex",
+      "",
+      "Materiales",
+      "Aberturas",
+      "activo"
+    ],
+    [
+      "Afip Vep",
+      "",
+      "Impuestos y tasas",
+      "AFIP",
+      "activo"
+    ],
+    [
+      "Agrimensor Jorge",
+      "",
+      "Servicios de obra",
+      "Agrimensura",
+      "activo"
+    ],
+    [
+      "Albañiles",
+      "",
+      "Mano de obra",
+      "Jornales",
+      "activo"
+    ],
+    [
+      "Andres Fernandez",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Ariel Romero",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Barbagelata",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Baños químicos",
+      "",
+      "Servicios de obra",
+      "Baños químicos",
+      "activo"
+    ],
+    [
+      "Bernardi",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Camilo Barria",
+      "",
+      "Mano de obra",
+      "Contratistas",
+      "activo"
+    ],
+    [
+      "Camuzzi",
+      "",
+      "Servicios públicos",
+      "Camuzzi",
+      "activo"
+    ],
+    [
+      "Carlos Arballo",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Claudio Cisterna",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Contador Pasolli",
+      "",
+      "Honorarios",
+      "Terceros",
+      "activo"
+    ],
+    [
+      "Cristian mendi",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Dario",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "David Rivera",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Edesur",
+      "",
+      "Servicios públicos",
+      "Agua",
+      "activo"
+    ],
+    [
+      "Electricidad Angostura",
+      "",
+      "Materiales",
+      "Electricidad",
+      "activo"
+    ],
+    [
+      "Epen",
+      "",
+      "Servicios públicos",
+      "EPEN",
+      "activo"
+    ],
+    [
+      "Fabian Martinez",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Fabrica de calcos",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Fede Basualdo",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Ferr. Andina",
+      "",
+      "Materiales",
+      "Ferretería",
+      "activo"
+    ],
+    [
+      "Flecha",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Franco pintor",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Fredy",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Guillermo pintor",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Guillermo Vazquez",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Gustavo Ibarra",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Honorarios Arquitectura",
+      "",
+      "Honorarios",
+      "Arquitectura",
+      "activo"
+    ],
+    [
+      "Hugo pintos",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Ibañez - Ybañez Fleitas",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Insucom",
+      "",
+      "Materiales",
+      "Terminaciones",
+      "activo"
+    ],
+    [
+      "Javier Electricista",
+      "",
+      "Mano de obra",
+      "Especialistas",
+      "activo"
+    ],
+    [
+      "La casa del cerco",
+      "",
+      "Servicios de obra",
+      "Alquiler de equipos",
+      "activo"
+    ],
+    [
+      "La Nueva",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Laure",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Luis Pereira",
+      "",
+      "Mano de obra",
+      "Contratistas",
+      "activo"
+    ],
+    [
+      "Maderera Misiones",
+      "",
+      "Materiales",
+      "Maderas",
+      "activo"
+    ],
+    [
+      "Marcelo Maragaño",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Mario",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Martin",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Mathias Flores",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Maximiliano pelegrini",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Metro Gas",
+      "",
+      "Servicios públicos",
+      "Metrogas",
+      "activo"
+    ],
+    [
+      "Miguel Matuz",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Miguel Soto",
+      "20-21726325-6",
+      "",
+      "",
+      "activo",
+      "También cobra con el CUIT 23-31960242-9, a nombre de Alexis Matamala. Es el mismo proveedor"
+    ],
+    [
+      "Nacho Sanitarista",
+      "",
+      "Mano de obra",
+      "Especialistas",
+      "activo"
+    ],
+    [
+      "Pint Andina",
+      "",
+      "Materiales",
+      "Pinturería",
+      "activo"
+    ],
+    [
+      "Pipes claudio",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Ranger",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Rentas",
+      "",
+      "Impuestos y tasas",
+      "Municipales",
+      "activo"
+    ],
+    [
+      "Ricardo Ramos",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Roberto Ramos",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Rodrigo Sanitarista",
+      "",
+      "Mano de obra",
+      "Especialistas",
+      "activo"
+    ],
+    [
+      "Silla Cuadruple",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Sofia Cervera",
+      "",
+      "",
+      "",
+      "activo",
+      "DUAL: mezcla trabajos de obra y personales. El bot siempre pregunta"
+    ],
+    [
+      "Tucu",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Victor pintura",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Zaico",
+      "",
+      "",
+      "",
+      "activo"
+    ],
+    [
+      "Zona Nodo",
+      "",
+      "Materiales",
+      "Estructura",
+      "activo"
+    ],
+    [
+      "Juanma",
+      "",
+      "",
+      "",
+      "",
+      "DUAL: mezcla trabajos de obra y personales. El bot siempre pregunta"
+    ],
+    [
+      "Volquete"
+    ],
+    [
+      "Luis Pereyra",
+      "",
+      "Pintura"
+    ],
+    [
+      "Sanos Sanitarios"
+    ],
+    [
+      "Felipe Andrés Scherer",
+      "20-40613900-0",
+      "Servicios de obra",
+      "Movimiento de suelos",
+      "activo",
+      "Él escribe «Felipe J». Cobra en Mercado Pago"
+    ],
+    [
+      "Sergio González",
+      "20-23805429-0",
+      "Materiales",
+      "Terminaciones",
+      "activo",
+      "Él escribe «Fábrica de Calcos». Confirmado por comprobante"
+    ],
+    [
+      "Marcos Ezequiel Lenton",
+      "20-36398961-7",
+      "Mano de obra",
+      "Contratistas",
+      "activo",
+      "Él escribe «Marcos Carpintero». El apellido es Lenton, no Carpintero"
+    ],
+    [
+      "Eco Aislación SRL",
+      "30-71506515-7",
+      "Materiales",
+      "Aislación",
+      "activo",
+      "Él escribe «Ecoaislaciones»"
+    ],
+    [
+      "Valentin Campero",
+      "",
+      "Honorarios",
+      "Asesores",
+      "activo",
+      "Consultoría A&C. Él escribe «Valen». Gasto de estructura"
+    ],
+    [
+      "Mariela Escribana",
+      "",
+      "Honorarios",
+      "Escribanía",
+      "activo",
+      "Apareció en «Mariela Escribana/Gonzalo»"
+    ],
+    [
+      "Marcelo Maragaño",
+      "",
+      "Mano de obra",
+      "Contratistas",
+      "activo",
+      "Él escribe «Marcelo» y «Maragaño». Trabaja en obra y también en su casa"
+    ],
+    [
+      "Municipalidad",
+      "",
+      "Impuestos y tasas",
+      "Municipales",
+      "activo",
+      "A DEFINIR: ¿es un contratista o debería ser solo un rubro?"
+    ],
+    [
+      "Estudio",
+      "",
+      "Estructura del estudio",
+      "Servicios",
+      "activo",
+      "Apareció en «Estudio/Austral». Confirmar qué es"
+    ],
+    [
+      "Silla Cuádruple",
+      "",
+      "Personal",
+      "Club y deporte",
+      "activo",
+      "Las cuotas de esquí. Es gasto personal, no de obra"
+    ],
+    [
+      "Swiss Medical",
+      "",
+      "Personal",
+      "Salud y prepaga",
+      "activo",
+      "Prepaga familiar. $742.256,88 en el extracto de julio"
+    ],
+    [
+      "Mercado Libre",
+      "",
+      "",
+      "",
+      "activo",
+      "DUAL: mezcla compras de obra y personales. El bot siempre pregunta"
+    ],
+    [
+      "Marcela",
+      "",
+      "",
+      "",
+      "activo",
+      "A confirmar: «Marce» aparece en obra (Marce/Moreno) y en la casa (Marce/Casa)"
+    ]
   ],
   "RUBROS": [
-    ["rubro_1", "rubro_2", "afecta"],
-    ["Materiales", "Áridos y hormigón", "obra"],
-    ["Materiales", "Estructura", "obra"],
-    ["Materiales", "Albañilería", "obra"],
-    ["Materiales", "Maderas", "obra"],
-    ["Materiales", "Aberturas", "obra"],
-    ["Materiales", "Techo y zinguería", "obra"],
-    ["Materiales", "Aislación", "obra"],
-    ["Materiales", "Instalaciones sanitarias", "obra"],
-    ["Materiales", "Artefactos y grifería", "obra"],
-    ["Materiales", "Electricidad", "obra"],
-    ["Materiales", "Calefacción", "obra"],
-    ["Materiales", "Revestimientos y pisos", "obra"],
-    ["Materiales", "Pinturería", "obra"],
-    ["Materiales", "Ferretería", "obra"],
-    ["Materiales", "Amoblamiento y mesadas", "obra"],
-    ["Materiales", "Terminaciones", "obra"],
-    ["Mano de obra", "Contratistas", "obra"],
-    ["Mano de obra", "Jornales", "obra"],
-    ["Mano de obra", "Electricista", "obra"],
-    ["Mano de obra", "Sanitarista", "obra"],
-    ["Mano de obra", "Especialistas", "obra"],
-    ["Servicios de obra", "Baños químicos", "obra"],
-    ["Servicios de obra", "Volquetes", "obra"],
-    ["Servicios de obra", "Fletes", "obra"],
-    ["Servicios de obra", "Movimiento de suelos", "obra"],
-    ["Servicios de obra", "Agrimensura", "obra"],
-    ["Servicios de obra", "Alquiler de equipos", "obra"],
-    ["Servicios públicos", "EPEN", "obra"],
-    ["Servicios públicos", "Camuzzi", "obra"],
-    ["Servicios públicos", "Metrogas", "obra"],
-    ["Servicios públicos", "Agua", "obra"],
-    ["Honorarios", "Arquitectura", "otro"],
-    ["Honorarios", "Dirección de obra", "otro"],
-    ["Honorarios", "Escribanía", "otro"],
-    ["Honorarios", "Contador", "estructura"],
-    ["Honorarios", "Asesores", "estructura"],
-    ["Impuestos y tasas", "AFIP", "otro"],
-    ["Impuestos y tasas", "IVA", "otro"],
-    ["Impuestos y tasas", "Rentas", "otro"],
-    ["Impuestos y tasas", "Municipales", "obra"],
-    ["Impuestos y tasas", "Bancarios", "estructura"],
-    ["Estructura del estudio", "Sueldos y cargas sociales", "estructura"],
-    ["Estructura del estudio", "Aportes profesionales", "estructura"],
-    ["Estructura del estudio", "Alquiler", "estructura"],
-    ["Estructura del estudio", "Servicios", "estructura"],
-    ["Estructura del estudio", "Software", "estructura"],
-    ["Estructura del estudio", "Movilidad", "estructura"],
-    ["Personal", "Casa", "personal"],
-    ["Personal", "Familia", "personal"],
-    ["Personal", "Salud y prepaga", "personal"],
-    ["Personal", "Supermercado", "personal"],
-    ["Personal", "Club y deporte", "personal"],
-    ["Personal", "Tarjeta", "personal"],
-    ["Personal", "Consumos", "personal"],
-    ["Financiero", "Compra-venta de divisas", "otro"],
-    ["Financiero", "Intereses", "otro"],
-    ["Financiero", "Comisiones", "otro"]
+    [
+      "rubro_1",
+      "rubro_2",
+      "afecta"
+    ],
+    [
+      "Materiales",
+      "Áridos y hormigón",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Estructura",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Albañilería",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Maderas",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Aberturas",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Techo y zinguería",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Aislación",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Instalaciones sanitarias",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Artefactos y grifería",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Electricidad",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Calefacción",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Revestimientos y pisos",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Pinturería",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Ferretería",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Amoblamiento y mesadas",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Terminaciones",
+      "obra"
+    ],
+    [
+      "Mano de obra",
+      "Contratistas",
+      "obra"
+    ],
+    [
+      "Mano de obra",
+      "Jornales",
+      "obra"
+    ],
+    [
+      "Mano de obra",
+      "Electricista",
+      "obra"
+    ],
+    [
+      "Mano de obra",
+      "Sanitarista",
+      "obra"
+    ],
+    [
+      "Mano de obra",
+      "Especialistas",
+      "obra"
+    ],
+    [
+      "Servicios de obra",
+      "Baños químicos",
+      "obra"
+    ],
+    [
+      "Servicios de obra",
+      "Volquetes",
+      "obra"
+    ],
+    [
+      "Servicios de obra",
+      "Fletes",
+      "obra"
+    ],
+    [
+      "Servicios de obra",
+      "Movimiento de suelos",
+      "obra"
+    ],
+    [
+      "Servicios de obra",
+      "Agrimensura",
+      "obra"
+    ],
+    [
+      "Servicios de obra",
+      "Alquiler de equipos",
+      "obra"
+    ],
+    [
+      "Servicios públicos",
+      "EPEN",
+      "obra"
+    ],
+    [
+      "Servicios públicos",
+      "Camuzzi",
+      "obra"
+    ],
+    [
+      "Servicios públicos",
+      "Metrogas",
+      "obra"
+    ],
+    [
+      "Servicios públicos",
+      "Agua",
+      "obra"
+    ],
+    [
+      "Honorarios",
+      "Arquitectura",
+      "otro"
+    ],
+    [
+      "Honorarios",
+      "Dirección de obra",
+      "otro"
+    ],
+    [
+      "Honorarios",
+      "Escribanía",
+      "otro"
+    ],
+    [
+      "Honorarios",
+      "Contador",
+      "estructura"
+    ],
+    [
+      "Honorarios",
+      "Asesores",
+      "estructura"
+    ],
+    [
+      "Impuestos y tasas",
+      "AFIP",
+      "otro"
+    ],
+    [
+      "Impuestos y tasas",
+      "IVA",
+      "otro"
+    ],
+    [
+      "Impuestos y tasas",
+      "Rentas",
+      "otro"
+    ],
+    [
+      "Impuestos y tasas",
+      "Municipales",
+      "obra"
+    ],
+    [
+      "Impuestos y tasas",
+      "Bancarios",
+      "estructura"
+    ],
+    [
+      "Estructura del estudio",
+      "Sueldos y cargas sociales",
+      "estructura"
+    ],
+    [
+      "Estructura del estudio",
+      "Aportes profesionales",
+      "estructura"
+    ],
+    [
+      "Estructura del estudio",
+      "Alquiler",
+      "estructura"
+    ],
+    [
+      "Estructura del estudio",
+      "Servicios",
+      "estructura"
+    ],
+    [
+      "Estructura del estudio",
+      "Software",
+      "estructura"
+    ],
+    [
+      "Estructura del estudio",
+      "Movilidad",
+      "estructura"
+    ],
+    [
+      "Personal",
+      "Casa",
+      "personal"
+    ],
+    [
+      "Personal",
+      "Familia",
+      "personal"
+    ],
+    [
+      "Personal",
+      "Salud y prepaga",
+      "personal"
+    ],
+    [
+      "Personal",
+      "Supermercado",
+      "personal"
+    ],
+    [
+      "Personal",
+      "Club y deporte",
+      "personal"
+    ],
+    [
+      "Personal",
+      "Tarjeta",
+      "personal"
+    ],
+    [
+      "Personal",
+      "Consumos",
+      "personal"
+    ],
+    [
+      "Financiero",
+      "Compra-venta de divisas",
+      "otro"
+    ],
+    [
+      "Financiero",
+      "Intereses",
+      "otro"
+    ],
+    [
+      "Financiero",
+      "Comisiones",
+      "otro"
+    ]
   ],
   "CUENTAS": [
-    ["cuenta", "tipo", "moneda", "concilia_contra_banco", "saldo_apertura", "notas"],
-    ["Banco", "banco", "ARS", "SÍ", "0,00", "Una sola cuenta. Caja de ahorro y cuenta corriente son tramos del mismo banco"],
-    ["Banco USD", "banco", "USD", "SÍ", "0,00", "Tramo en dólares de la misma cuenta"],
-    ["Efectivo", "efectivo", "ARS", "no", "0,00", "Caja del estudio. Sacar plata del cajero es un TRASPASO, no un gasto"],
-    ["Chequera", "chequera", "ARS", "no", "0,00", "Cheques emitidos y todavía no debitados"],
-    ["Mercado Pago", "billetera", "ARS", "no", "0,00", ""],
-    ["Pagado por el comitente", "externa", "ARS", "no", "0,00", "No es plata del estudio. Impacta la cuenta corriente de la obra y NO la caja. Es el caso de Lennon"]
+    [
+      "cuenta",
+      "tipo",
+      "moneda",
+      "concilia_contra_banco",
+      "saldo_apertura",
+      "notas"
+    ],
+    [
+      "Banco",
+      "banco",
+      "ARS",
+      "SÍ",
+      "0,00",
+      "Una sola cuenta. Caja de ahorro y cuenta corriente son tramos del mismo banco"
+    ],
+    [
+      "Banco USD",
+      "banco",
+      "USD",
+      "SÍ",
+      "0,00",
+      "Tramo en dólares de la misma cuenta"
+    ],
+    [
+      "Efectivo",
+      "efectivo",
+      "ARS",
+      "no",
+      "0,00",
+      "Caja del estudio. Sacar plata del cajero es un TRASPASO, no un gasto"
+    ],
+    [
+      "Chequera",
+      "chequera",
+      "ARS",
+      "no",
+      "0,00",
+      "Cheques emitidos y todavía no debitados"
+    ],
+    [
+      "Mercado Pago",
+      "billetera",
+      "ARS",
+      "no",
+      "0,00"
+    ],
+    [
+      "Pagado por el comitente",
+      "externa",
+      "ARS",
+      "no",
+      "0,00",
+      "No es plata del estudio. Impacta la cuenta corriente de la obra y NO la caja. Es el caso de Lennon"
+    ]
   ],
   "ALIAS": [
-    ["como_lo_dice", "valor_canonico", "tipo"],
-    ["felipe j", "Felipe Andrés Scherer", "contratista"],
-    ["fabrica de calcos", "Sergio González", "contratista"],
-    ["fábrica de calcos", "Sergio González", "contratista"],
-    ["marcos carpintero", "Marcos Ezequiel Lenton", "contratista"],
-    ["ecoaislaciones", "Eco Aislación SRL", "contratista"],
-    ["eco aislacion", "Eco Aislación SRL", "contratista"],
-    ["barba", "Barbagelata", "contratista"],
-    ["miguel", "Miguel Soto", "contratista"],
-    ["rodrigo", "Rodrigo Sanitarista", "contratista"],
-    ["el sanitarista", "Rodrigo Sanitarista", "contratista"],
-    ["andina", "Ferretería Andina", "contratista"],
-    ["pinturería andina", "Pinturería Andina", "contratista"],
-    ["maragaño", "Marcelo Maragaño", "contratista"],
-    ["marcelo", "Marcelo Maragaño", "contratista"],
-    ["chueco pereira", "Luis Pereira", "contratista"],
-    ["luis pereyra", "Luis Pereira", "contratista"],
-    ["insucon", "Insucom", "contratista"],
-    ["zona nodo", "Zona Nodo", "contratista"],
-    ["gonza", "Gonzalo", "obra"],
-    ["belleli", "Belelli", "obra"],
-    ["el jardín", "Jardín Maternal", "obra"],
-    ["lo del jardín", "Jardín Maternal", "obra"],
-    ["sofi", "Sofía Cervera", "contratista"],
-    ["marce", "Marcela", "contratista"],
-    ["retiro", "Personal", "tipo"],
-    ["casa", "Personal", "tipo"],
-    ["particular", "Personal", "tipo"],
-    ["20-21726325-6", "Miguel Soto", "cuit"],
-    ["23-31960242-9", "Miguel Soto", "cuit"],
-    ["alexis matamala", "Miguel Soto", "contratista"],
-    ["matamala", "Miguel Soto", "contratista"]
+    [
+      "como_lo_dice",
+      "valor_canonico",
+      "tipo"
+    ],
+    [
+      "felipe j",
+      "Felipe Andrés Scherer",
+      "contratista"
+    ],
+    [
+      "fabrica de calcos",
+      "Sergio González",
+      "contratista"
+    ],
+    [
+      "fábrica de calcos",
+      "Sergio González",
+      "contratista"
+    ],
+    [
+      "marcos carpintero",
+      "Marcos Ezequiel Lenton",
+      "contratista"
+    ],
+    [
+      "ecoaislaciones",
+      "Eco Aislación SRL",
+      "contratista"
+    ],
+    [
+      "eco aislacion",
+      "Eco Aislación SRL",
+      "contratista"
+    ],
+    [
+      "barba",
+      "Barbagelata",
+      "contratista"
+    ],
+    [
+      "miguel",
+      "Miguel Soto",
+      "contratista"
+    ],
+    [
+      "rodrigo",
+      "Rodrigo Sanitarista",
+      "contratista"
+    ],
+    [
+      "el sanitarista",
+      "Rodrigo Sanitarista",
+      "contratista"
+    ],
+    [
+      "andina",
+      "Ferretería Andina",
+      "contratista"
+    ],
+    [
+      "pinturería andina",
+      "Pinturería Andina",
+      "contratista"
+    ],
+    [
+      "maragaño",
+      "Marcelo Maragaño",
+      "contratista"
+    ],
+    [
+      "marcelo",
+      "Marcelo Maragaño",
+      "contratista"
+    ],
+    [
+      "chueco pereira",
+      "Luis Pereira",
+      "contratista"
+    ],
+    [
+      "luis pereyra",
+      "Luis Pereira",
+      "contratista"
+    ],
+    [
+      "insucon",
+      "Insucom",
+      "contratista"
+    ],
+    [
+      "zona nodo",
+      "Zona Nodo",
+      "contratista"
+    ],
+    [
+      "gonza",
+      "Gonzalo",
+      "obra"
+    ],
+    [
+      "belleli",
+      "Belelli",
+      "obra"
+    ],
+    [
+      "el jardín",
+      "Jardín Maternal",
+      "obra"
+    ],
+    [
+      "lo del jardín",
+      "Jardín Maternal",
+      "obra"
+    ],
+    [
+      "sofi",
+      "Sofía Cervera",
+      "contratista"
+    ],
+    [
+      "marce",
+      "Marcela",
+      "contratista"
+    ],
+    [
+      "retiro",
+      "Personal",
+      "tipo"
+    ],
+    [
+      "casa",
+      "Personal",
+      "tipo"
+    ],
+    [
+      "particular",
+      "Personal",
+      "tipo"
+    ],
+    [
+      "20-21726325-6",
+      "Miguel Soto",
+      "cuit"
+    ],
+    [
+      "23-31960242-9",
+      "Miguel Soto",
+      "cuit"
+    ],
+    [
+      "alexis matamala",
+      "Miguel Soto",
+      "contratista"
+    ],
+    [
+      "matamala",
+      "Miguel Soto",
+      "contratista"
+    ],
+    [
+      "Valen",
+      "Valentin Campero",
+      "contratista"
+    ]
   ],
   "MOVIMIENTOS": [
-    ["id_mov", "fecha", "tipo", "importe", "moneda", "tc", "importe_ars", "obra", "item", "comitente", "contratista", "rubro_1", "rubro_2", "medio_pago", "cuenta", "pagado_por", "tipo_comprobante", "descripcion", "origen", "concilia", "id_banco", "estado_conc", "comprobante_url", "cargado_por", "ts"]
+    [
+      "id_mov",
+      "fecha",
+      "tipo",
+      "importe",
+      "moneda",
+      "tc",
+      "importe_ars",
+      "obra",
+      "item",
+      "comitente",
+      "contratista",
+      "rubro_1",
+      "rubro_2",
+      "medio_pago",
+      "cuenta",
+      "pagado_por",
+      "tipo_comprobante",
+      "descripcion",
+      "origen",
+      "concilia",
+      "id_banco",
+      "estado_conc",
+      "comprobante_url",
+      "cargado_por",
+      "ts"
+    ]
   ]
 }
