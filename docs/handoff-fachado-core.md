@@ -1,10 +1,24 @@
 # Handoff — `fachado-core`, el motor de imputación de Fachado
 
-> Estado al 2026-09-17. Fase 1 (esqueleto + `/interpretar` + test del corpus) terminada y
-> corriendo local. Sin deploy todavía, sin remote de git. Fuente de verdad = repo + este doc.
+> Estado al 2026-09-17. Fase 1 (esqueleto + `/interpretar` + test del corpus) terminada,
+> leyendo el Sheet real. Fuente de verdad = repo + este doc.
 >
 > Repo hermano: `chatbot-contable` (el gateway de WhatsApp, ya en producción en Railway).
 > Handoff del paso 0 de Fachado: `chatbot-contable/docs/handoff-fachado.md`.
+
+## 0. Dónde quedó (para retomar)
+
+| | |
+|---|---|
+| ✅ Motor completo de fase 1 | `/interpretar` responde por HTTP, probado con `curl` y con el corpus |
+| ✅ Lee el Sheet real | Compartido con la service account como Editor |
+| ✅ Métrica | Contratista 50/50 sin preguntar, obra 41/50, 6/6 casos obligatorios (§4) |
+| ✅ `.env` local | Completo salvo las tres `GOOGLE_OAUTH_*` |
+| ⏳ GitHub | Repo creado en `valencampero-design/fachado-core`, **falta el primer push** |
+| ⏳ Railway | Falta crear el servicio y cargar las variables (§5) |
+| ⏳ Token OAuth de Drive | Sin él no se leen los adjuntos: el motor interpreta el texto igual y deja `error: adjunto_no_leido` en el diagnóstico de cada adjunto |
+| ⏳ Publicar la app OAuth | Diferido a pedido del cliente. Mientras siga en «Prueba», el token de Drive caduca a los ~7 días |
+| ❓ Decisión abierta | La columna de clasificación en MOVIMIENTOS (§8.1). **Bloquea `/confirmar`** |
 
 ## 1. Qué es esto y por qué está separado del gateway
 
@@ -221,7 +235,18 @@ Angostura/Retiro` (pregunta la obra, que es lo correcto). Los otros 4 son los du
 ## 5. Configuración y deploy
 
 Railway, al lado del gateway. `nixpacks.toml` fija Python 3.11 y arranca
-`uvicorn app.main:app`.
+`uvicorn app.main:app`. El deploy se hace desde GitHub
+(`valencampero-design/fachado-core`), igual que el gateway.
+
+La forma rápida de cargar las variables: el editor **Raw** de Railway acepta un pegado
+estilo `.env`. Este comando arma el bloque desde el `.env` local, cambiando la ruta de la
+service account por el JSON completo en una línea, y lo deja en el portapapeles:
+
+```powershell
+$vars = Get-Content .env | Where-Object { $_ -match '^[A-Z_]+=.+' -and $_ -notmatch '^GOOGLE_CREDENTIALS_PATH' }
+$json = (Get-Content ..\chatbot-contable\config\google_credentials.json -Raw | ConvertFrom-Json | ConvertTo-Json -Compress -Depth 10)
+(($vars + "GOOGLE_CREDENTIALS_JSON=$json") -join "`n") | Set-Clipboard
+```
 
 | Variable | Para qué |
 |---|---|
@@ -283,13 +308,24 @@ Dos detalles del corpus que el gateway tiene que contemplar al agrupar:
 
 ## 7. Lo que falta
 
+**Operativo**
+
+- [ ] Primer push a GitHub y crear el servicio en Railway con las variables de §5.
+- [ ] Generar el refresh token de Drive (`scripts/get_google_token.py`) y pegarlo en el
+      `.env` y en Railway. Recién ahí se pueden leer los comprobantes.
+- [ ] Publicar la app OAuth (diferido). Mientras tanto, el token de Drive vence cada 7 días.
+- [ ] Probar la lectura de comprobantes reales punta a punta: `python -m tests.test_corpus
+      --sheet --adjuntos`. Hoy el parser de nombres de archivo y de texto de PDF solo se
+      probó con ejemplos armados, no con los PDF del cliente.
+- [ ] Correr en Python 3.11 (local hay 3.14; Railway queda fijado en 3.11).
+
+**Código**
+
 - [ ] `POST /confirmar` — escribir en MOVIMIENTOS, mover el adjunto, aprender el alias.
+      Necesita la decisión de §8.1 y cambiar el scope de la service account a
+      `spreadsheets` (hoy es `spreadsheets.readonly`).
 - [ ] `POST /consultar` — saldos y cuentas corrientes por obra.
 - [ ] Conciliación contra `BANCO_RAW`.
-- [ ] Deploy en Railway + generar el token OAuth con el scope de Sheets.
-- [ ] Probar la lectura de comprobantes reales punta a punta (hoy solo se probó el parser de
-      nombres de archivo y de texto de PDF con ejemplos, no con los PDF del cliente).
-- [ ] Correr en Python 3.11 (local hay 3.14; Railway queda fijado en 3.11).
 
 ## 8. Deudas y hallazgos del Sheet
 
@@ -315,8 +351,17 @@ Dos detalles del corpus que el gateway tiene que contemplar al agrupar:
 6. **Contradicción pendiente**: las notas de la reunión 3 dicen que Alexis Matamala y Miguel
    Soto son personas distintas; el Sheet (ALIAS, las notas de Miguel Soto y M-000006) dice
    que son el mismo proveedor. **El motor sigue al Sheet.**
-7. **Marcado el 2026-09-17**: Sofia Cervera (fila 60) y Juanma (fila 65) quedaron con
-   `DUAL:` en `notas`, que es como el motor reconoce un contratista dual (eso, o una columna
-   `dual`). Mercado Libre ya estaba.
+7. **Corregido el 2026-09-17, con el cliente**:
+   - Sofia Cervera (fila 60) y Juanma (fila 65) quedaron con `DUAL:` en `notas`, que es como
+     el motor reconoce un contratista dual (eso, o una columna `dual`). Mercado Libre ya
+     estaba.
+   - `Valen` = Valentín Campero, la consultoría de A&C: contratista nuevo (fila 73) con
+     rubro `Honorarios / Asesores`, que afecta estructura.
+   - Felipe Andrés Scherer (fila 69) hace movimiento de suelos: el par válido es
+     `Servicios de obra / Movimiento de suelos` (estaba «Movimiento de suelos» en el nivel 1).
+   - `ALIAS.tipo` volvió a `contratista` en `marce` y `Valen`. **La columna `tipo` de ALIAS
+     dice QUÉ nombra el alias (contratista, obra, cuit, tipo), no cómo se clasifica el
+     gasto.** Escribir «Personal» ahí hace que la fila no se aplique; desde el commit
+     `c6183f2` eso sale como advertencia en `/maestros/recargar`.
 8. Sigue sin definirse: qué tipo de servicio es Tres Cerros, quién es Lalo, y si
    «Municipalidad» es un contratista o solo un rubro.
