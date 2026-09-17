@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 HOJAS = ["OBRAS", "CONTRATISTAS", "RUBROS", "CUENTAS", "ALIAS"]
 
+# Qué clase de cosa nombra un alias. NO es la clasificación del gasto: para decir «esta
+# palabra significa personal» va tipo = tipo con valor_canonico = Personal (así están
+# cargados «retiro», «casa» y «particular»).
+TIPOS_ALIAS = {"contratista", "obra", "cuit", "tipo"}
+
 
 def normalizar(texto: str | None) -> str:
     """Minúsculas, sin acentos, sin puntuación, espacios colapsados."""
@@ -168,8 +173,11 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
     rubros = [Rubro(r.get("rubro_1", ""), r.get("rubro_2", ""), normalizar(r.get("afecta")))
               for r in _registros(crudo.get("RUBROS", [])) if r.get("rubro_1")]
     for c in contratistas:
-        if c.rubro_1 and not any(normalizar(r.rubro_1) == normalizar(c.rubro_1)
-                                 and normalizar(r.rubro_2) == normalizar(c.rubro_2) for r in rubros):
+        if c.rubro_2 and not c.rubro_1:
+            advertencias.append(f"CONTRATISTAS: «{c.nombre}» tiene rubro_habitual_2 «{c.rubro_2}» "
+                                f"sin rubro_habitual_1: no se puede inferir el rubro")
+        elif c.rubro_1 and not any(normalizar(r.rubro_1) == normalizar(c.rubro_1)
+                                   and normalizar(r.rubro_2) == normalizar(c.rubro_2) for r in rubros):
             advertencias.append(f"CONTRATISTAS: «{c.nombre}» tiene rubro habitual "
                                 f"«{c.rubro_1} / {c.rubro_2}» que no existe en RUBROS")
 
@@ -179,6 +187,13 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
 
     alias = [Alias(r.get("como_lo_dice", ""), r.get("valor_canonico", ""), normalizar(r.get("tipo")))
              for r in _registros(crudo.get("ALIAS", [])) if r.get("como_lo_dice")]
+    # Un alias con un `tipo` que no está en el dominio no se aplica: sin esto, el motor lo
+    # ignoraría en silencio y el alias parecería cargado cuando en realidad no hace nada.
+    for a in alias:
+        if a.tipo not in TIPOS_ALIAS:
+            advertencias.append(
+                f"ALIAS: «{a.como_lo_dice}» tiene tipo «{a.tipo}», que no existe "
+                f"({', '.join(sorted(TIPOS_ALIAS))}). La fila NO se está aplicando")
 
     # Los CUIT que figuran en ALIAS se suman al contratista canónico.
     for a in alias:
