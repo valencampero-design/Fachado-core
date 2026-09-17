@@ -18,7 +18,7 @@
 | ⏳ Railway | Falta crear el servicio y cargar las variables (§5) |
 | ⏳ Token OAuth de Drive | Sin él no se leen los adjuntos: el motor interpreta el texto igual y deja `error: adjunto_no_leido` en el diagnóstico de cada adjunto |
 | ⏳ Publicar la app OAuth | Diferido a pedido del cliente. Mientras siga en «Prueba», el token de Drive caduca a los ~7 días |
-| ❓ Decisión abierta | La columna de clasificación en MOVIMIENTOS (§8.1). **Bloquea `/confirmar`** |
+| ✅ Columna `tipo_gasto` | Agregada al final de MOVIMIENTOS: era lo que bloqueaba `/confirmar` |
 
 ## 1. Qué es esto y por qué está separado del gateway
 
@@ -120,7 +120,8 @@ Cosas del contrato que importan para el gateway:
 - **`fichas` es una lista.** Casi siempre trae un elemento, pero un mensaje puede traer dos
   movimientos (*«Ingreso Moreno/cert. 22 e imputar pago aparte Marcelo/Moreno»*). Cada
   pregunta dice a qué ficha corresponde con `ficha`.
-- **`clasificacion` y `regla` no son columnas de MOVIMIENTOS.** Ver la deuda #1 en §8.
+- **`campos["tipo_gasto"]`** (obra · estructura · personal) lo decide la cascada, nunca el
+  LLM, y `regla` dice qué regla lo decidió, para poder auditarlo.
 - **`extras`** lleva lo que no tiene columna: número de certificado, fecha de pago del
   cheque diferido, número de operación, CUIT, razón social, advertencias y el
   `alias_propuesto` cuando el usuario enseña un alias.
@@ -158,22 +159,26 @@ El rubro se infiere de `CONTRATISTAS.rubro_habitual_1/2` cuando el contratista e
 
 Se evalúa en orden, gana la primera que matchea, y la ficha dice cuál fue en `regla`.
 
+Es la tabla de `CONTEXTO-FACHADO.md` §5.4, implementada tal cual en `clasificador.py`.
+
 | # | Condición | Resultado |
 |---|---|---|
-| R1 | Un token es `casa`, `particular`, o la obra es de `tipo = personal` (Sur, Abucoque, Belelli) | `personal`, **aunque cobre un contratista de obra**. El destino manda sobre el proveedor |
+| R1 | Aparece `retiro`, `casa`, `particular`, o la obra es de `tipo = personal` (Sur, Abucoque, Belelli) | `personal`, **aunque cobre un contratista de obra**. El contratista se conserva |
 | R2 | El contratista está marcado DUAL | Pregunta con botones: ¿obra o personal? |
 | R3 | El rubro resuelto tiene `afecta = personal` | `personal` |
 | R4 | Hay obra identificada | El tipo de la obra (`obra_terceros`/`obra_propia` → obra, `estructura` → estructura) |
-| R4 | Contratista con rubro de obra y sin obra | `obra`, obra vacía → pregunta a qué obra |
-| R1b | Quedó un `Retiro` suelto y nada más fuerte decidió | `personal`, y se pregunta el rubro |
-| R5 | Nada de lo anterior | Pregunta |
+| R5 | Contratista con rubro de obra, sin obra y sin señal personal | `obra`, obra vacía → pregunta a qué obra |
+| R6 | Nada de lo anterior | Pregunta |
 | T | Es un TRASPASO | No se clasifica |
 
-Dos cosas que están en el código y conviene no perder:
+Tres cosas que conviene no perder:
 
-- **`Retiro` es una señal débil a propósito.** `Electricidad Angostura/Retiro` da *obra* (y
-  pregunta cuál), no personal, porque el contratista de obra pesa más. `Retiro/club` sí da
-  personal. `Maragaño/Retiro/casa` también, porque `casa` es señal fuerte.
+- **«Retiro» manda siempre.** `Electricidad Angostura/Retiro` es material eléctrico para su
+  casa, no una obra sin imputar: da `personal` y **no** pregunta la obra. El proveedor se
+  conserva para poder separar, dentro de su cuenta, lo de obra de lo personal.
+- **El rubro y el `tipo_gasto` son ejes independientes.** El rubro dice *qué se compró* y
+  `tipo_gasto` *para quién fue*: que un gasto sea personal no borra el rubro habitual del
+  proveedor (`Materiales / Electricidad` sigue siendo lo que se compró).
 - **Retirar efectivo del cajero es `TRASPASO` de Banco a Efectivo, no un gasto.** No existe
   el rubro «retiro de efectivo».
 
@@ -217,10 +222,10 @@ adjuntos sin texto). Al 2026-09-17, contra el Sheet en vivo:
 
 | | |
 |---|---|
-| Obra/destino resuelto sin preguntar | 41/50 (82%) |
+| Obra/destino resuelto sin preguntar | 42/50 (84%) |
 | Contratista resuelto sin preguntar | **50/50 (100%)** |
-| Las dos cosas | 41/50 (82%) |
-| Ídem, contando como bien los 4 duales (preguntan a propósito) | 45/50 (90%) |
+| Las dos cosas | 42/50 (84%) |
+| Ídem, contando como bien los 4 duales (preguntan a propósito) | 46/50 (92%) |
 | Necesitaron LLM | 10 de 55 mensajes; solo 1 cambió el resultado |
 | Casos obligatorios del brief | 6/6 |
 
@@ -229,8 +234,7 @@ adjuntos sin texto). Al 2026-09-17, contra el Sheet en vivo:
 código o porque se regeneró el snapshot a propósito (`scripts/snapshot_maestros.py`).
 
 Lo que queda preguntando hoy: 4 capturas cuyo único texto es «ingreso» (sin obra; se
-resolverían leyendo el CUIT del comitente en el comprobante) y `Electricidad
-Angostura/Retiro` (pregunta la obra, que es lo correcto). Los otros 4 son los duales.
+resolverían leyendo el CUIT del comitente en el comprobante) y los 4 duales.
 
 ## 5. Configuración y deploy
 
@@ -322,18 +326,17 @@ Dos detalles del corpus que el gateway tiene que contemplar al agrupar:
 **Código**
 
 - [ ] `POST /confirmar` — escribir en MOVIMIENTOS, mover el adjunto, aprender el alias.
-      Necesita la decisión de §8.1 y cambiar el scope de la service account a
-      `spreadsheets` (hoy es `spreadsheets.readonly`).
+      Hay que cambiar el scope de la service account a `spreadsheets` (hoy es
+      `spreadsheets.readonly`). Ya está desbloqueado: la columna `tipo_gasto` existe.
 - [ ] `POST /consultar` — saldos y cuentas corrientes por obra.
 - [ ] Conciliación contra `BANCO_RAW`.
 
 ## 8. Deudas y hallazgos del Sheet
 
-1. **MOVIMIENTOS no tiene columna para obra / estructura / personal.** Un `Retiro/club` no
-   tiene obra, así que hoy esa clasificación no tiene dónde vivir. El motor la devuelve
-   aparte en `clasificacion`. **Hay que decidir si se agrega la columna** (y, si se agrega,
-   el motor solo tiene que sumarla a `COLUMNAS_MOVIMIENTOS`). Además la hoja real tiene 25
-   columnas: `cargado_por` y `ts` se completan al confirmar.
+1. ~~MOVIMIENTOS no tiene columna para obra / estructura / personal.~~ **Resuelto el
+   2026-09-17**: `CONTEXTO-FACHADO.md` §8 lo decidió y se agregó `tipo_gasto` al final de
+   MOVIMIENTOS (columna Z, la hoja quedó en 26 columnas). La ficha ya lo devuelve en
+   `campos`. `cargado_por` y `ts` se completan al confirmar.
 2. **Alias que apuntan a nombres que no existen en CONTRATISTAS**: `andina` → «Ferretería
    Andina» (el contratista se llama «Ferr. Andina») y `pinturería andina` → «Pinturería
    Andina» (es «Pint Andina»). El motor los resuelve igual pero deja una advertencia.

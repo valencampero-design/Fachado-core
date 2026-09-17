@@ -28,21 +28,22 @@ def clasificar(
     obra: Obra | None,
     contratista: Contratista | None,
     rubro: Rubro | None,
-    marcador_personal_fuerte: bool,
-    marcador_personal_debil: bool,
+    marcador_personal: bool,
 ) -> Resultado:
     if tipo_mov == "TRASPASO":
         # Sacar plata del cajero es un traspaso entre cuentas, no un gasto.
         return Resultado(None, "T: traspaso entre cuentas, no se clasifica")
 
-    # 1. El destino manda sobre el proveedor: casa / particular / obra personal.
-    if marcador_personal_fuerte or (obra and obra.tipo == "personal"):
-        return Resultado("personal", "R1: destino personal (casa, particular u obra personal)")
+    # 1. El destino manda sobre el proveedor: retiro / casa / particular / obra personal.
+    # «Retiro» manda siempre: le gana a cualquier contratista de obra, y el contratista se
+    # conserva para poder separar dentro de su cuenta lo de obra de lo personal.
+    if marcador_personal or (obra and obra.tipo == "personal"):
+        return Resultado("personal", "R1: destino personal (retiro, casa, particular u obra personal)")
 
     if tipo_mov == "INGRESO":
         if obra:
             return Resultado(CLASIFICACION_POR_TIPO_OBRA.get(obra.tipo), f"R4: tipo de la obra ({obra.tipo})")
-        return Resultado(None, "R5: ingreso sin obra", preguntar="obra")
+        return Resultado(None, "R6: ingreso sin obra", preguntar="obra")
 
     # 2. Contratista dual (obra y personal): siempre se pregunta.
     if contratista and contratista.dual:
@@ -56,15 +57,11 @@ def clasificar(
     if obra:
         return Resultado(CLASIFICACION_POR_TIPO_OBRA.get(obra.tipo), f"R4: tipo de la obra ({obra.tipo})")
 
-    # 4. Contratista con rubro de obra y sin obra → es de obra, falta saber cuál.
+    # 5. Contratista con rubro de obra, sin obra y sin señal personal.
     if contratista and rubro and rubro.afecta == "obra":
-        return Resultado("obra", "R4: contratista de obra sin obra identificada", preguntar="obra")
+        return Resultado("obra", "R5: contratista de obra sin obra identificada", preguntar="obra")
     if rubro and rubro.afecta == "estructura":
-        return Resultado("estructura", f"R4: rubro «{rubro.rubro_2}» afecta estructura")
+        return Resultado("estructura", f"R5: rubro «{rubro.rubro_2}» afecta estructura")
 
-    # «Retiro» sin nada más fuerte: personal, y se pregunta el rubro.
-    if marcador_personal_debil:
-        return Resultado("personal", "R1b: «Retiro» sin otra señal → personal")
-
-    # 5. Nada de lo anterior.
-    return Resultado(None, "R5: sin señales suficientes", preguntar="obra")
+    # 6. Nada de lo anterior.
+    return Resultado(None, "R6: sin señales suficientes", preguntar="obra")

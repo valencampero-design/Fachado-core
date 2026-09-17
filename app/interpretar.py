@@ -89,9 +89,9 @@ def _resolver_con_llm(seg: Segmento, req: InterpretarIn, m: Maestros, diag: dict
     obra, contr, rubro = seg.primero("obra"), seg.primero("contratista"), seg.primero("rubro")
     contr_m = m.contratista(contr.valor) if contr else None
     personal = bool(seg.de("personal"))
-    rubro_personal = rubro and (rm := m.rubro(*rubro.valor.split(" / "))) and rm.afecta == "personal"
-    if any(r.fuerte for r in seg.de("personal")) or (personal and rubro_personal):
-        slots_vacios = not rubro  # destino personal: no hace falta obra ni contratista
+    if personal:
+        # Destino personal: no hace falta obra, y el contratista, si aparece, ya está.
+        slots_vacios = not rubro and not contr
     else:
         slots_vacios = not obra or (tipo == "EGRESO" and (not contr or not rubro))
     pedir_rubro = tipo == "EGRESO" and not rubro and not personal and contr_m is not None and not contr_m.rubro_1
@@ -246,8 +246,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             poner("obra", resolver.obra_por_cuit_comitente(comp.cuit_originante, m), "comprobante")
 
     # ── 3. Lo heredado de la ficha anterior (corrección) ───────────────────────
-    marcador_fuerte = any(r.fuerte for r in seg.de("personal"))
-    marcador_debil = any(not r.fuerte for r in seg.de("personal"))
+    marcador_personal = bool(seg.de("personal"))
     if semilla:
         for campo, valor in semilla["campos"].items():
             if campo in campos and campos[campo] in (None, ""):
@@ -255,7 +254,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         for clave, valor in semilla["extras"].items():
             extras.setdefault(clave, valor)
         if semilla.get("clasificacion") == "personal" and not (seg.primero("obra") or seg.primero("contratista")):
-            marcador_fuerte = True
+            marcador_personal = True
 
     # ── 4. Derivados de los maestros ───────────────────────────────────────────
     poner("tipo", campos["tipo"] or "EGRESO", origen.get("tipo", "inferido"))
@@ -267,12 +266,10 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     if obra:
         poner("comitente", obra.comitente, "maestro")
 
-    rubro_de_contratista = False
     if tipo == "EGRESO" and not campos["rubro_1"]:
         if contratista and contratista.rubro_1 and m.rubro(contratista.rubro_1, contratista.rubro_2):
             poner("rubro_1", contratista.rubro_1, "inferido")
             poner("rubro_2", contratista.rubro_2, "inferido")
-            rubro_de_contratista = True
             factor *= 0.95
         elif rubro_llm and rubro_llm.puntaje >= UMBRAL_LLM * 100:
             rubro_1, rubro_2 = rubro_llm.valor.split(" / ")
@@ -282,12 +279,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     rubro = m.rubro(campos["rubro_1"], campos["rubro_2"])
 
     # ── 5. Cascada de clasificación (código, no LLM) ──────────────────────────
-    res = clasificador.clasificar(m, tipo, obra, contratista, rubro, marcador_fuerte, marcador_debil)
-    if res.clasificacion == "personal" and rubro_de_contratista and rubro and rubro.afecta != "personal":
-        # El destino manda sobre el proveedor: el rubro habitual de obra no aplica.
-        for c in ("rubro_1", "rubro_2"):
-            campos[c] = None
-            origen.pop(c, None)
+    res = clasificador.clasificar(m, tipo, obra, contratista, rubro, marcador_personal)
 
     if tipo == "EGRESO":
         poner("item", (comp.razon_social if comp else None) or campos["contratista"],
@@ -311,6 +303,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     if cuenta:
         poner("concilia", "VERDADERO" if cuenta.concilia_contra_banco else "FALSO", "maestro")
     poner("origen", "WHATSAPP", "inferido")
+    poner("tipo_gasto", res.clasificacion, "inferido")
     fecha_msg = _fecha_local(req, s)
     if not campos["fecha"] and fecha_msg and not any(c.campo == "fecha" for c in conflictos):
         poner("fecha", fecha_msg.isoformat(), "fecha_mensaje")
@@ -372,9 +365,9 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         poner("descripcion", " · ".join(filter(None, [campos["descripcion"], *sin_resolver])), "texto")
 
     requeridos = {
-        "EGRESO": ["fecha", "importe", "contratista", "rubro_1", "rubro_2", "medio_pago", "cuenta"]
+        "EGRESO": ["fecha", "importe", "contratista", "rubro_1", "rubro_2", "medio_pago", "cuenta", "tipo_gasto"]
                   + ([] if res.clasificacion == "personal" else ["obra"]),
-        "INGRESO": ["fecha", "importe", "obra", "medio_pago", "cuenta"],
+        "INGRESO": ["fecha", "importe", "obra", "medio_pago", "cuenta", "tipo_gasto"],
         "TRASPASO": ["fecha", "importe", "cuenta"],
     }[tipo]
     if res.clasificacion == "personal":
@@ -386,6 +379,5 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         extras["advertencias"] = advertencias
 
     ficha = Ficha(campos=campos, origen_campo=origen, faltantes=faltantes, conflictos=conflictos,
-                  confianza=round(max(0.0, min(1.0, factor)), 2), clasificacion=res.clasificacion,
-                  regla=res.regla, extras=extras)
+                  confianza=round(max(0.0, min(1.0, factor)), 2), regla=res.regla, extras=extras)
     return ficha, preguntas

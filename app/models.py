@@ -4,13 +4,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-# Las 23 columnas de MOVIMIENTOS que describe una ficha. La hoja real tiene además
+# Las columnas de MOVIMIENTOS que describe una ficha. La hoja real tiene además
 # `cargado_por` y `ts`, que se completan al confirmar, no al interpretar.
+# `tipo_gasto` (obra | estructura | personal) es un eje independiente del rubro: el rubro
+# dice QUÉ se compró y `tipo_gasto` PARA QUIÉN fue. Lo decide la cascada, no el LLM.
 COLUMNAS_MOVIMIENTOS: list[str] = [
     "id_mov", "fecha", "tipo", "importe", "moneda", "tc", "importe_ars", "obra", "item",
     "comitente", "contratista", "rubro_1", "rubro_2", "medio_pago", "cuenta", "pagado_por",
     "tipo_comprobante", "descripcion", "origen", "concilia", "id_banco", "estado_conc",
-    "comprobante_url",
+    "comprobante_url", "tipo_gasto",
 ]
 
 # De dónde salió cada valor. El gateway lo muestra al lado del campo.
@@ -53,9 +55,7 @@ class Ficha(BaseModel):
     faltantes: list[str] = Field(default_factory=list)
     conflictos: list[Conflicto] = Field(default_factory=list)
     confianza: float = 1.0
-    # Clasificación obra / estructura / personal y la regla de la cascada que la decidió.
-    # No es columna de MOVIMIENTOS: sale del tipo de la obra o de la cascada.
-    clasificacion: Clasificacion | None = None
+    # La regla de la cascada que decidió `campos["tipo_gasto"]`, para poder auditarla.
     regla: str | None = None
     # Datos que no tienen columna propia: certificado, fecha de pago del cheque,
     # número de operación, CUIT, alias propuesto, advertencias.

@@ -1293,7 +1293,8 @@
       "estado_conc",
       "comprobante_url",
       "cargado_por",
-      "ts"
+      "ts",
+      "tipo_gasto"
     ]
   ]
 }

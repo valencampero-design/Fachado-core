@@ -88,13 +88,16 @@ def _p(resp, campo):
 CASOS = {
     "Felipe J/Lennon": lambda r, f: f["campos"]["obra"] == "Lennon" and f["campos"]["contratista"] == "Felipe Andrés Scherer",
     "Austral/Sofi": lambda r, f: f["campos"]["obra"] == "Austral" and f["campos"]["contratista"] == "Sofia Cervera" and _p(r, "clasificacion"),
-    "Retiro/club/cuota 3 esquí": lambda r, f: f["clasificacion"] == "personal" and f["campos"]["rubro_2"] == "Club y deporte",
-    "Electricidad Angostura/Retiro": lambda r, f: f["clasificacion"] == "obra" and f["campos"]["contratista"] == "Electricidad Angostura"
-                                                  and f["campos"]["obra"] is None and _p(r, "obra"),
+    "Retiro/club/cuota 3 esquí": lambda r, f: f["campos"]["tipo_gasto"] == "personal" and f["campos"]["rubro_2"] == "Club y deporte",
+    # CONTEXTO-FACHADO.md §5.4: «Retiro» manda siempre. Es material eléctrico para su casa,
+    # no una obra sin imputar; el proveedor se conserva y no se pregunta la obra.
+    "Electricidad Angostura/Retiro": lambda r, f: f["campos"]["tipo_gasto"] == "personal"
+                                                  and f["campos"]["contratista"] == "Electricidad Angostura"
+                                                  and f["campos"]["obra"] is None and not _p(r, "obra"),
     "Ingreso $2.600.000 Moreno/ cert. 4 /efectivo": lambda r, f: f["campos"]["tipo"] == "INGRESO" and f["campos"]["importe"] == 2600000
                                                                  and f["campos"]["obra"] == "Moreno" and f["extras"].get("certificado") == "4"
                                                                  and f["campos"]["cuenta"] == "Efectivo",
-    "Maragaño/Retiro/casa": lambda r, f: f["clasificacion"] == "personal" and f["campos"]["rubro_2"] == "Casa"
+    "Maragaño/Retiro/casa": lambda r, f: f["campos"]["tipo_gasto"] == "personal" and f["campos"]["rubro_2"] == "Casa"
                                          and f["campos"]["contratista"] == "Marcelo Maragaño",
 }
 
@@ -186,7 +189,7 @@ def main() -> int:
             preg = ",".join(p["campo"] for p in r["preguntas"] if p["ficha"] == i)
             marca = "↺ " if x["mensaje"].es_correccion else ""
             texto = (marca + x["mensaje"].texto) if i == 0 else "  └ 2º movimiento"
-            print(f"{texto[:61]:<62} {c['tipo'] or '':<8} {f['clasificacion'] or '—':<10} {(c['obra'] or '—')[:11]:<12} "
+            print(f"{texto[:61]:<62} {c['tipo'] or '':<8} {f['campos']['tipo_gasto'] or '—':<10} {(c['obra'] or '—')[:11]:<12} "
                   f"{(c['contratista'] or '—')[:23]:<24} {(c['rubro_2'] or '—')[:15]:<16} {preg or '—':<22} "
                   f"{'sí' if usa_llm(x) and i == 0 else ''}")
 
@@ -217,7 +220,7 @@ def main() -> int:
         detalle = ""
         if x and not ok:
             f = x["respuesta"]["fichas"][0]
-            detalle = (f"  → clasif={f['clasificacion']} obra={f['campos']['obra']} contratista={f['campos']['contratista']} "
+            detalle = (f"  → tipo_gasto={f['campos']['tipo_gasto']} obra={f['campos']['obra']} contratista={f['campos']['contratista']} "
                        f"rubro={f['campos']['rubro_2']} preguntas={[p['campo'] for p in x['respuesta']['preguntas']]} regla={f['regla']}")
         print(f"  {'PASA ' if ok else 'FALLA'}  {texto}{detalle}")
 

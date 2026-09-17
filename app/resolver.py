@@ -22,9 +22,9 @@ from app.maestros import Maestros, normalizar, solo_digitos
 
 UMBRAL_DIFUSO = 88
 
-# «Retiro» es un marcador personal débil: mapea a personal solo si nada más fuerte
-# decide (un contratista de obra gana). «casa» y «particular» son fuertes.
-MARCADORES_PERSONAL_DEBILES = {"retiro"}
+# «Retiro» manda siempre (CONTEXTO-FACHADO.md §5.4): «Electricidad Angostura/Retiro» es
+# material eléctrico para su casa, no una obra sin imputar. El proveedor se conserva, para
+# poder separar dentro de su cuenta lo que fue obra de lo que fue personal.
 
 # Palabras de instrucción que no son entidades.
 PALABRAS_TIPO = {
@@ -54,7 +54,6 @@ class Resolucion:
     token: str
     puntaje: float = 100.0
     opciones: list[str] = field(default_factory=list)  # para ambiguo
-    fuerte: bool = True  # para marcador personal
 
 
 @dataclass
@@ -202,7 +201,7 @@ def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
     # Marcadores de destino personal: salen de ALIAS con tipo = tipo y valor Personal.
     for a in m.alias:
         if a.tipo == "tipo" and normalizar(a.como_lo_dice) == n and normalizar(a.valor_canonico) == "personal":
-            salida.append(Resolucion("personal", "Personal", "alias", token, fuerte=n not in MARCADORES_PERSONAL_DEBILES))
+            salida.append(Resolucion("personal", "Personal", "alias", token))
 
     # 1. Exacto. ALIAS primero (es lo que el usuario enseñó), después los maestros.
     exactos: list[Resolucion] = []
