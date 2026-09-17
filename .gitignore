@@ -1,0 +1,16 @@
+# Secretos — nunca commitear
+.env
+client_secret*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Salida de las corridas del corpus
+tests/salida/
+
+# Editor
+.vscode/
+.idea/
