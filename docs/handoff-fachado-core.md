@@ -12,7 +12,7 @@
 |---|---|
 | ✅ Motor completo de fase 1 | `/interpretar` responde por HTTP, probado con `curl` y con el corpus |
 | ✅ Lee el Sheet real | Compartido con la service account como Editor |
-| ✅ Métrica | Contratista 50/50 sin preguntar, obra 41/50, 6/6 casos obligatorios (§4) |
+| ✅ Métrica | Contratista 50/50 sin preguntar, obra 42/50, 6/6 casos obligatorios (§4) |
 | ✅ `.env` local | Completo salvo las tres `GOOGLE_OAUTH_*` |
 | ⏳ GitHub | Repo creado en `valencampero-design/fachado-core`, **falta el primer push** |
 | ⏳ Railway | Falta crear el servicio y cargar las variables (§5) |
@@ -45,7 +45,7 @@ Consecuencias de que el motor no tenga estado:
 app/
   main.py          FastAPI, rutas, auth por X-API-Key
   config.py        settings desde env
-  models.py        Pydantic de entrada y salida + las 23 columnas de MOVIMIENTOS
+  models.py        Pydantic de entrada y salida + las columnas de MOVIMIENTOS
   maestros.py      carga y cachea OBRAS, CONTRATISTAS, RUBROS, CUENTAS, ALIAS
   resolver.py      texto libre → obra / contratista / rubro / cuenta, SIN LLM
   clasificador.py  la cascada obra / estructura / personal, SIN LLM
@@ -96,12 +96,11 @@ Salida:
 ```jsonc
 {
   "fichas": [{
-    "campos": { /* las 23 columnas de MOVIMIENTOS, null donde falta */ },
-    "origen_campo": { "importe": "comprobante", "obra": "texto", "rubro_1": "inferido" },
+    "campos": { /* las columnas de MOVIMIENTOS, null donde falta */ },
+    "origen_campo": { "importe": "comprobante", "obra": "texto", "tipo_gasto": "inferido" },
     "faltantes": ["rubro_2"],
     "conflictos": [],
     "confianza": 0.86,
-    "clasificacion": "obra",            // obra | estructura | personal | null
     "regla": "R4: tipo de la obra (obra_terceros)",
     "extras": { "certificado": "4", "fecha_pago": "2026-09-28", "alias_propuesto": {...} }
   }],
