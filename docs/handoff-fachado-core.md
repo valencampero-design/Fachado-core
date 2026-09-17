@@ -227,8 +227,8 @@ Railway, al lado del gateway. `nixpacks.toml` fija Python 3.11 y arranca
 |---|---|
 | `MOTOR_API_KEY` | Secreto compartido con el gateway (header `X-API-Key`) |
 | `FACHADO_SHEET_ID` | `1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A` |
-| `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | Las mismas del gateway |
-| `GOOGLE_OAUTH_REFRESH_TOKEN` | **Token nuevo**: ver abajo |
+| `GOOGLE_CREDENTIALS_JSON` | Service account del gateway, para **leer el Sheet** |
+| `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` | OAuth de usuario, solo para **bajar los adjuntos** de Drive |
 | `ANTHROPIC_API_KEY` | |
 | `LLM_MODELO` | Default `claude-opus-5` |
 | `LLM_EFFORT` | Default `low` |
@@ -237,19 +237,30 @@ Railway, al lado del gateway. `nixpacks.toml` fija Python 3.11 y arranca
 | `UTC_OFFSET_HORAS` | Default -3 |
 | `MAESTROS_SNAPSHOT` | Solo para correr offline; en Railway va vacía |
 
-**El refresh token del gateway NO sirve.** Ese token tiene scope `drive.file`, que solo da
-acceso a los archivos que creó la app: alcanza para bajar los adjuntos, pero no para leer el
-Sheet maestro, que lo creó el usuario a mano. El motor necesita
-`spreadsheets.readonly` + `drive.file`:
+### Por qué cada API usa una credencial distinta
+
+- **Sheets → service account.** El Sheet maestro se comparte con
+  `chatbot-contable@chatbot-contable-495714.iam.gserviceaccount.com` y se lee con el mismo
+  JSON que ya usa el gateway. Alternativa descartada: leerlo con OAuth de usuario obliga a
+  pedir el scope `spreadsheets.readonly`, que Google considera **sensible**; con un scope
+  sensible, publicar la app OAuth requiere verificación, y mientras la app siga en «Prueba»
+  el refresh token caduca a los ~7 días. Con service account no hay consentimiento ni
+  vencimiento. (Si no hay service account configurada, el motor cae a OAuth y avisa por log;
+  el flag `--con-sheets` del script agrega ese scope.)
+- **Drive → OAuth de usuario.** Una service account no tiene cuota de storage en un Drive
+  personal, y `drive.file` solo alcanza a los archivos que subió **esa misma app OAuth**, que
+  son justamente los adjuntos que subió el gateway. Por eso tiene que ser el mismo cliente
+  OAuth, aunque el refresh token sea otro:
 
 ```bash
 pip install google-auth-oauthlib
 python scripts/get_google_token.py <client_secret.json>   # autorizar con valencampero@gmail.com
 ```
 
-Mismo cliente OAuth, token distinto. Y sigue en pie el pendiente del gateway: **la app
-OAuth está en estado «Prueba», así que el refresh token caduca a los ~7 días.** Publicarla
-(scope `drive.file` no requiere verificación) lo vuelve permanente.
+Sigue en pie el pendiente heredado del gateway: **la app OAuth está en «Prueba», así que ese
+refresh token caduca a los ~7 días.** Publicarla la vuelve permanente y, con solo
+`drive.file` (no sensible), no requiere verificación. Si el token vence, el motor sigue
+interpretando el texto: lo único que deja de funcionar es la lectura de los adjuntos.
 
 ## 6. Cómo se conecta el gateway (fase 2, nada de esto está hecho)
 

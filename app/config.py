@@ -29,7 +29,11 @@ class Settings:
     maestros_snapshot: str = field(default_factory=lambda: os.getenv("MAESTROS_SNAPSHOT", ""))
     maestros_ttl_segundos: int = field(default_factory=lambda: int(os.getenv("MAESTROS_TTL_SEGUNDOS", "300")))
 
-    # Google OAuth de usuario (no service account: sin cuota en Drive personal)
+    # Service account (la misma del gateway): lee el Sheet, que está compartido con ella.
+    google_credentials_json: str = field(default_factory=lambda: os.getenv("GOOGLE_CREDENTIALS_JSON", ""))
+    google_credentials_path: str = field(default_factory=lambda: os.getenv("GOOGLE_CREDENTIALS_PATH", ""))
+
+    # Google OAuth de usuario: para Drive (una service account no tiene cuota en un Drive personal)
     google_client_id: str = field(default_factory=lambda: os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""))
     google_client_secret: str = field(default_factory=lambda: os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", ""))
     google_refresh_token: str = field(default_factory=lambda: os.getenv("GOOGLE_OAUTH_REFRESH_TOKEN", ""))
