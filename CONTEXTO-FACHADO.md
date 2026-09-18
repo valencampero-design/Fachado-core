@@ -1,13 +1,13 @@
 # CONTEXTO-FACHADO.md
 
-**Memoria compartida del proyecto Fachado.** Este archivo es la verdad de negocio: lo que el
-sistema tiene que hacer y por qué. Vive en tres lugares y tiene que ser idéntico en los tres:
+**Memoria compartida del proyecto Fachado.** Este archivo es la verdad de negocio: qué tiene
+que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico en los tres:
 
 - el proyecto de Claude de A&C (fuente, se edita ahí),
 - `chatbot-contable/CONTEXTO-FACHADO.md`,
 - `fachado-core/CONTEXTO-FACHADO.md`.
 
-**Versión 1.0 · 17 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.1 · 18 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -33,7 +33,7 @@ Arrancó el 3 de septiembre de 2026.
 
 | Pieza | Qué es | Dónde vive |
 |---|---|---|
-| **Gateway** `chatbot-contable` | El canal. WhatsApp Cloud API, un solo número para **tres clientes** (contabilidad, Belakay, Fachado). Ruteo por teléfono → `config/tenants/<phone>.json` | FastAPI en Railway, ya en producción |
+| **Gateway** `chatbot-contable` | El canal. WhatsApp Cloud API, un solo número para **tres clientes** (contabilidad, Belakay, Fachado). Ruteo por teléfono → `config/tenants/<phone>.json` | FastAPI en Railway, en producción |
 | **Motor** `fachado-core` | La inteligencia de negocio. Interpreta, imputa, escribe, concilia. **No sabe nada de WhatsApp** | FastAPI en Railway, fase 1 hecha |
 | **Sheet maestro** | La fuente de verdad de los datos. No hay base de datos | Google Sheets |
 | **Drive** | Los comprobantes | Google Drive |
@@ -43,8 +43,6 @@ Arrancó el 3 de septiembre de 2026.
 todos los días; el parser de Fachado va a cambiar todos los días durante seis semanas. Y el
 motor, al no tener estado, se prueba con `curl` contra un corpus de 101 mensajes reales sin
 mandar un solo WhatsApp.
-
-**El reparto de responsabilidad, que es la decisión de la que se desprende todo:**
 
 | | Gateway | Motor |
 |---|---|---|
@@ -67,27 +65,26 @@ responde ✅. **Nunca se pierde un dato por una falla del procesamiento.**
 | Carpeta de Drive de captura | `1_W6Stl_qakpvSws3j7oSJMd60Mr2Mg0v` |
 | Comitente de la obra Lennon | Lucas Mariano Lennon · CUIT 20-13851988-1 |
 
-Los secretos (client id, client secret, refresh tokens, API keys) **solo viven en variables
-de entorno de Railway**. Nunca en un archivo, nunca en un doc, nunca en un commit.
+Los secretos **solo viven en variables de entorno de Railway**. Nunca en un archivo, nunca
+en un doc, nunca en un commit.
 
 ---
 
 ## 4. Glosario
 
-Palabras que significan algo preciso en este proyecto. Usarlas mal produce bugs silenciosos.
-
 | Término | Qué significa acá |
 |---|---|
-| **Obra** | Un proyecto con comitente, cuenta corriente y saldo. Es lo que el tablero sigue |
+| **Obra** | Un proyecto con comitente, cuenta corriente y saldo |
 | **Comitente** | Quien encarga y financia la obra. Se hereda del maestro, no se tipea |
-| **Ítem** | El contrato con un contratista *en esa obra*. Se deriva de obra + contratista. Es lo que hoy es cada hoja de la Planilla CC |
-| **Certificado** | La unidad con la que el comitente de Moreno paga: numerada, cobrada en efectivo, a veces meses después |
+| **Ítem** | El contrato con un contratista *en esa obra*. Se deriva de obra + contratista |
+| **Certificado** | La unidad con la que el comitente de una obra administrada paga: numerada, a veces cobrada meses después |
 | **Rubro** | **Qué se compró.** Árbol de dos niveles. El nivel 2 nunca dice *dónde* se compró |
-| **`tipo_gasto`** | **Para quién fue.** `obra` · `estructura` · `personal`. Es un eje independiente del rubro |
+| **`tipo_gasto`** | **Para quién fue.** `obra` · `estructura` · `personal`. Eje independiente del rubro |
 | **`tipo` de obra** | `obra_terceros` · `obra_propia` · `estructura` · `personal` |
-| **`servicio`** | Qué hace el estudio en esa obra: `administración` · `proyecto y dirección` · `todo` |
-| **`concilia`** | Verdadero solo si `cuenta = Banco`. Evita que el sistema reclame en el extracto un pago en efectivo |
-| **`PASANTE`** | Depósito neutro: el comitente deposita y sale el mismo día al proveedor. Se carga una vez, mueve la obra y no la caja |
+| **`servicio`** | Qué hace el estudio ahí: `administración` · `proyecto y dirección` · `todo` |
+| **Caja de obra** | Plata del comitente en poder del arquitecto, para pagar esa obra. **No es del estudio: es un pasivo** (§5.8) |
+| **`concilia`** | Verdadero solo si `cuenta = Banco`. Evita reclamar en el extracto un pago en efectivo |
+| **`PASANTE`** | Depósito neutro: el comitente deposita y sale el mismo día al proveedor |
 | **Captura** | El modo actual: el bot archiva todo sin interpretarlo. Es también el fallback permanente |
 | **Pasarela** | Mercado Libre, tarjeta débito comercios, transferencia e-bank. Dicen *por dónde salió la plata*, no a quién se le pagó |
 
@@ -95,40 +92,35 @@ Palabras que significan algo preciso en este proyecto. Usarlas mal produce bugs 
 
 ## 5. Las reglas duras
 
-Estas no se discuten en cada sesión. Si algo las contradice, es un bug o es una decisión
-nueva que hay que escribir acá antes de implementarla.
+Si algo las contradice, es un bug o es una decisión nueva que hay que escribir acá **antes**
+de implementarla.
 
 ### 5.1 · Un solo libro
 
 Un único `MOVIMIENTOS` append-only. La cuenta corriente de cada obra, el saldo de caja y el
 tablero se derivan por fórmula. **Nadie copia un número de un lado a otro.**
 
-- **El saldo no se guarda, se calcula.** Si aparece una columna «saldo» en MOVIMIENTOS, algo
-  se hizo mal.
+- **El saldo no se guarda, se calcula.**
 - **Nada se borra de los maestros.** El que deja de trabajar pasa a `inactivo`.
-- **El libro guarda hechos, no asignaciones.** El prorrateo de indirectos es una vista
-  derivada, nunca filas en el libro.
+- **El libro guarda hechos, no asignaciones.** El prorrateo de indirectos es una vista.
 
 ### 5.2 · Reparto de autoridad
 
 **El comprobante manda** en importe, fecha, destinatario, CUIT y número de operación.
-**El texto manda** en obra, ítem, rubro y descripción.
-
-Si se contradicen en importe o fecha, el sistema **no elige**: devuelve los dos valores y
-pregunta.
+**El texto manda** en obra, ítem, rubro y descripción. Si se contradicen en importe o fecha,
+el sistema **no elige**: devuelve los dos y pregunta.
 
 ### 5.3 · Cómo escribe el arquitecto
 
-Sacado de 101 mensajes reales. El sistema se adapta a él, no al revés.
+De 101 mensajes reales. El sistema se adapta a él, no al revés.
 
 - **Formato `algo/algo`, pero el orden NO es fijo.** `Sofia/Austral` y `Austral/Sofi` son el
   mismo par. No parsear por posición: resolver cada token contra los diccionarios.
 - **No escribe el importe cuando hay comprobante.** Cuando cobra en efectivo y no hay papel,
   **sí** escribe importe y fecha.
-- **Se corrige por mensaje posterior, sin comando.** Y a veces enseña un alias solo
-  («Rodrigo = Rodrigo sanitarista»).
+- **Se corrige por mensaje posterior, sin comando.** A veces enseña un alias solo.
 - **Un mensaje puede traer dos movimientos.**
-- **No usa audios.** Cero en cien mensajes.
+- **No usa audios.**
 
 ### 5.4 · La cascada de clasificación
 
@@ -137,7 +129,7 @@ Código, no prompt. Se evalúa en orden, gana la primera que matchea, y la ficha
 | # | Condición | Resultado |
 |---|---|---|
 | R1 | Aparece `retiro`, `casa`, `particular`, o una obra con `tipo = personal` | **personal.** Señal fuerte: le gana a cualquier contratista de obra. El contratista se conserva |
-| R2 | El contratista está marcado DUAL (Sofía, Juan Manuel) | Pregunta: ¿obra o personal? |
+| R2 | El contratista está marcado DUAL | Pregunta: ¿obra o personal? |
 | R3 | El rubro resuelto es `Personal › …` | **personal** |
 | R4 | Hay obra identificada | El `tipo` de esa obra |
 | R5 | Contratista con rubro de obra, sin obra **y sin señal personal** | **obra**, obra vacía → pregunta a qué obra |
@@ -145,55 +137,103 @@ Código, no prompt. Se evalúa en orden, gana la primera que matchea, y la ficha
 | T | Es un TRASPASO | No se clasifica |
 
 **«Retiro» manda siempre.** `Electricidad Angostura/Retiro` es material eléctrico para su
-casa, no una obra sin imputar. El proveedor se conserva para poder separar, dentro de la
-cuenta de ese proveedor, lo que fue obra de lo que fue personal.
+casa, no una obra sin imputar. El proveedor se conserva para poder separar, dentro de su
+cuenta, lo de obra de lo personal.
 
 ### 5.5 · Resolver primero con diccionario, después con LLM
 
-Más barato, más rápido y mucho más predecible. Orden: exacto → CUIT → palabra única →
-difuso (≥ 88) → LLM solo para lo que quedó.
+Exacto → CUIT → palabra única → difuso (≥ 88) → LLM solo para lo que quedó.
 
-- **El LLM solo puede devolver valores que existen en los maestros.** Lo que inventa se
-  descarta.
-- **El CUIT no es clave única.** Un proveedor puede cobrar con más de uno: Miguel Soto cobra
-  también con el de Alexis Matamala y para el estudio son el mismo. Los secundarios van en
-  `ALIAS` con `tipo = cuit`.
+- **El LLM solo puede devolver valores que existen en los maestros.**
+- **El CUIT no es clave única.** Miguel Soto cobra también con el de Alexis Matamala y para
+  el estudio son el mismo proveedor. Los secundarios van en `ALIAS` con `tipo = cuit`.
+- **Un apodo puede ser ambiguo a propósito.** Si dos filas de `ALIAS` tienen el mismo
+  `como_lo_dice`, el resolver detecta el empate y **pregunta**. Es el mecanismo para «Marce»
+  y «Marcelo» (§7).
 
 ### 5.6 · Lo que no es un contratista
 
 **Mercado Libre es una pasarela, no un proveedor.** La línea del extracto dice por dónde
-salió la plata, no a quién se le compró. El vendedor real solo está en el comprobante.
+salió la plata, no a quién se le compró. Lo mismo con `TARJETA DEBITO COMERCIOS`,
+`TRANSFERENCIA E-BANK` y Mercado Pago como cuenta de destino de un tercero. Van a
+`medio_pago`, nunca a `CONTRATISTAS`.
 
-Lo mismo con `TARJETA DEBITO COMERCIOS`, `TRANSFERENCIA E-BANK` y Mercado Pago cuando es la
-cuenta de destino de un tercero. Van a `medio_pago`, nunca a `CONTRATISTAS`.
-
-*Riesgo operativo:* hay 28 líneas de Mercado Libre en dos meses de extracto. De cada una el
-banco aporta importe y fecha y nada más. Sin comprobante, ese gasto queda sin proveedor y
-sin rubro para siempre.
+**Cómo se resuelve Mercado Libre** *(definido 18/09)*: lo de obra **sí** tiene comprobante y
+el arquitecto lo manda; lo personal **no** tiene comprobante del otro lado. Entonces la
+conciliación cruza por **fecha e importe** los comprobantes recibidos contra las líneas de
+Mercado Libre del extracto, y **todo lo que no cruza queda como gasto personal sin
+clasificar**. La ausencia de comprobante es, en este caso, información.
 
 ### 5.7 · Una sola cuenta bancaria
 
 Con tramos en pesos y en dólares. Caja de ahorro y cuenta corriente son una división
-operativa del banco, no cuentas distintas del estudio. **La conciliación es global**: un pago
-cargado como «banco» concilia contra cualquier línea del extracto.
+operativa del banco. **La conciliación es global.**
 
-**«Personal» no es una cuenta, es una clasificación.** La plata sale del mismo banco.
-En cambio **el efectivo sí es una cuenta**: sacar del cajero es `TRASPASO`, no un gasto.
+**«Personal» no es una cuenta, es una clasificación.** La plata sale del mismo banco. En
+cambio **el efectivo sí es una cuenta**: sacar del cajero es `TRASPASO`, no un gasto.
 
-### 5.8 · El comitente que paga directo
+### 5.8 · La plata de las obras administradas no es del estudio
 
-En Lennon, **el comitente paga directo a los contratistas** desde sus propias cuentas. Esa
-plata nunca toca la caja del estudio pero sí es costo de la obra. Se registra con
-`cuenta = Pagado por el comitente` y `concilia = no`.
+*Definido el 18/09. Es el cambio de modelo más importante después del libro único.*
 
-Si no se modela, la cuenta corriente de Lennon queda vacía y el saldo de caja queda *bien*:
-el error no se ve, que es el peor tipo de error.
+En las obras que el estudio **administra**, la plata de la obra **no entra a la caja del
+estudio**. Lo que entra a su caja son **sus honorarios, y nada más**. El registro de los
+pagos de obra existe como **control de gestión**: sirve para saber que se está pagando y
+cuánto lleva cada contratista, no para mover la tesorería del estudio.
 
-### 5.9 · Nada se escribe sin confirmación humana
+Hay dos formas, y se tratan distinto:
 
-El bot propone, el arquitecto confirma con un botón. Y la ficha de confirmación muestra
-**de dónde salió cada dato** —del comprobante, del texto, del maestro— porque es lo que hace
-que confíe.
+| | **El comitente paga directo** | **El comitente le da efectivo** |
+|---|---|---|
+| Ejemplo | Lennon | El caso más delicado |
+| Quién paga | El comitente, desde sus cuentas | El arquitecto, con plata ajena |
+| Qué recibe el arquitecto | Los comprobantes, que reenvía al bot | Efectivo, y después rinde |
+| Cuenta | `Pagado por el comitente` | `Caja obra <X>` |
+| ¿Tiene saldo? | **No.** Es informativo | **Sí, y hay que rendirlo** |
+
+**La caja de obra es una fila de `CUENTAS` por obra administrada**, con `tipo = caja_obra` y
+`concilia = no`. El comitente entrega efectivo → `INGRESO` a esa caja. El arquitecto paga a
+un contratista → `EGRESO` de esa caja. **El saldo de la caja es lo que le queda por rendir**;
+si da negativo, puso plata propia y hay que avisarle.
+
+**Regla de oro:** el saldo de caja del estudio suma Banco, Banco USD, Efectivo, Chequera y
+Mercado Pago. **Las cajas de obra NO suman.** Es plata de terceros en su poder: un pasivo,
+no patrimonio. Mezclarlas infla el saldo con plata que no es suya, que es exactamente el
+error que el sistema viene a evitar.
+
+### 5.9 · El comitente que paga directo
+
+En Lennon el comitente paga directo a los contratistas desde sus propias cuentas. Se
+registra con `cuenta = Pagado por el comitente` y `concilia = no`. Si no se modela, la
+cuenta corriente de Lennon queda vacía y el saldo de caja queda *bien*: el error no se ve,
+que es el peor tipo de error.
+
+### 5.10 · IVA — alcance completo
+
+*Decidido el 18/09.* Se hace la **posición de IVA completa**, no solo el crédito fiscal.
+
+- El arquitecto manda al bot **sus facturas emitidas**, además de las recibidas.
+- De cada comprobante se guardan neto, IVA, CUIT, tipo (A/B/C), número y fecha.
+- Posición del mes = **IVA débito** (sus facturas) − **IVA crédito** (facturas A recibidas).
+- Sus facturas emitidas son además la fuente de los **ingresos por honorarios** por obra, que
+  es lo que necesitan las obras de «proyecto y dirección» para tener seguimiento.
+
+Esto es **alcance por encima de la propuesta original de ocho semanas**. La contrapartida es
+que resuelve el modelo de ingresos por honorarios, que hacía falta igual.
+
+Nota fiscal: Miguel Soto y Alexis Matamala son el mismo proveedor para el estudio, pero
+**dos contribuyentes para AFIP**. En el crédito fiscal van separados.
+
+### 5.11 · Certificados
+
+El movimiento de cobro **registra a qué certificado y a qué obra corresponde** —es un campo,
+y va desde ahora. El **cruce** entre certificados emitidos y cobrados, con su estado de
+cobranza, queda para la etapa siguiente.
+
+### 5.12 · Nada se escribe sin confirmación humana
+
+El bot propone, el arquitecto confirma con un botón. La ficha muestra **de dónde salió cada
+dato** —del comprobante, del texto, del maestro— porque es lo que hace que confíe.
 
 ---
 
@@ -211,10 +251,14 @@ que confíe.
 | Gonzalo | obra_propia | todo | El arquitecto |
 | Hua Huan | obra_propia | todo | El arquitecto |
 | Grigera Galpón | obra_propia | todo | El arquitecto |
-| Tres Cerros | obra_propia | **a definir** | El arquitecto |
+| **Tres Cerros** | obra_propia | **todo** | El arquitecto |
 | Austral | estructura | — | Indirectos del estudio |
 | Sur · Abucoque · Belelli | personal | — | Inmuebles personales |
 | Jardín Maternal | obra_terceros | administración | **cerrada** · obra de referencia |
+
+**Las cuatro obras propias —Gonzalo, Hua Huan, Grigera Galpón y Tres Cerros— son
+inversiones**, no consumo. El costo se sigue como **capital inmovilizado** y el resultado se
+mide contra la venta. No van al circuito personal.
 
 **Las de «proyecto y dirección» no llevan cuenta corriente de costos**: el estudio no mueve
 plata ahí, solo cobra honorarios.
@@ -226,40 +270,58 @@ plata ahí, solo cobra honorarios.
 | Quién | Qué es |
 |---|---|
 | **Gabriel Fachado** | El arquitecto. El único que escribe al bot |
-| **Sofía Cervera · Juan Manuel** | Sus hijos. **Duales**: a veces contratistas, a veces gasto personal. El bot siempre pregunta |
-| **Valentín Campero** | A&C. Sus honorarios son `estructura`, imputados a Austral |
+| **Sofía Cervera · Juan Manuel** | Sus hijos. **Duales**: a veces contratistas, a veces gasto personal |
+| **Valentín Campero** | A&C. Honorarios de consultoría → `estructura`, imputados a Austral |
 | **Miguel Soto** | Cobra también con el CUIT de **Alexis Matamala**. Para el estudio es el mismo proveedor |
-| Felipe J | Felipe Andrés Scherer · movimiento de suelos |
+
+### Los tres «Marce» *(definido 18/09)*
+
+| Nombre canónico | Qué es | Rubro habitual |
+|---|---|---|
+| **Marcela** | La esposa. Gasto personal | `Personal › Familia` |
+| **Marcelo Maragaño** | Carpintero | `Mano de obra › Carpintero` |
+| **Marcelo Orellana** | Albañil | `Mano de obra › Albañil` |
+
+**`marce` es ambiguo entre los tres y `marcelo` entre los dos últimos: el bot tiene que
+preguntar.** Se implementa cargando varias filas de `ALIAS` con el mismo `como_lo_dice`
+(§5.5). Los apellidos sí son unívocos: `maragaño` → Marcelo Maragaño, `orellana` → Marcelo
+Orellana.
+
+### Otros alias confirmados
+
+| Como lo dice | Quién es |
+|---|---|
+| Lalo · Lalo Martínez | **Martínez Eduardo** — es una maderera. `Materiales › Maderas` |
+| Felipe J | Felipe Andrés Scherer · `Servicios de obra › Movimiento de suelos` |
 | Fábrica de Calcos | Sergio González |
 | Marcos Carpintero | Marcos Ezequiel Lenton |
 | Barba | Barbagelata |
 | Ecoaislaciones | Eco Aislación SRL |
 | Andina | **Ferretería** Andina. La pinturería es otro comercio y él lo aclara |
 | Municipalidad | Destinatario válido. Rubro **siempre** `Impuestos y tasas › Municipales` |
-| Lalo | Una maderera, **no** Maderera Misiones. Falta el nombre |
+
+**Silla Cuádruple no es un proveedor**: es parte de la obra Cerro Bayo.
 
 ---
 
 ## 8. Estado y pendientes
 
-**Semana 3 de 8.** Captura operando desde el 3/9 (101 mensajes). Motor fase 1 terminado:
-`/interpretar` resuelve el **80 %** de los mensajes sin preguntar, con solo 10 de 55 usando
-LLM. Falta `/confirmar`, `/consultar`, conciliación, deploy y conectar el gateway.
+**Semana 3 de 8.** Captura operando desde el 3/9 (101 mensajes). Motor fase 1 terminado,
+leyendo el Sheet en vivo: contratista **100 %** sin preguntar, obra **84 %**, **92 %**
+contando los duales que preguntan a propósito. Falta `/confirmar`, `/consultar`,
+conciliación, deploy, y conectar el gateway.
 
 Las preguntas abiertas viven en **`fachado-registro-de-preguntas.md`** del proyecto, con
 código estable (`P-01`, `P-02`…). No duplicar esa lista acá.
 
 Deudas técnicas que atraviesan los dos repos:
 
-- **Publicar la app OAuth en Producción.** Con scope `drive.file` no requiere verificación y
-  son diez minutos. Mientras siga en «Prueba» el refresh token caduca cada siete días y los
-  adjuntos dejan de guardarse en silencio.
+- **Publicar la app OAuth en Producción.** Diferido a pedido del cliente. Mientras siga en
+  «Prueba», el refresh token de Drive caduca cada siete días y los adjuntos dejan de leerse.
 - **El adjunto a veces llega 8 a 18 segundos ANTES que el texto** que lo etiqueta. La
   ventana de agrupamiento del gateway tiene que mirar para los dos lados.
 - **Manda cosas repetidas** con un segundo de diferencia. Detectar duplicados antes de
   escribir.
-- **Agregar `tipo_gasto` al final de MOVIMIENTOS.** Sin esa columna el tablero no puede
-  separar obras de consumo personal.
 
 ---
 

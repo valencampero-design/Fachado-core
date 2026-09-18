@@ -117,11 +117,11 @@
       "Tres Cerros",
       "Tres Cerros",
       "obra_propia",
-      "¿ A DEFINIR ?",
+      "todo",
       "El arquitecto",
       "activa",
       "",
-      "FALTA: es la única obra sin tipo de servicio"
+      "Inversión propia. Se sigue como capital inmovilizado, no es consumo"
     ],
     [
       "Austral",
@@ -189,7 +189,7 @@
       "Materiales",
       "Maderas",
       "activo",
-      "Lo llama \"Lalo\""
+      "NO es «Lalo»: Lalo es Martínez Eduardo (reunión 3)"
     ],
     [
       "Abertex",
@@ -469,13 +469,14 @@
       "",
       "Materiales",
       "Maderas",
-      "activo"
+      "activo",
+      "NO es «Lalo»: Lalo es Martínez Eduardo (reunión 3)"
     ],
     [
       "Marcelo Maragaño",
       "",
-      "",
-      "",
+      "Mano de obra",
+      "Carpintero",
       "activo"
     ],
     [
@@ -698,7 +699,7 @@
       "Marcelo Maragaño",
       "",
       "Mano de obra",
-      "Contratistas",
+      "Carpintero",
       "activo",
       "Él escribe «Marcelo» y «Maragaño». Trabaja en obra y también en su casa"
     ],
@@ -745,10 +746,26 @@
     [
       "Marcela",
       "",
-      "",
-      "",
+      "Personal",
+      "Familia",
       "activo",
-      "A confirmar: «Marce» aparece en obra (Marce/Moreno) y en la casa (Marce/Casa)"
+      "La esposa. Gasto personal (contexto §7)"
+    ],
+    [
+      "Marcelo Orellana",
+      "",
+      "Mano de obra",
+      "Albañil",
+      "activo",
+      "Albañil. Él escribe «Marcelo» (contexto §7)"
+    ],
+    [
+      "Martínez Eduardo",
+      "",
+      "Materiales",
+      "Maderas",
+      "activo",
+      "Él escribe «Lalo». Es una maderera, distinta de Maderera Misiones"
     ]
   ],
   "RUBROS": [
@@ -1041,6 +1058,26 @@
       "Financiero",
       "Comisiones",
       "otro"
+    ],
+    [
+      "Mano de obra",
+      "Carpintero",
+      "obra"
+    ],
+    [
+      "Mano de obra",
+      "Albañil",
+      "obra"
+    ],
+    [
+      "Servicios de obra",
+      "Volteo de árboles",
+      "obra"
+    ],
+    [
+      "Servicios de obra",
+      "Contenciones y gaviones",
+      "obra"
     ]
   ],
   "CUENTAS": [
@@ -1264,6 +1301,46 @@
     [
       "Valen",
       "Valentin Campero",
+      "contratista"
+    ],
+    [
+      "marce",
+      "Marcelo Maragaño",
+      "contratista"
+    ],
+    [
+      "marce",
+      "Marcelo Orellana",
+      "contratista"
+    ],
+    [
+      "marcelo",
+      "Marcelo Orellana",
+      "contratista"
+    ],
+    [
+      "orellana",
+      "Marcelo Orellana",
+      "contratista"
+    ],
+    [
+      "lalo",
+      "Martínez Eduardo",
+      "contratista"
+    ],
+    [
+      "lalo martínez",
+      "Martínez Eduardo",
+      "contratista"
+    ],
+    [
+      "martinez eduardo",
+      "Martínez Eduardo",
+      "contratista"
+    ],
+    [
+      "maderera martínez",
+      "Martínez Eduardo",
       "contratista"
     ]
   ],

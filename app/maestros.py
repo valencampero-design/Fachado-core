@@ -69,12 +69,23 @@ class Rubro:
     afecta: str  # obra | estructura | personal | otro
 
 
+# Qué cuentas suman al saldo de caja del ESTUDIO (CONTEXTO-FACHADO.md §5.8, regla de oro).
+# `caja_obra` es plata del comitente en poder del arquitecto y `externa` es plata que el
+# comitente paga directo: las dos son de terceros. Sumarlas infla el saldo con plata ajena.
+TIPOS_CUENTA_FUERA_DEL_ESTUDIO = {"caja_obra", "externa"}
+
+
 @dataclass
 class Cuenta:
     nombre: str
-    tipo: str
+    tipo: str  # banco | efectivo | chequera | billetera | caja_obra | externa
     moneda: str
     concilia_contra_banco: bool
+
+    @property
+    def suma_al_saldo_del_estudio(self) -> bool:
+        """Falso para las cajas de obra: son un pasivo, no patrimonio del estudio."""
+        return self.tipo not in TIPOS_CUENTA_FUERA_DEL_ESTUDIO
 
 
 @dataclass
@@ -109,6 +120,11 @@ class Maestros:
     def cuenta(self, nombre: str | None) -> Cuenta | None:
         n = normalizar(nombre)
         return next((c for c in self.cuentas if normalizar(c.nombre) == n), None)
+
+    def cuentas_del_estudio(self) -> list[Cuenta]:
+        """Las que suman al saldo de caja del estudio. Cualquier cálculo de saldo sale de
+        acá: las cajas de obra y lo que paga el comitente quedan afuera (§5.8)."""
+        return [c for c in self.cuentas if c.suma_al_saldo_del_estudio]
 
 
 # ─── Parseo de filas crudas ────────────────────────────────────────────────────
@@ -181,9 +197,13 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
             advertencias.append(f"CONTRATISTAS: «{c.nombre}» tiene rubro habitual "
                                 f"«{c.rubro_1} / {c.rubro_2}» que no existe en RUBROS")
 
-    cuentas = [Cuenta(r.get("cuenta", ""), normalizar(r.get("tipo")), r.get("moneda", "ARS"),
+    cuentas = [Cuenta(r.get("cuenta", ""), normalizar(r.get("tipo")).replace(" ", "_"), r.get("moneda", "ARS"),
                       normalizar(r.get("concilia_contra_banco")) in ("si", "true", "verdadero"))
                for r in _registros(crudo.get("CUENTAS", [])) if r.get("cuenta")]
+    for c in cuentas:
+        if c.tipo == "caja_obra" and c.concilia_contra_banco:
+            advertencias.append(f"CUENTAS: «{c.nombre}» es una caja de obra y no puede conciliar "
+                                f"contra el banco: es plata del comitente, no del estudio")
 
     alias = [Alias(r.get("como_lo_dice", ""), r.get("valor_canonico", ""), normalizar(r.get("tipo")))
              for r in _registros(crudo.get("ALIAS", [])) if r.get("como_lo_dice")]

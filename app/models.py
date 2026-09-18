@@ -42,10 +42,17 @@ class Conflicto(BaseModel):
     detalle: str = ""
 
 
+# Por qué se pregunta. `apodo_ambiguo` y `dual` son preguntas de diseño —el maestro dice
+# que hay que preguntar—, no fallas del parser: el gateway puede mostrarlas distinto y la
+# métrica del corpus las cuenta aparte.
+MotivoPregunta = Literal["apodo_ambiguo", "dual", "conflicto", "falta_dato"]
+
+
 class Pregunta(BaseModel):
     campo: str
     texto: str
     opciones: list[str] = Field(default_factory=list)
+    motivo: MotivoPregunta = "falta_dato"
     ficha: int = 0  # índice de la ficha a la que aplica
 
 

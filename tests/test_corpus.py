@@ -169,8 +169,15 @@ def main() -> int:
     ambos_ok = [x for x in nuevos if sin_pregunta(x, {"obra", "clasificacion", "contratista"})]
     con_llm = [x for x in con_texto if usa_llm(x)]
     # Un contratista dual (R2) SIEMPRE pregunta: es el diseño, no una falla del parser.
-    duales = [x for x in nuevos if any(p["campo"] == "clasificacion" for p in x["respuesta"]["preguntas"])]
-    ambos_ok_sin_duales = [x for x in nuevos if x in ambos_ok or x in duales]
+    # Un dual y un apodo ambiguo preguntan porque el maestro dice que hay que preguntar:
+    # son diseño, no fallas del parser.
+    def deliberada(x):
+        return all(p["motivo"] in ("dual", "apodo_ambiguo")
+                   for p in x["respuesta"]["preguntas"] if p["campo"] in ("obra", "clasificacion", "contratista"))             and any(p["motivo"] in ("dual", "apodo_ambiguo") for p in x["respuesta"]["preguntas"])
+
+    duales = [x for x in nuevos if any(p["motivo"] == "dual" for p in x["respuesta"]["preguntas"])]
+    ambiguos = [x for x in nuevos if any(p["motivo"] == "apodo_ambiguo" for p in x["respuesta"]["preguntas"])]
+    ambos_ok_sin_duales = [x for x in nuevos if x in ambos_ok or deliberada(x)]
     n = len(nuevos)
 
     def pct(a):
@@ -197,8 +204,8 @@ def main() -> int:
     print(f"  Obra/destino resuelto sin preguntar:  {pct(obra_ok)}")
     print(f"  Contratista resuelto sin preguntar:   {pct(contr_ok)}")
     print(f"  Obra Y contratista sin preguntar:     {pct(ambos_ok)}")
-    print(f"  ídem, contando los duales como bien:  {pct(ambos_ok_sin_duales)}  "
-          f"({len(duales)} preguntan obra/personal porque el contratista está marcado DUAL)")
+    print(f"  ídem, con las preguntas de diseño:    {pct(ambos_ok_sin_duales)}  "
+          f"({len(duales)} duales + {len(ambiguos)} apodos ambiguos, que preguntan a propósito)")
     print(f"  Necesitaron LLM:                      {len(con_llm)}/{len(con_texto)}  "
           f"(solo diccionario: {len(con_texto) - len(con_llm)})")
     print(f"  Adjuntos sin texto (no se pueden imputar sin leer el comprobante): {len(solo_adjunto)}")

@@ -219,7 +219,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
                 campos[campo] = None
                 origen.pop(campo, None)
                 preguntas.append(Pregunta(campo=campo, texto=f"¿Cuál es {'el importe' if campo == 'importe' else 'la fecha'}?",
-                                          opciones=[fmt(valor_texto), fmt(valor_comp)]))
+                                          opciones=[fmt(valor_texto), fmt(valor_comp)], motivo="conflicto"))
             else:
                 poner(campo, valor_comp, "comprobante")
         poner("moneda", campos["moneda"] or comp.moneda, origen.get("moneda", "comprobante"))
@@ -239,7 +239,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
                 conflictos.append(Conflicto(campo="contratista", valor_texto=campos["contratista"], valor_comprobante=contr_comp,
                                             detalle=f"El texto dice «{campos['contratista']}» y el comprobante es a nombre de «{contr_comp}»"))
                 preguntas.append(Pregunta(campo="contratista", texto="¿A quién se le pagó?",
-                                          opciones=[campos["contratista"], contr_comp]))
+                                          opciones=[campos["contratista"], contr_comp], motivo="conflicto"))
             poner("contratista", contr_comp, "comprobante")
             factor *= FACTOR_METODO.get(metodo_comp, 1.0)
         if (campos["tipo"] == "INGRESO") and not campos["obra"]:
@@ -329,11 +329,12 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
 
     for r in seg.de("ambiguo"):
         cat = "obra" if any(o.startswith("obra") for o in r.opciones) else "contratista"
-        preguntas.append(Pregunta(campo=cat, texto=f"¿«{r.token}» es…?", opciones=[o.split(": ", 1)[1] for o in r.opciones]))
+        preguntas.append(Pregunta(campo=cat, texto=f"¿«{r.token}» es…?", motivo="apodo_ambiguo",
+                                  opciones=[o.split(": ", 1)[1] for o in r.opciones]))
 
     if res.preguntar == "clasificacion":
         preguntas.append(Pregunta(campo="clasificacion", texto=f"¿Lo de «{campos['contratista']}» es de obra o personal?",
-                                  opciones=["Obra", "Personal"]))
+                                  opciones=["Obra", "Personal"], motivo="dual"))
 
     pregunta_obra = not campos["obra"] and tipo != "TRASPASO" and res.clasificacion != "personal" \
         and res.preguntar != "clasificacion" and not any(p.campo == "obra" for p in preguntas)
@@ -341,7 +342,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         opciones = [o.nombre for o in m.obras if o.estado != "cerrada" and o.tipo in ("obra_terceros", "obra_propia")]
         preguntas.append(Pregunta(campo="obra", texto="¿A qué obra?", opciones=opciones[:MAX_OPCIONES]))
 
-    if tipo == "EGRESO" and not campos["contratista"] and res.clasificacion != "personal":
+    if tipo == "EGRESO" and not campos["contratista"] and res.clasificacion != "personal"             and not any(p.campo == "contratista" for p in preguntas):
         if sin_resolver:
             token = sin_resolver.pop(0)
             opciones = seg.candidatos.get(token) or resolver.candidatos(token, m, "contratista")

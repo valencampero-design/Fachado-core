@@ -10,6 +10,11 @@ en el proyecto de Claude de A&C y baja acá.
 falta y pedí que se actualice el contexto primero. Una regla implementada y no escrita es una
 regla que nadie va a poder explicar en dos meses.
 
+Esto vale también para la documentación: **`docs/handoff-fachado-core.md` es el estado técnico
+del repo** —qué está hecho, qué falta, cómo se corre, qué variables hacen falta— y **no repite
+las reglas de negocio**, solo dice en qué módulo vive cada una. Duplicarlas es lo que hizo que
+el handoff terminara afirmando cosas falsas: cada sesión aprendía algo que las otras no veían.
+
 ## Qué es este repo
 
 El **motor de imputación de Fachado**. Sabe de obras, contratistas, rubros y conciliación, y
@@ -30,8 +35,13 @@ python -m tests.test_corpus            # diccionario + LLM
 python -m tests.test_corpus --sin-llm  # solo diccionario
 ```
 
-**Que ese porcentaje suba es el trabajo de las próximas semanas.** Al 17/09: 82 % de obras,
-98 % de contratistas, 80 % las dos cosas, con solo 10 de 55 mensajes usando LLM.
+**Que ese porcentaje suba es el trabajo de las próximas semanas.** Al 18/09: 84 % de obras,
+84 % de contratistas, **92 % contando las preguntas de diseño** —un apodo ambiguo o un
+contratista dual preguntan porque el maestro dice que hay que preguntar—, con 9 de 55 mensajes
+usando LLM.
+
+`python -m tests.test_reglas` es el otro test: no mide, verifica que lo que el motor resuelve
+sea lo que el negocio decidió. Correr los dos.
 
 Corre contra `tests/maestros_snapshot.json` para que sea reproducible. Si cambia la métrica es
 por código, o porque se regeneró el snapshot a propósito.
@@ -73,5 +83,7 @@ RUBROS son casos esperados, no excepciones.
 
 ## Los secretos
 
-Solo en variables de entorno de Railway. El refresh token del gateway **no sirve acá**: tiene
-scope `drive.file` y este repo necesita además `spreadsheets.readonly`.
+Solo en variables de entorno de Railway. Cada API va con la credencial que le corresponde:
+**Sheets con la service account** del gateway (el Sheet está compartido con ella) y **Drive con
+OAuth de usuario**, porque `drive.file` solo alcanza a los archivos que subió esa misma app.
+El detalle de por qué, en `docs/handoff-fachado-core.md` §5.
