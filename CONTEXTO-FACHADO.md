@@ -4,10 +4,11 @@
 que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico en los tres:
 
 - el proyecto de Claude de A&C (fuente, se edita ahí),
-- `chatbot-contable/CONTEXTO-FACHADO.md`,
-- `fachado-core/CONTEXTO-FACHADO.md`.
+- `fachado-core/CONTEXTO-FACHADO.md` — ese repo es solo de Fachado, va en la raíz,
+- `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
+  clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.1 · 18 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.3 · 24 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -232,8 +233,27 @@ cobranza, queda para la etapa siguiente.
 
 ### 5.12 · Nada se escribe sin confirmación humana
 
-El bot propone, el arquitecto confirma con un botón. La ficha muestra **de dónde salió cada
+El bot propone, un usuario confirma con un botón. La ficha muestra **de dónde salió cada
 dato** —del comprobante, del texto, del maestro— porque es lo que hace que confíe.
+
+### 5.13 · El bot tiene más de un usuario
+
+*Definido el 24/09.* **Petrus se reincorpora como colaborador del estudio y gran parte de la
+administración va a pasar por él, a través del bot.** Hasta acá todo el diseño asumía un
+único usuario; eso se termina.
+
+- Los usuarios viven en una hoja **`USUARIOS`** del maestro: `telefono · nombre · rol ·
+  activo`. Un teléfono que no está ahí **nunca escribe en el libro**.
+- **`cargado_por` es la persona que cargó**, no «bot». Con dos usuarios es el dato de
+  auditoría más importante del libro.
+- **El gateway tiene que mapear varios teléfonos a un mismo cliente.** Hoy el modelo es un
+  teléfono = un perfil.
+- **El corpus es 100 % del arquitecto.** Cómo escribe Petrus no se sabe: la métrica del
+  parser se mide por usuario.
+- **Sin definir** —y no se implementa hasta que esté escrito acá—: qué puede confirmar
+  Petrus solo y qué necesita aprobación del arquitecto; si Petrus ve y carga el circuito
+  personal del arquitecto; y si Petrus va a manejar efectivo. Están en el registro de
+  preguntas (`P-19` a `P-22`).
 
 ---
 
@@ -269,7 +289,8 @@ plata ahí, solo cobra honorarios.
 
 | Quién | Qué es |
 |---|---|
-| **Gabriel Fachado** | El arquitecto. El único que escribe al bot |
+| **Gabriel Fachado** | El arquitecto. Titular: escribe al bot y decide |
+| **Petrus** | Colaborador del estudio. **Se reincorpora en septiembre de 2026** y va a manejar gran parte de la administración por el bot. Ya trabajó en el estudio: en el histórico figura en 106 pagos, casi todos en efectivo por cuenta del estudio |
 | **Sofía Cervera · Juan Manuel** | Sus hijos. **Duales**: a veces contratistas, a veces gasto personal |
 | **Valentín Campero** | A&C. Honorarios de consultoría → `estructura`, imputados a Austral |
 | **Miguel Soto** | Cobra también con el CUIT de **Alexis Matamala**. Para el estudio es el mismo proveedor |
