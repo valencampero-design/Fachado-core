@@ -69,6 +69,56 @@ class Ficha(BaseModel):
     extras: dict[str, Any] = Field(default_factory=dict)
 
 
+class AliasPropuesto(BaseModel):
+    como_lo_dice: str = Field(min_length=1)
+    valor_canonico: str = Field(min_length=1)
+    tipo: str = "contratista"
+
+
+class FichaConfirmada(BaseModel):
+    """La ficha tal como salió de /interpretar, con lo que el usuario corrigió."""
+    campos: dict[str, Any]
+    extras: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConfirmarIn(BaseModel):
+    msg_id: str = Field(min_length=1)  # wamid del mensaje que se confirma, no el del botón
+    telefono: str = Field(min_length=1)
+    ficha: FichaConfirmada
+    # Un mensaje puede traer dos movimientos (dos fichas) con el mismo msg_id: el índice es
+    # parte de la clave de idempotencia, o el segundo se tomaría por un reintento del primero.
+    ficha_indice: int = Field(0, ge=0)
+    alias_propuesto: AliasPropuesto | None = None
+
+
+class CajaObra(BaseModel):
+    ingresado: float
+    pagado: float
+    por_rendir: float  # si da negativo, el arquitecto puso plata propia (§5.8)
+
+
+class SaldoObra(BaseModel):
+    """El saldo de la obra solo cuenta la plata del estudio. Lo que pagó el comitente directo
+    se informa aparte y no lo mueve: si no, Lennon parecería financiado por el estudio."""
+    nombre: str
+    adelantado: float
+    pagado_con_plata_del_estudio: float
+    pagado_por_el_comitente: float
+    saldo: float
+    caja_obra: CajaObra | None = None
+
+
+class ConfirmarOut(BaseModel):
+    id_mov: str
+    fila: int
+    comprobante_url: str | None = None
+    obra: SaldoObra | None = None
+    alias_escrito: bool = False
+    ya_existia: bool = False  # el msg_id ya estaba: se devuelve la fila que había
+    cargado_por: str
+    advertencias: list[str] = Field(default_factory=list)
+
+
 class InterpretarOut(BaseModel):
     fichas: list[Ficha]
     preguntas: list[Pregunta] = Field(default_factory=list)

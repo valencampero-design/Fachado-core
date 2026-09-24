@@ -40,8 +40,12 @@ python -m tests.test_corpus --sin-llm  # solo diccionario
 contratista dual preguntan porque el maestro dice que hay que preguntar—, con 9 de 55 mensajes
 usando LLM.
 
+La métrica sale también **por usuario**: el corpus es 100 % del titular y cómo escribe Petrus
+no se sabe todavía. No mezclar los números de los dos.
+
 `python -m tests.test_reglas` es el otro test: no mide, verifica que lo que el motor resuelve
-sea lo que el negocio decidió. Correr los dos.
+sea lo que el negocio decidió. Y `python -m tests.test_confirmar` prueba la escritura. Correr
+los tres.
 
 Corre contra `tests/maestros_snapshot.json` para que sea reproducible. Si cambia la métrica es
 por código, o porque se regeneró el snapshot a propósito.
@@ -54,7 +58,18 @@ test.** Si el número baja, el cambio está mal aunque el caso puntual funcione.
 - **Sin base de datos.** La fuente de verdad es el Google Sheet.
 - **Sin estado entre requests.** Ni sesiones ni caché de conversación. Los maestros sí se
   cachean con TTL.
-- **`/interpretar` nunca escribe nada.** Es una función pura sobre los maestros.
+- **`/interpretar` nunca escribe nada.** Es una función pura sobre los maestros. Solo
+  `/confirmar` escribe, y solo con la confirmación de un usuario.
+- **Los tests nunca escriben en el libro real.** MOVIMIENTOS es append-only: una fila de
+  prueba no se borra. `test_confirmar` usa un libro en memoria; para eso existen los puertos
+  `Libro` y `Archivador`.
+- **Una fila se escribe entera o no se escribe.** Se arma y valida en memoria antes de tocar el
+  Sheet. Idempotencia por `msg_id`, cálculo del `id_mov` y escritura van bajo el mismo lock: no
+  separarlos.
+- **Un teléfono que no está en USUARIOS no escribe.** Ningún teléfono va escrito en el código:
+  salen de USUARIOS.
+- **Cualquier saldo del estudio sale de `Maestros.cuentas_del_estudio()`**, que es una lista
+  blanca: las cajas de obra y lo que paga el comitente son plata de terceros.
 - **Primero el diccionario, después el LLM.** Exacto → CUIT → palabra única → difuso (≥ 88) →
   LLM solo para lo que quedó.
 - **El LLM solo puede devolver valores que existen en los maestros.** Lo que inventa se descarta.
@@ -72,7 +87,8 @@ lado de cada dato en la ficha de confirmación. **No lo saques**: es lo que hace
 confíe en lo que ve.
 
 `fichas` es una lista. Casi siempre trae un elemento, pero un mensaje puede traer dos
-movimientos.
+movimientos. Por eso la clave de idempotencia de `/confirmar` es `msg_id` **más**
+`ficha_indice`, y el `msg_id` es el del mensaje original, no el del botón que lo confirma.
 
 ## Hallazgos sobre el Sheet
 
@@ -84,6 +100,7 @@ RUBROS son casos esperados, no excepciones.
 ## Los secretos
 
 Solo en variables de entorno de Railway. Cada API va con la credencial que le corresponde:
-**Sheets con la service account** del gateway (el Sheet está compartido con ella) y **Drive con
-OAuth de usuario**, porque `drive.file` solo alcanza a los archivos que subió esa misma app.
-El detalle de por qué, en `docs/handoff-fachado-core.md` §5.
+**Sheets con la service account** del gateway (el Sheet está compartido con ella como
+**Editor**, y el scope es de escritura) y **Drive con OAuth de usuario**, porque `drive.file`
+solo alcanza a los archivos y carpetas que creó esa misma app. El detalle de por qué, en
+`docs/handoff-fachado-core.md` §5.

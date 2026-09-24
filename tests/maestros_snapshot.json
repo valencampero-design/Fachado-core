@@ -1,7 +1,7 @@
 {
   "_meta": {
     "fuente": "1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A",
-    "tomado": "2026-09-17",
+    "tomado": "2026-09-24",
     "nota": "Copia literal de las hojas maestras. Se regenera con scripts/snapshot_maestros.py."
   },
   "OBRAS": [
@@ -1135,6 +1135,12 @@
       "no",
       "0,00",
       "No es plata del estudio. Impacta la cuenta corriente de la obra y NO la caja. Es el caso de Lennon"
+    ],
+    [
+      "caja_obra",
+      "Externa",
+      "ARS",
+      "no"
     ]
   ],
   "ALIAS": [
@@ -1344,6 +1350,26 @@
       "contratista"
     ]
   ],
+  "USUARIOS": [
+    [
+      "telefono",
+      "nombre",
+      "rol",
+      "activo"
+    ],
+    [
+      "5492944341132",
+      "Gabriel Fachado",
+      "titular",
+      "sí"
+    ],
+    [
+      "",
+      "Petrus",
+      "colaborador",
+      "sí"
+    ]
+  ],
   "MOVIMIENTOS": [
     [
       "id_mov",
@@ -1371,7 +1397,9 @@
       "comprobante_url",
       "cargado_por",
       "ts",
-      "tipo_gasto"
+      "tipo_gasto",
+      "msg_id",
+      "certificado"
     ]
   ]
 }

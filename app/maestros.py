@@ -1,4 +1,4 @@
-"""Carga y cachea los maestros: OBRAS, CONTRATISTAS, RUBROS, CUENTAS, ALIAS.
+"""Carga y cachea los maestros: OBRAS, CONTRATISTAS, RUBROS, CUENTAS, ALIAS, USUARIOS.
 
 El motor lee el Sheet, no lo define. Las columnas se mapean por encabezado, no por
 posición, para que agregar una columna en la planilla no rompa nada.
@@ -17,7 +17,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-HOJAS = ["OBRAS", "CONTRATISTAS", "RUBROS", "CUENTAS", "ALIAS"]
+HOJAS = ["OBRAS", "CONTRATISTAS", "RUBROS", "CUENTAS", "ALIAS", "USUARIOS"]
 
 # Qué clase de cosa nombra un alias. NO es la clasificación del gasto: para decir «esta
 # palabra significa personal» va tipo = tipo con valor_canonico = Personal (así están
@@ -37,6 +37,24 @@ def normalizar(texto: str | None) -> str:
 
 def solo_digitos(texto: str | None) -> str:
     return re.sub(r"\D", "", texto or "")
+
+
+def numero(valor) -> float:
+    """Un número del Sheet: ya numérico (lectura sin formato) o texto argentino
+    («4.032.391,70», «$ 300.000»). Vacío es cero."""
+    if isinstance(valor, (int, float)):
+        return float(valor)
+    texto = re.sub(r"[^\d,.\-]", "", str(valor or ""))
+    if not texto:
+        return 0.0
+    if "," in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"-?\d{1,3}(\.\d{3})+", texto):
+        texto = texto.replace(".", "")  # «300.000» son trescientos mil, no trescientos
+    try:
+        return float(texto)
+    except ValueError:
+        return 0.0
 
 
 @dataclass
@@ -69,10 +87,15 @@ class Rubro:
     afecta: str  # obra | estructura | personal | otro
 
 
-# Qué cuentas suman al saldo de caja del ESTUDIO (CONTEXTO-FACHADO.md §5.8, regla de oro).
+# Qué cuentas suman al saldo de caja del ESTUDIO (CONTEXTO-FACHADO.md §5.8, regla de oro:
+# «suma Banco, Banco USD, Efectivo, Chequera y Mercado Pago»). Es una lista blanca a
+# propósito: un tipo mal cargado en el Sheet queda AFUERA del saldo, no adentro. Sumar de
+# más infla el saldo con plata ajena, que es el error que el sistema viene a evitar.
+TIPOS_CUENTA_DEL_ESTUDIO = {"banco", "efectivo", "chequera", "billetera"}
 # `caja_obra` es plata del comitente en poder del arquitecto y `externa` es plata que el
-# comitente paga directo: las dos son de terceros. Sumarlas infla el saldo con plata ajena.
+# comitente paga directo: las dos son de terceros.
 TIPOS_CUENTA_FUERA_DEL_ESTUDIO = {"caja_obra", "externa"}
+TIPOS_CUENTA = TIPOS_CUENTA_DEL_ESTUDIO | TIPOS_CUENTA_FUERA_DEL_ESTUDIO
 
 
 @dataclass
@@ -81,11 +104,13 @@ class Cuenta:
     tipo: str  # banco | efectivo | chequera | billetera | caja_obra | externa
     moneda: str
     concilia_contra_banco: bool
+    saldo_apertura: float = 0.0
 
     @property
     def suma_al_saldo_del_estudio(self) -> bool:
-        """Falso para las cajas de obra: son un pasivo, no patrimonio del estudio."""
-        return self.tipo not in TIPOS_CUENTA_FUERA_DEL_ESTUDIO
+        """Falso para las cajas de obra (un pasivo, no patrimonio) y para cualquier tipo
+        que no sea uno de los del estudio."""
+        return self.tipo in TIPOS_CUENTA_DEL_ESTUDIO
 
 
 @dataclass
@@ -96,14 +121,31 @@ class Alias:
 
 
 @dataclass
+class Usuario:
+    """Quien le escribe al bot (CONTEXTO-FACHADO.md §5.13). Un teléfono que no está en
+    USUARIOS nunca escribe en el libro. El `rol` se lee y queda disponible, pero todavía no
+    decide nada: los permisos por rol están sin definir."""
+    telefono: str  # solo dígitos, como llega de WhatsApp
+    nombre: str
+    rol: str       # titular | colaborador
+    activo: bool
+
+
+@dataclass
 class Maestros:
     obras: list[Obra]
     contratistas: list[Contratista]
     rubros: list[Rubro]
     cuentas: list[Cuenta]
     alias: list[Alias]
+    usuarios: list[Usuario] = field(default_factory=list)
     cargado_en: float = field(default_factory=time.time)
     advertencias: list[str] = field(default_factory=list)
+
+    def usuario(self, telefono: str | None) -> Usuario | None:
+        """El usuario activo con ese teléfono, o None."""
+        digitos = solo_digitos(telefono)
+        return next((u for u in self.usuarios if u.activo and digitos and u.telefono == digitos), None)
 
     def obra(self, nombre: str | None) -> Obra | None:
         n = normalizar(nombre)
@@ -198,9 +240,16 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
                                 f"«{c.rubro_1} / {c.rubro_2}» que no existe en RUBROS")
 
     cuentas = [Cuenta(r.get("cuenta", ""), normalizar(r.get("tipo")).replace(" ", "_"), r.get("moneda", "ARS"),
-                      normalizar(r.get("concilia_contra_banco")) in ("si", "true", "verdadero"))
+                      normalizar(r.get("concilia_contra_banco")) in ("si", "true", "verdadero"),
+                      numero(r.get("saldo_apertura")))
                for r in _registros(crudo.get("CUENTAS", [])) if r.get("cuenta")]
     for c in cuentas:
+        if c.tipo not in TIPOS_CUENTA:
+            advertencias.append(f"CUENTAS: «{c.nombre}» tiene tipo «{c.tipo}», que no existe "
+                                f"({', '.join(sorted(TIPOS_CUENTA))}). No suma al saldo del estudio")
+        if normalizar(c.nombre).replace(" ", "_") in TIPOS_CUENTA_FUERA_DEL_ESTUDIO:
+            advertencias.append(f"CUENTAS: hay una cuenta llamada «{c.nombre}», que es un tipo, no un nombre. "
+                                f"Una caja de obra va una fila por obra («Caja obra Moreno») con tipo caja_obra")
         if c.tipo == "caja_obra" and c.concilia_contra_banco:
             advertencias.append(f"CUENTAS: «{c.nombre}» es una caja de obra y no puede conciliar "
                                 f"contra el banco: es plata del comitente, no del estudio")
@@ -227,7 +276,21 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
         if a.tipo == "obra" and not any(normalizar(o.nombre) == normalizar(a.valor_canonico) for o in obras):
             advertencias.append(f"ALIAS: «{a.como_lo_dice}» apunta a la obra «{a.valor_canonico}», que no está en OBRAS")
 
-    return Maestros(obras, contratistas, rubros, cuentas, alias, advertencias=advertencias)
+    usuarios: list[Usuario] = []
+    for r in _registros(crudo.get("USUARIOS", [])):
+        nombre, telefono = r.get("nombre", ""), solo_digitos(r.get("telefono"))
+        if not nombre:
+            continue
+        if not telefono:
+            advertencias.append(f"USUARIOS: «{nombre}» no tiene teléfono: no puede confirmar nada")
+        elif any(u.telefono == telefono for u in usuarios):
+            advertencias.append(f"USUARIOS: el teléfono de «{nombre}» está repetido")
+        usuarios.append(Usuario(telefono, nombre, normalizar(r.get("rol")),
+                                normalizar(r.get("activo")) in ("si", "true", "verdadero", "1", "x")))
+    if not usuarios:
+        advertencias.append("USUARIOS: la hoja está vacía o no existe: nadie puede confirmar")
+
+    return Maestros(obras, contratistas, rubros, cuentas, alias, usuarios, advertencias=advertencias)
 
 
 # ─── Carga con caché ───────────────────────────────────────────────────────────
@@ -245,6 +308,14 @@ def _leer_crudo() -> dict[str, list[list[str]]]:
         raise RuntimeError("Falta FACHADO_SHEET_ID (o MAESTROS_SNAPSHOT para correr offline)")
     from app import sheets
     return sheets.leer_hojas(s.sheet_id, [f"{h}!A:Z" for h in HOJAS])
+
+
+def invalidar() -> None:
+    """Descarta la caché: la próxima lectura va al Sheet. Después de escribir un alias, o no
+    se ve hasta que venza el TTL."""
+    global _cache
+    with _lock:
+        _cache = None
 
 
 def cargar(forzar: bool = False) -> Maestros:

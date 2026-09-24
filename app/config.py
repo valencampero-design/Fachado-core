@@ -46,6 +46,11 @@ class Settings:
     # Lectura de adjuntos (descarga de Drive + PDF + visión)
     leer_adjuntos: bool = field(default_factory=lambda: _bool("LEER_ADJUNTOS", True))
 
+    # Carpeta raíz «comprobantes» en Drive, adonde /confirmar mueve cada adjunto. Tiene que
+    # haberla creado esta app OAuth: `drive.file` no ve carpetas creadas a mano. Si está
+    # vacía, el motor la crea en la raíz del Drive la primera vez y avisa el id.
+    drive_carpeta_comprobantes_id: str = field(default_factory=lambda: os.getenv("DRIVE_CARPETA_COMPROBANTES_ID", ""))
+
     # Zona horaria del cliente para fechar mensajes (Argentina no tiene horario de verano)
     utc_offset_horas: int = field(default_factory=lambda: int(os.getenv("UTC_OFFSET_HORAS", "-3")))
 

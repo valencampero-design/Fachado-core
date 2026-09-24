@@ -18,10 +18,15 @@ cp .env.example .env    # completar
 |---|---|
 | `GET /salud` | sin auth |
 | `POST /interpretar` | texto + adjuntos → `{fichas, preguntas, diagnostico}`. Nunca escribe nada |
+| `POST /confirmar` | ficha confirmada → fila en MOVIMIENTOS, comprobante a su carpeta, alias. Idempotente por `msg_id` |
 | `POST /maestros/recargar` | fuerza la relectura del Sheet |
-| `POST /confirmar`, `/consultar` | 501, fase 2 |
+| `POST /consultar` | 501, pendiente |
 
-Todos menos `/salud` piden `X-API-Key: $MOTOR_API_KEY`.
+Todos menos `/salud` piden `X-API-Key: $MOTOR_API_KEY`. El contrato completo está en
+`docs/handoff-fachado-core.md` §2.
+
+Antes del primer `/confirmar` contra un Sheet nuevo: `python scripts/preparar_sheet.py`
+(agrega las columnas y la hoja USUARIOS; es idempotente).
 
 ## Cómo interpreta
 
@@ -39,6 +44,8 @@ Todos menos `/salud` piden `X-API-Key: $MOTOR_API_KEY`.
 ```bash
 python -m tests.test_corpus            # diccionario + LLM (necesita ANTHROPIC_API_KEY)
 python -m tests.test_corpus --sin-llm  # solo diccionario
+python -m tests.test_reglas            # las reglas de negocio
+python -m tests.test_confirmar         # la escritura, contra un libro en memoria
 ```
 
 Corre los mensajes reales de `tests/corpus.csv` contra `tests/maestros_snapshot.json` y

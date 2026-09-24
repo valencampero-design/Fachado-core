@@ -1,6 +1,8 @@
 """fachado-core: el motor de imputación de Fachado.
 
-API HTTP sin estado. No sabe nada de WhatsApp: el gateway conversa, el motor interpreta.
+API HTTP sin estado. No sabe nada de WhatsApp: el gateway conversa, el motor interpreta y,
+cuando un usuario confirma, escribe. `/interpretar` nunca escribe: esa separación es lo que
+permite probar el parser sin ensuciar el libro.
 """
 import hmac
 import logging
@@ -8,9 +10,12 @@ import logging
 from fastapi import Depends, FastAPI, Header, HTTPException
 
 from app import maestros
+from app.archivo import Archivador, ArchivadorDrive
 from app.config import settings
+from app.confirmar import ErrorConfirmar, confirmar
 from app.interpretar import interpretar
-from app.models import InterpretarIn, InterpretarOut
+from app.libro import Libro, LibroSheets
+from app.models import ConfirmarIn, ConfirmarOut, InterpretarIn, InterpretarOut
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -42,19 +47,36 @@ def post_recargar_maestros() -> dict:
     """Fuerza la relectura del Sheet (por ejemplo, después de cargar un alias nuevo)."""
     m = maestros.cargar(forzar=True)
     return {"obras": len(m.obras), "contratistas": len(m.contratistas), "rubros": len(m.rubros),
-            "cuentas": len(m.cuentas), "alias": len(m.alias), "advertencias": m.advertencias}
+            "cuentas": len(m.cuentas), "alias": len(m.alias), "usuarios": len(m.usuarios),
+            "advertencias": m.advertencias}
 
 
-# ─── Pendientes (fase 2) ───────────────────────────────────────────────────────
-# POST /confirmar   recibe la ficha confirmada por el usuario, asigna id_mov, appendea a
-#                   MOVIMIENTOS, mueve el adjunto a la carpeta de la obra y, si hubo
-#                   alias_propuesto confirmado, lo agrega a ALIAS.
-# POST /consultar   saldos y cuentas corrientes por obra.
+# Uno solo por proceso: el archivador recuerda la carpeta raíz de Drive.
+_archivador = ArchivadorDrive()
+
+
+def obtener_libro() -> Libro:
+    return LibroSheets()
+
+
+def obtener_archivador() -> Archivador:
+    return _archivador
+
+
+@app.post("/confirmar", response_model=ConfirmarOut, dependencies=[Depends(verificar_api_key)])
+async def post_confirmar(req: ConfirmarIn, libro: Libro = Depends(obtener_libro),
+                         archivador: Archivador = Depends(obtener_archivador)) -> ConfirmarOut:
+    # `async def`: el lock del id_mov es un asyncio.Lock. Todo lo bloqueante (Sheets, Drive)
+    # corre en threads adentro de `confirmar`.
+    try:
+        return await confirmar(req, libro, archivador)
+    except ErrorConfirmar as e:
+        raise HTTPException(status_code=e.status, detail={"campo": e.campo, "detalle": e.detalle})
+
+
+# ─── Pendientes ────────────────────────────────────────────────────────────────
+# POST /consultar   saldos y cuentas corrientes por obra (app/saldos.py ya los calcula).
 # POST /conciliar   cruce BANCO_RAW ↔ MOVIMIENTOS.
-
-@app.post("/confirmar", dependencies=[Depends(verificar_api_key)], status_code=501)
-def post_confirmar() -> dict:
-    raise HTTPException(status_code=501, detail="Todavía no implementado")
 
 
 @app.post("/consultar", dependencies=[Depends(verificar_api_key)], status_code=501)

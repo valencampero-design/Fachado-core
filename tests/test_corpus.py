@@ -5,7 +5,10 @@
     python -m tests.test_corpus --sheet         # maestros del Sheet real (requiere OAuth)
     python -m tests.test_corpus --url http://localhost:8000   # contra un motor corriendo
 
-Métrica del proyecto: % de mensajes que resuelven obra y contratista sin preguntar.
+Métrica del proyecto: % de mensajes que resuelven obra y contratista sin preguntar, en total
+y **por usuario** (CONTEXTO-FACHADO.md §5.13: el corpus es del arquitecto; cómo escribe Petrus
+no se sabe todavía). Si el CSV trae una columna `telefono`, cada fila se atribuye a ese
+usuario; si no, al titular de USUARIOS. El teléfono nunca está escrito en el código.
 
 El corpus es la hoja CAPTURA: una fila por evento de WhatsApp. Un texto y sus adjuntos
 llegan como filas separadas, a veces el adjunto ANTES que el texto. Acá se reagrupan en
@@ -34,19 +37,30 @@ class Mensaje:
     adjuntos: list[dict] = field(default_factory=list)
     es_correccion: bool = False
     filas: list[int] = field(default_factory=list)
+    telefono: str = ""
 
 
-def agrupar(filas: list[dict]) -> list[Mensaje]:
+def agrupar(filas: list[dict], telefono_por_defecto: str) -> list[Mensaje]:
+    """Agrupa por usuario: el adjunto de uno nunca se pega al texto de otro, y una corrección
+    corrige el mensaje anterior de la misma persona."""
+    por_usuario: dict[str, list[tuple[int, dict]]] = {}
+    for i, f in enumerate(filas, start=2):
+        por_usuario.setdefault((f.get("telefono") or "").strip() or telefono_por_defecto, []).append((i, f))
+    mensajes = [msg for tel, suyas in por_usuario.items() for msg in _agrupar_uno(suyas, tel)]
+    return sorted(mensajes, key=lambda m: m.ts)
+
+
+def _agrupar_uno(filas: list[tuple[int, dict]], telefono: str) -> list[Mensaje]:
     mensajes: list[Mensaje] = []
     sueltos: list[tuple[int, datetime, dict]] = []
-    for i, f in enumerate(filas, start=2):
+    for i, f in filas:
         if f["tipo"] == "unsupported":
             continue
         ts = datetime.fromisoformat(f["timestamp_utc"])
         texto = (f["texto"] or f["caption"] or f["transcripcion"] or "").strip()
         adjunto = {"url": f["archivo_url"], "mime": f["mime"]} if f["tipo"] in ("image", "document", "audio") else None
         if texto:
-            mensajes.append(Mensaje(ts, texto, [adjunto] if adjunto else [], filas=[i]))
+            mensajes.append(Mensaje(ts, texto, [adjunto] if adjunto else [], filas=[i], telefono=telefono))
         elif adjunto:
             sueltos.append((i, ts, adjunto))
 
@@ -75,8 +89,8 @@ def agrupar(filas: list[dict]) -> list[Mensaje]:
             m.adjuntos.append(adjunto)
             m.filas.append(i)
         else:
-            mensajes.append(Mensaje(ts, "", [adjunto], filas=[i]))
-    return sorted(mensajes, key=lambda m: m.ts)
+            mensajes.append(Mensaje(ts, "", [adjunto], filas=[i], telefono=telefono))
+    return mensajes
 
 
 # ─── Casos que tienen que pasar ────────────────────────────────────────────────
@@ -132,26 +146,34 @@ def main() -> int:
         cliente = TestClient(app)
     headers = {"X-API-Key": os.environ["MOTOR_API_KEY"]}
 
+    from app import maestros
+    m = maestros.cargar()
+    titular = next((u for u in m.usuarios if u.rol == "titular"), None)
+    if titular is None:
+        print("No hay titular en USUARIOS: no se sabe a quién atribuir el corpus")
+        return 1
+    nombres = {u.telefono: u.nombre for u in m.usuarios}
+
     with open(RAIZ / "corpus.csv", encoding="utf-8") as f:
         filas = list(csv.DictReader(f))
-    mensajes = agrupar(filas)
+    mensajes = agrupar(filas, titular.telefono)
 
     resultados = []
-    previa = None
+    previa: dict[str, dict] = {}  # la última ficha de cada usuario
     for msg in mensajes:
         cuerpo = {
-            "telefono": "5492944341132",
+            "telefono": msg.telefono,
             "texto": msg.texto,
             "adjuntos": msg.adjuntos,
             "fecha_mensaje": msg.ts.isoformat(),
-            "contexto_previo": previa if msg.es_correccion else None,
+            "contexto_previo": previa.get(msg.telefono) if msg.es_correccion else None,
         }
         resp = cliente.post("/interpretar", json=cuerpo, headers=headers)
         resp.raise_for_status()
         r = resp.json()
         resultados.append({"mensaje": msg, "respuesta": r})
         if msg.texto:
-            previa = r["fichas"][0]
+            previa[msg.telefono] = r["fichas"][0]
 
     # ── Métricas ───────────────────────────────────────────────────────────────
     con_texto = [x for x in resultados if x["mensaje"].texto]
@@ -164,23 +186,32 @@ def main() -> int:
     def usa_llm(x):
         return x["respuesta"]["diagnostico"].get("uso_llm")
 
-    obra_ok = [x for x in nuevos if sin_pregunta(x, {"obra", "clasificacion"})]
-    contr_ok = [x for x in nuevos if sin_pregunta(x, {"contratista"})]
-    ambos_ok = [x for x in nuevos if sin_pregunta(x, {"obra", "clasificacion", "contratista"})]
-    con_llm = [x for x in con_texto if usa_llm(x)]
-    # Un contratista dual (R2) SIEMPRE pregunta: es el diseño, no una falla del parser.
     # Un dual y un apodo ambiguo preguntan porque el maestro dice que hay que preguntar:
     # son diseño, no fallas del parser.
     def deliberada(x):
-        return all(p["motivo"] in ("dual", "apodo_ambiguo")
-                   for p in x["respuesta"]["preguntas"] if p["campo"] in ("obra", "clasificacion", "contratista"))             and any(p["motivo"] in ("dual", "apodo_ambiguo") for p in x["respuesta"]["preguntas"])
+        preguntas = x["respuesta"]["preguntas"]
+        de_imputacion = [p for p in preguntas if p["campo"] in ("obra", "clasificacion", "contratista")]
+        return bool(de_imputacion) and all(p["motivo"] in ("dual", "apodo_ambiguo") for p in de_imputacion)
 
-    duales = [x for x in nuevos if any(p["motivo"] == "dual" for p in x["respuesta"]["preguntas"])]
-    ambiguos = [x for x in nuevos if any(p["motivo"] == "apodo_ambiguo" for p in x["respuesta"]["preguntas"])]
-    ambos_ok_sin_duales = [x for x in nuevos if x in ambos_ok or deliberada(x)]
-    n = len(nuevos)
+    def medir(nuevos: list) -> dict:
+        ambos = [x for x in nuevos if sin_pregunta(x, {"obra", "clasificacion", "contratista"})]
+        return {
+            "n": len(nuevos),
+            "obra": [x for x in nuevos if sin_pregunta(x, {"obra", "clasificacion"})],
+            "contratista": [x for x in nuevos if sin_pregunta(x, {"contratista"})],
+            "ambos": ambos,
+            "diseno": [x for x in nuevos if x in ambos or deliberada(x)],
+            "duales": [x for x in nuevos if any(p["motivo"] == "dual" for p in x["respuesta"]["preguntas"])],
+            "ambiguos": [x for x in nuevos if any(p["motivo"] == "apodo_ambiguo" for p in x["respuesta"]["preguntas"])],
+        }
 
-    def pct(a):
+    total = medir(nuevos)
+    obra_ok, contr_ok, ambos_ok = total["obra"], total["contratista"], total["ambos"]
+    ambos_ok_sin_duales, duales, ambiguos = total["diseno"], total["duales"], total["ambiguos"]
+    con_llm = [x for x in con_texto if usa_llm(x)]
+    n = total["n"]
+
+    def pct(a, n=n):
         return f"{len(a)}/{n} ({100 * len(a) / n:.0f}%)" if n else "0/0"
 
     modo = "solo diccionario" if args.sin_llm else "diccionario + LLM"
@@ -209,6 +240,12 @@ def main() -> int:
     print(f"  Necesitaron LLM:                      {len(con_llm)}/{len(con_texto)}  "
           f"(solo diccionario: {len(con_texto) - len(con_llm)})")
     print(f"  Adjuntos sin texto (no se pueden imputar sin leer el comprobante): {len(solo_adjunto)}")
+
+    print("\nPor usuario (obra y contratista sin preguntar · con las preguntas de diseño):")
+    for tel in sorted({x["mensaje"].telefono for x in nuevos}):
+        suyos = medir([x for x in nuevos if x["mensaje"].telefono == tel])
+        print(f"  {nombres.get(tel, 'desconocido (' + tel + ')'):<22} {pct(suyos['ambos'], suyos['n']):<14} · "
+              f"{pct(suyos['diseno'], suyos['n'])}")
 
     fallas = [x for x in nuevos if x not in ambos_ok]
     if fallas:
