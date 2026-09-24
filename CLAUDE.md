@@ -97,6 +97,12 @@ solo**: lo resuelve lo mejor que puede y **deja una advertencia** en `/maestros/
 Alias que apuntan a nombres inexistentes, filas duplicadas y rubros habituales que no están en
 RUBROS son casos esperados, no excepciones.
 
+**Si el maestro contradice a `CONTEXTO-FACHADO.md`, se corrige el maestro** (decisión de
+Valentín, 24/09). Cómo: con un script que primero muestra el simulacro, citando en la nota de
+cada fila el punto del contexto que la justifica. **Nada se borra**: lo que deja de
+corresponder pasa a `inactivo`. Si la contradicción necesita un dato que el contexto no da
+—por ejemplo, qué obras tienen caja de obra—, no se inventa: se pregunta.
+
 ## Los secretos
 
 Solo en variables de entorno de Railway. Cada API va con la credencial que le corresponde:

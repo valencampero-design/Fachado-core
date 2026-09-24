@@ -15,16 +15,17 @@
 
 | | |
 |---|---|
-| ✅ Motor de fase 1 en producción | `https://web-production-6c935.up.railway.app` · `/salud` y `/interpretar` verificados |
-| ✅ GitHub | `valencampero-design/fachado-core`, rama `main` |
-| ✅ Lee el Sheet en vivo | Con la service account del gateway, compartida como Editor |
+| ✅ Motor en producción | `https://web-production-6c935.up.railway.app` · `/salud`, `/interpretar` y `/confirmar` desplegados |
+| ✅ GitHub | `valencampero-design/Fachado-core` (se renombró con mayúscula), rama `main` |
+| ✅ Lee y escribe el Sheet | Con la service account del gateway, compartida como Editor |
+| ✅ Lee los comprobantes | Token de Drive cargado en Railway. Verificado en producción: «Felipe J/Lennon» + su PDF da importe $300.000 y fecha 02/09 **desde el comprobante** |
+| ✅ App OAuth publicada | En producción: el token ya no vence a los 7 días. Solo falta la verificación de **marca**, que es cosmética (la pantalla de consentimiento dice «no verificada») y no hace falta |
 | ✅ Métrica del corpus | Obra 84 %, contratista 84 %, **92 % contando las preguntas de diseño**, 6/6 casos obligatorios (§4) |
-| ✅ Reglas de la reunión 3 | Aplicadas al Sheet y al código (§3), con `tests/test_reglas.py` que las verifica |
-| ✅ `/confirmar` | **Escribe en el libro** (§2), con idempotencia por `msg_id`, lock del `id_mov` y `tests/test_confirmar.py`. Probado contra un libro en memoria; **todavía no escribió ninguna fila real** |
-| ✅ Más de un usuario | Hoja `USUARIOS` creada; `cargado_por` sale de ahí. **Falta el teléfono de Petrus** |
-| ⏳ Deploy de `/confirmar` | El código está en `main` local, sin pushear. Railway sigue con la versión anterior |
-| ⏳ Token OAuth de Drive | Falta. Sin él no se leen los comprobantes ni se mueven al confirmar: las dos cosas degradan a advertencia, no a error |
-| ⏳ Publicar la app OAuth | Diferido a pedido del cliente. Mientras siga en «Prueba», el token de Drive caduca cada ~7 días |
+| ✅ `/confirmar` | Idempotencia por `msg_id`, lock del `id_mov`, `tests/test_confirmar.py`. Verificado en producción que un teléfono desconocido da 403. **Todavía no escribió ninguna fila real** |
+| ✅ Maestro alineado al contexto | Mercado Libre, Silla Cuádruple, Andina y Municipalidad corregidos el 24/09 (§8) |
+| ⏳ Primera fila real | Con un movimiento verdadero, antes de conectar el gateway |
+| ⏳ Petrus | Falta su teléfono en USUARIOS: lo asigna el arquitecto |
+| ⏳ Conectar el gateway | Es el paso que hace que el sistema exista para el arquitecto (§6) |
 | ⏳ `/consultar`, conciliación, IVA | No empezados (§7) |
 
 ## 1. Qué es este repo
@@ -319,17 +320,17 @@ etiqueta, y **el usuario manda mensajes repetidos** con un segundo de diferencia
 
 **Operativo**
 
-- [ ] Pushear y desplegar `/confirmar`. Antes de que el gateway lo llame, **la primera fila real
-      conviene escribirla con un movimiento verdadero y mirarla en el Sheet**: los tests corren
-      contra un libro en memoria.
+- [ ] **La primera fila real**, con un movimiento verdadero, mirándola en el Sheet antes de
+      que el gateway dependa de `/confirmar`: los tests corren contra un libro en memoria.
 - [ ] **Cargar el teléfono de Petrus en USUARIOS.** Hasta entonces no puede confirmar nada.
-- [ ] Generar el refresh token de Drive y cargarlo acá y en Railway. Sin él, los comprobantes
-      no se leen al interpretar ni se mueven al confirmar (queda advertencia). Después correr
-      `python -m tests.test_corpus --sheet --adjuntos`.
 - [ ] La primera vez que un `/confirmar` mueva un comprobante, el motor crea la carpeta
       «comprobantes» y devuelve su id en una advertencia: cargarlo en
-      `DRIVE_CARPETA_COMPROBANTES_ID`.
-- [ ] Publicar la app OAuth (diferido).
+      `DRIVE_CARPETA_COMPROBANTES_ID` en Railway.
+- [ ] Correr `python -m tests.test_corpus --sheet --adjuntos`: la métrica con los
+      comprobantes reales. Hoy la métrica se mide sin leerlos.
+- [ ] Revisar el token de Drive **del gateway**: si se generó cuando la app estaba en
+      «Prueba», vence cada 7 días aunque la app ya esté publicada. Si los adjuntos siguen
+      apareciendo con link en CAPTURA, está bien.
 - [ ] Cargar en `CUENTAS` una fila por obra administrada con `tipo = caja_obra` (contexto
       §5.8), y corregir la fila llamada «caja_obra» (§8).
 - [ ] Correr en Python 3.11 (local hay 3.14; Railway ya está fijado en 3.11).
@@ -345,6 +346,13 @@ etiqueta, y **el usuario manda mensajes repetidos** con un segundo de diferencia
       una corrección es un contraasiento o una fila que reemplaza a otra.
 - [ ] El lock del `id_mov` es de proceso: alcanza con un solo worker, que es como está
       desplegado. Si algún día se escala a más de una réplica, hay que moverlo.
+- [ ] **El resolver no mira `estado`**: un contratista inactivo se sigue reconociendo. Hoy
+      «Mercado Libre/Moreno» todavía lo toma como contratista, aunque el maestro ya lo marca
+      inactivo y el contexto §5.6 dice que va a `medio_pago`. Falta definir en el contexto qué
+      hace un inactivo y **dónde viven los medios de pago en el maestro** (hoy no hay hoja ni
+      tipo de alias para eso).
+- [ ] El número de operación viene en el nombre de algunos PDF del homebanking
+      (`13851988_LR92K2y581_1.pdf`) y el parser de texto no lo saca. Mejora chica.
 - [ ] Conciliación contra `BANCO_RAW`, que incluye **la regla de cruce de Mercado Libre**
       (contexto §5.6): cruzar por fecha e importe los comprobantes recibidos contra las líneas
       del extracto, y lo que no cruza queda como personal sin clasificar.
@@ -370,9 +378,9 @@ avisa hoy:
   se fusionan tomando los valores no vacíos de la última.
 - **Rubros habituales que no existen en RUBROS**: Contador Pasolli («Honorarios / Terceros») y
   Luis Pereyra («Pintura»).
-- **Alias que apuntan a nombres inexistentes**: `andina` → «Ferretería Andina» (la fila se
-  llama «Ferr. Andina») y `pinturería andina` → «Pinturería Andina» (es «Pint Andina»).
-  Renombrar las dos filas al nombre canónico del contexto §7 haría desaparecer el aviso.
+- **Alias que apunta a un nombre inexistente**: `pinturería andina` → «Pinturería Andina»,
+  pero la fila se llama «Pint Andina». El contexto §7 dice que la pinturería es otro comercio,
+  sin dar su nombre canónico: por eso no se renombró.
 - **Filas que no se aplican**: un alias con un `tipo` fuera de `contratista·obra·cuit·tipo`, o
   un contratista con `rubro_habitual_2` sin `rubro_habitual_1`.
 - **CUENTAS: una fila llamada «caja_obra» con tipo «Externa».** Parece el concepto cargado en
@@ -389,13 +397,22 @@ Pendientes de dato que **no** son del motor:
   $5,2 millones**. Si son honorarios, están bien. Hay que decidirlo; el libro es append-only y
   no se corrigió.
 - **Petrus figura en TERCEROS como `inactivo`** («106 pagos del histórico lo referencian»).
-  Si vuelve a pagar en efectivo por cuenta del estudio habría que reactivarlo, pero eso es la
-  P-22 del contexto, sin definir.
+  Valentín definió el 24/09 que Petrus tiene **las mismas atribuciones que el arquitecto**;
+  cuando eso esté escrito en el contexto (§5.13, P-19 a P-22), corresponde reactivarlo. En el
+  código no hace falta nada: el `rol` se lee pero no restringe.
 - **M-000001 y M-000002 tienen `cargado_por = bot`**, de antes de que existiera USUARIOS.
 
-- **Mercado Libre sigue cargado en CONTRATISTAS** y marcado DUAL, pero el contexto §5.6 dice
-  que es una pasarela, no un proveedor. Correspondería pasarlo a `inactivo` (nada se borra) y
-  dejarlo solo como `medio_pago`. **Falta confirmarlo.**
-- **Silla Cuádruple** figura como contratista con rubro `Personal / Club y deporte` («las
-  cuotas de esquí»), pero el contexto §7 dice que **no es un proveedor: es parte de la obra
-  Cerro Bayo**. Las dos cosas no pueden ser ciertas. **Falta resolverlo.**
+**Alineado al contexto el 24/09** (regla: si el maestro contradice al contexto, se corrige el
+maestro; nada se borra):
+
+- Mercado Libre → `inactivo` y deja de ser DUAL (§5.6: pasarela, no proveedor).
+- Silla Cuádruple, sus dos filas → `inactivo`, más el alias `silla cuádruple` → obra Cerro
+  Bayo (§7: no es proveedor, es parte de la obra).
+- «Ferr. Andina» → «Ferretería Andina» (§7). Desapareció el aviso del alias `andina`.
+- Municipalidad: la nota decía «A DEFINIR»; el contexto §7 lo define.
+
+**RUBROS cambió el 24/09 por fuera del motor**: las categorías combinadas de Materiales se
+partieron («Áridos y hormigón» → «Áridos» y «Hormigón», etc.) y hay 20 rubros nuevos
+(Durlock, Steel, Herrería, Riego…). No contradice el contexto, ningún contratista quedó
+apuntando a un rubro borrado y la métrica no se movió. Detalles menores de carga: «pisos» en
+minúscula y «Artefactos Sanitarios.» con punto final.

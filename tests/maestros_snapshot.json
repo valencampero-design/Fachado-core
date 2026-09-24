@@ -353,7 +353,7 @@
       "activo"
     ],
     [
-      "Ferr. Andina",
+      "Ferretería Andina",
       "",
       "Materiales",
       "Ferretería",
@@ -590,7 +590,8 @@
       "",
       "",
       "",
-      "activo"
+      "inactivo",
+      "No es proveedor: es parte de la obra Cerro Bayo (contexto §7). Inactivo desde 24/09"
     ],
     [
       "Sofia Cervera",
@@ -709,7 +710,7 @@
       "Impuestos y tasas",
       "Municipales",
       "activo",
-      "A DEFINIR: ¿es un contratista o debería ser solo un rubro?"
+      "Destinatario válido. Rubro siempre Impuestos y tasas › Municipales (contexto §7)"
     ],
     [
       "Estudio",
@@ -724,8 +725,8 @@
       "",
       "Personal",
       "Club y deporte",
-      "activo",
-      "Las cuotas de esquí. Es gasto personal, no de obra"
+      "inactivo",
+      "No es proveedor: es parte de la obra Cerro Bayo (contexto §7). Inactivo desde 24/09"
     ],
     [
       "Swiss Medical",
@@ -740,8 +741,8 @@
       "",
       "",
       "",
-      "activo",
-      "DUAL: mezcla compras de obra y personales. El bot siempre pregunta"
+      "inactivo",
+      "Pasarela de pago, no es proveedor (contexto §5.6): va a medio_pago. Inactivo desde 24/09"
     ],
     [
       "Marcela",
@@ -776,7 +777,12 @@
     ],
     [
       "Materiales",
-      "Áridos y hormigón",
+      "Áridos",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Hormigón",
       "obra"
     ],
     [
@@ -791,6 +797,21 @@
     ],
     [
       "Materiales",
+      "Durlock",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Steel",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Ballon",
+      "obra"
+    ],
+    [
+      "Materiales",
       "Maderas",
       "obra"
     ],
@@ -801,7 +822,12 @@
     ],
     [
       "Materiales",
-      "Techo y zinguería",
+      "Techo",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Zinguería",
       "obra"
     ],
     [
@@ -811,12 +837,22 @@
     ],
     [
       "Materiales",
-      "Instalaciones sanitarias",
+      "Sanitarias",
       "obra"
     ],
     [
       "Materiales",
-      "Artefactos y grifería",
+      "Grifería",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Artefactos Sanitarios.",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Accesorios de Baños",
       "obra"
     ],
     [
@@ -826,12 +862,27 @@
     ],
     [
       "Materiales",
+      "Artefactos eléctricos",
+      "obra"
+    ],
+    [
+      "Materiales",
       "Calefacción",
       "obra"
     ],
     [
       "Materiales",
-      "Revestimientos y pisos",
+      "Climatización A.A.",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Revestimientos",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "pisos",
       "obra"
     ],
     [
@@ -846,7 +897,27 @@
     ],
     [
       "Materiales",
-      "Amoblamiento y mesadas",
+      "Mesadas",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Amoblamiento",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Zocalos y contramarcos",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Herrería",
+      "obra"
+    ],
+    [
+      "Materiales",
+      "Riego",
       "obra"
     ],
     [
@@ -1348,6 +1419,11 @@
       "maderera martínez",
       "Martínez Eduardo",
       "contratista"
+    ],
+    [
+      "silla cuádruple",
+      "Cerro Bayo",
+      "obra"
     ]
   ],
   "USUARIOS": [
