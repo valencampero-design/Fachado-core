@@ -1,6 +1,8 @@
-"""Orquesta: resolver (diccionario) → LLM para lo que falta → comprobante → cascada → ficha.
+"""Orquesta: resolver (diccionario) → LLM para lo que falta → comprobante → cascada → ficha →
+búsqueda de duplicados en el libro.
 
-Función pura sobre los maestros: nunca escribe en Sheets ni en Drive.
+Nunca escribe en Sheets ni en Drive. Lee el libro para buscar el mismo hecho ya cargado
+(§5.16): eso no lo vuelve un escritor, y si el libro no responde, la ficha sale igual.
 
 Reparto de autoridad cuando hay adjunto:
   - el comprobante manda en importe, fecha, destinatario, CUIT y número de operación;
@@ -11,11 +13,12 @@ Reparto de autoridad cuando hay adjunto:
 import logging
 from datetime import date, timedelta, timezone
 
-from app import clasificador, comprobante, llm, maestros, resolver
+from app import clasificador, comprobante, duplicados, llm, maestros, resolver
 from app.config import Settings, settings
-from app.maestros import Maestros, normalizar
+from app.maestros import Maestros, Usuario, normalizar
 from app.models import COLUMNAS_MOVIMIENTOS, Conflicto, Ficha, InterpretarIn, InterpretarOut, Pregunta
 from app.resolver import Resolucion, Segmento
+from app.saldos import como_dicts
 
 logger = logging.getLogger(__name__)
 
@@ -53,16 +56,19 @@ def _semilla(contexto: dict | None) -> dict | None:
     }
 
 
-def interpretar(req: InterpretarIn) -> InterpretarOut:
+def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> InterpretarOut:
+    """`libros` es {"estudio": Libro, "personal": Libro | None}: dónde buscar duplicados.
+    `lector` lee un adjunto; por defecto baja el archivo de Drive (los tests leen uno local)."""
     s = settings()
     m = maestros.cargar()
-    diag: dict = {"llm_llamadas": 0, "llm_uso": [], "resoluciones": []}
+    diag: dict = {"llm_llamadas": 0, "llm_uso": [], "resoluciones": [], "advertencias": []}
+    usuario = m.usuario(req.telefono)
 
     segmentos = resolver.parsear(req.texto, _fecha_local(req, s))
     for seg in segmentos:
         resolver.resolver_segmento(seg, m)
 
-    comprobantes = [comprobante.leer(a) for a in req.adjuntos]
+    comprobantes = [(lector or comprobante.leer)(a) for a in req.adjuntos]
     diag["comprobantes"] = [c.dict() for c in comprobantes]
     diag["llm_llamadas"] += sum(1 for c in comprobantes if c.uso_llm)
 
@@ -79,8 +85,55 @@ def interpretar(req: InterpretarIn) -> InterpretarOut:
         fichas.append(ficha)
         preguntas += pregs
 
+    _marcar_duplicados(fichas, preguntas, libros, usuario, diag)
+    for i, ficha in enumerate(fichas):
+        ficha.requiere_confirmacion = _requiere_confirmacion(
+            ficha, [p for p in preguntas if p.ficha == i], usuario, m)
+
     diag["uso_llm"] = diag["llm_llamadas"] > 0
-    return InterpretarOut(fichas=fichas, preguntas=preguntas, diagnostico=diag)
+    return InterpretarOut(fichas=fichas, preguntas=preguntas, diagnostico=diag,
+                          requiere_confirmacion=any(f.requiere_confirmacion for f in fichas))
+
+
+def _marcar_duplicados(fichas: list[Ficha], preguntas: list[Pregunta], libros: dict | None,
+                       usuario: Usuario | None, diag: dict) -> None:
+    """§5.16: si el hecho ya está en el libro, lo dice y pregunta. Nunca lo descarta solo.
+    El libro personal solo se mira si el que escribe tiene `ve_personal`: si no, ni siquiera
+    se le puede decir que ahí hay algo parecido."""
+    if not libros or not any(f.campos.get("importe") is not None or f.campos.get("ref_comprobante") for f in fichas):
+        return
+    movs: dict[str, list[dict]] = {}
+    for nombre, libro in libros.items():
+        if libro is None or (nombre == "personal" and not (usuario and usuario.ve_personal)):
+            continue
+        try:
+            movs[nombre] = como_dicts(libro.leer_movimientos())
+        except Exception as e:  # noqa: BLE001 — sin libro no hay duplicados, pero la ficha sale igual
+            logger.exception("No se pudo leer el libro %s para buscar duplicados", nombre)
+            diag["advertencias"].append(f"No se pudo buscar duplicados en el libro {nombre} ({type(e).__name__})")
+    for i, ficha in enumerate(fichas):
+        dup = duplicados.buscar(ficha.campos, movs)
+        if dup:
+            ficha.posible_duplicado = dup
+            preguntas.append(Pregunta(
+                campo="duplicado", motivo="posible_duplicado", ficha=i, opciones=["Es el mismo", "Es otro"],
+                texto=duplicados.texto_pregunta(dup, ficha.campos.get("tipo"), usuario.nombre if usuario else None)))
+
+
+def _requiere_confirmacion(ficha: Ficha, preguntas: list[Pregunta], usuario: Usuario | None, m: Maestros) -> bool:
+    """§5.12. Durante el período de prueba del usuario, siempre true. Después, false solo si el
+    movimiento está completamente claro: importe, fecha y destinatario del comprobante; obra y
+    contratista del maestro; sin preguntas, sin conflictos y sin posible duplicado."""
+    if usuario is None or not usuario.auto_confirmar:
+        return True
+    c, o = ficha.campos, ficha.origen_campo
+    claro = (
+        o.get("importe") == "comprobante" and o.get("fecha") == "comprobante"
+        and bool(ficha.extras.get("cuit") or ficha.extras.get("razon_social"))
+        and m.obra(c.get("obra")) is not None and m.contratista(c.get("contratista")) is not None
+        and not preguntas and not ficha.conflictos and ficha.posible_duplicado is None
+    )
+    return not claro
 
 
 def _resolver_con_llm(seg: Segmento, req: InterpretarIn, m: Maestros, diag: dict) -> tuple[list[str], Resolucion | None]:
@@ -249,6 +302,8 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             factor *= FACTOR_METODO.get(metodo_comp, 1.0)
         if (campos["tipo"] == "INGRESO") and not campos["obra"]:
             poner("obra", resolver.obra_por_cuit_comitente(comp.cuit_originante, m), "comprobante")
+        # §5.16: lo que identifica al comprobante, para reconocerlo si otro usuario lo manda.
+        poner("ref_comprobante", duplicados.SEPARADOR_REFS.join(comp.referencias()), "comprobante")
 
     # ── 3. Lo heredado de la ficha anterior (corrección) ───────────────────────
     marcador_personal = bool(seg.de("personal"))

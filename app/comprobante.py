@@ -6,6 +6,7 @@ Del más barato y confiable al más caro:
   2. El texto del PDF (los del homebanking son texto, no imagen), con pypdf y regex.
   3. El modelo: solo para fotos, o si el PDF no dio importe y fecha.
 """
+import hashlib
 import io
 import logging
 import re
@@ -39,9 +40,22 @@ class DatosComprobante:
     medio_pago: str | None = None
     tipo_comprobante: str | None = None
     cuit_originante: str | None = None
+    sha256: str | None = None        # del archivo: la referencia más fuerte para duplicados (§5.16)
     fuente: dict[str, str] = field(default_factory=dict)  # campo → nombre_archivo | pdf_texto | vision
     uso_llm: bool = False
     error: str | None = None
+    texto: str = ""                  # el texto del PDF, para reconocer un certificado; no se devuelve
+
+    def referencias(self) -> list[str]:
+        """Lo que identifica al comprobante, del más fuerte al más débil (§5.16)."""
+        refs = []
+        if self.id_operacion:
+            refs.append(f"op:{self.id_operacion}")
+        if self.numero_cheque:
+            refs.append(f"cheque:{self.numero_cheque}")
+        if self.sha256:
+            refs.append(f"sha256:{self.sha256}")
+        return refs
 
     def completar(self, datos: dict, fuente: str) -> None:
         for campo in CAMPOS:
@@ -51,7 +65,9 @@ class DatosComprobante:
                 self.fuente[campo] = fuente
 
     def dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d.pop("texto", None)
+        return d
 
 
 def formatear_cuit(texto: str | None) -> str | None:
@@ -77,8 +93,18 @@ def parsear_nombre(nombre: str) -> dict:
     if m:
         return {"numero_cheque": m.group(1), "razon_social": m.group(2).strip(), "cuit": formatear_cuit(m.group(3)),
                 "medio_pago": "Cheque", "tipo_comprobante": "Cheque"}
+    datos = {}
     m = RE_CUIT_SUELTO.search(nombre)
-    return {"cuit": formatear_cuit(m.group(1))} if m else {}
+    if m:
+        datos["cuit"] = formatear_cuit(m.group(1))
+    # El homebanking nombra los PDF con el número de operación: «13851988_LR92K2y581_1.pdf».
+    # Es la parte que mezcla letras y números; las que son solo números son documentos o índices.
+    base = nombre.rsplit(".", 1)[0]
+    ops = [p for p in re.split(r"[_\s-]+", base)
+           if 8 <= len(p) <= 20 and re.search(r"[A-Za-z]", p) and re.search(r"\d", p)]
+    if len(ops) == 1:
+        datos["id_operacion"] = ops[0]
+    return datos
 
 
 # ─── 2. Texto del PDF ──────────────────────────────────────────────────────────
@@ -154,7 +180,7 @@ def parsear_texto(texto: str) -> dict:
 # ─── Orquestación ──────────────────────────────────────────────────────────────
 
 def leer(adjunto: Adjunto) -> DatosComprobante:
-    datos = DatosComprobante(url=adjunto.url, nombre_archivo=adjunto.nombre or "")
+    datos = DatosComprobante(url=adjunto.url, nombre_archivo=adjunto.nombre or "", sha256=adjunto.sha256)
     datos.completar(parsear_nombre(adjunto.nombre or ""), "nombre_archivo")
 
     s = settings()
@@ -170,12 +196,21 @@ def leer(adjunto: Adjunto) -> DatosComprobante:
         logger.error("No se pudo bajar el adjunto %s: %s", file_id, e)
         datos.error = f"descarga: {type(e).__name__}"
         return datos
-    mime = adjunto.mime or mime
+    return leer_bytes(contenido, nombre, adjunto.mime or mime, datos)
+
+
+def leer_bytes(contenido: bytes, nombre: str, mime: str, datos: DatosComprobante | None = None) -> DatosComprobante:
+    """Lo que se lee de un archivo ya bajado. Separado de `leer` para poder probarlo con un
+    archivo local, como el certificado de ejemplo de tests/fixtures."""
+    datos = datos or DatosComprobante()
+    if not datos.sha256:
+        datos.sha256 = hashlib.sha256(contenido).hexdigest()
     if nombre and not datos.nombre_archivo:
         datos.nombre_archivo = nombre
         datos.completar(parsear_nombre(nombre), "nombre_archivo")
 
     texto = texto_pdf(contenido) if mime == "application/pdf" else ""
+    datos.texto = texto
     if texto:
         datos.completar(parsear_texto(texto), "pdf_texto")
 

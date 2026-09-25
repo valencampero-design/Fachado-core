@@ -30,26 +30,7 @@ def verificar_api_key(x_api_key: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="X-API-Key inválida")
 
 
-@app.get("/salud")
-def salud() -> dict:
-    return {"ok": True}
-
-
-@app.post("/interpretar", response_model=InterpretarOut, dependencies=[Depends(verificar_api_key)])
-def post_interpretar(req: InterpretarIn) -> InterpretarOut:
-    # `def` y no `async def`: Sheets, Drive y Anthropic son bloqueantes y FastAPI corre
-    # los endpoints síncronos en un threadpool.
-    return interpretar(req)
-
-
-@app.post("/maestros/recargar", dependencies=[Depends(verificar_api_key)])
-def post_recargar_maestros() -> dict:
-    """Fuerza la relectura del Sheet (por ejemplo, después de cargar un alias nuevo)."""
-    m = maestros.cargar(forzar=True)
-    return {"obras": len(m.obras), "contratistas": len(m.contratistas), "rubros": len(m.rubros),
-            "cuentas": len(m.cuentas), "alias": len(m.alias), "usuarios": len(m.usuarios),
-            "advertencias": m.advertencias}
-
+# ─── Dependencias: los tests las reemplazan por libros en memoria ─────────────
 
 # Uno solo por proceso: el archivador recuerda la carpeta raíz de Drive.
 _archivador = ArchivadorDrive()
@@ -59,8 +40,36 @@ def obtener_libro() -> Libro:
     return LibroSheets()
 
 
+def obtener_libro_personal() -> Libro | None:
+    """None mientras no exista «FACHADO — Personal» (§5.14)."""
+    sid = settings().personal_sheet_id
+    return LibroSheets(sid) if sid else None
+
+
 def obtener_archivador() -> Archivador:
     return _archivador
+
+
+@app.get("/salud")
+def salud() -> dict:
+    return {"ok": True}
+
+
+@app.post("/interpretar", response_model=InterpretarOut, dependencies=[Depends(verificar_api_key)])
+def post_interpretar(req: InterpretarIn, libro: Libro = Depends(obtener_libro),
+                     libro_personal: Libro | None = Depends(obtener_libro_personal)) -> InterpretarOut:
+    # `def` y no `async def`: Sheets, Drive y Anthropic son bloqueantes y FastAPI corre
+    # los endpoints síncronos en un threadpool. Los libros solo se leen, para duplicados.
+    return interpretar(req, libros={"estudio": libro, "personal": libro_personal})
+
+
+@app.post("/maestros/recargar", dependencies=[Depends(verificar_api_key)])
+def post_recargar_maestros() -> dict:
+    """Fuerza la relectura del Sheet (por ejemplo, después de cargar un alias nuevo)."""
+    m = maestros.cargar(forzar=True)
+    return {"obras": len(m.obras), "contratistas": len(m.contratistas), "rubros": len(m.rubros),
+            "cuentas": len(m.cuentas), "alias": len(m.alias), "usuarios": len(m.usuarios),
+            "advertencias": m.advertencias}
 
 
 @app.post("/confirmar", response_model=ConfirmarOut, dependencies=[Depends(verificar_api_key)])

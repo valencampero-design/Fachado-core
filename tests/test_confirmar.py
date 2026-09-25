@@ -1,80 +1,32 @@
-"""POST /confirmar contra un libro en memoria. NUNCA escribe en el Sheet real: MOVIMIENTOS
-es append-only y una fila de prueba no se puede borrar.
+"""POST /confirmar contra un libro en memoria (tests/dobles.py). NUNCA escribe en el Sheet
+real: MOVIMIENTOS es append-only y una fila de prueba no se puede borrar.
 
     python -m tests.test_confirmar
-
-El libro en memoria imita al Sheet en lo que importa: escribir la fila N pisa lo que había
-en la fila N. Así, si el lock del id_mov fallara, se vería igual que en producción: dos
-confirmaciones sacan el mismo número y la segunda borra a la primera.
 """
 import asyncio
 import contextlib
 import json
 import os
 import sys
-import time
 from pathlib import Path
+
+from tests.dobles import ArchivadorFalso, LibroMemoria
 
 RAIZ = Path(__file__).resolve().parent
 
-# Filas reales del libro al 24/09, para que los saldos se prueben contra datos verdaderos.
+# Filas reales del libro, para que los saldos se prueben contra datos verdaderos.
 LENNON = [4032391.7, 3675000, 300000, 103050, 7000000, 7000000]   # pagado por el comitente
 MORENO = [2600000, 566596, 2079000]                               # certificaciones: plata de la obra (§5.8)
 
 
-class LibroMemoria:
-    def __init__(self, encabezado: list[str], alias: list[list], demora: float = 0.0):
-        self.encabezado = list(encabezado)
-        self.filas: list[list] = [list(encabezado)]
-        self.alias = [list(a) for a in alias]
-        self.demora = demora
-        n = 0
-        for importe in LENNON:
-            n += 1
-            self._sembrar(n, "2026-09-02", "EGRESO", importe, "Lennon", "Pagado por el comitente")
-        for importe in MORENO:
-            n += 1
-            self._sembrar(n, "2026-02-08", "INGRESO", importe, "Moreno", "Caja obra Moreno")
-
-    def _sembrar(self, n, fecha, tipo, importe, obra, cuenta):
-        fila = {"id_mov": f"M-{n:06d}", "fecha": fecha, "tipo": tipo, "importe": importe, "moneda": "ARS",
-                "tc": 1, "importe_ars": importe, "obra": obra, "cuenta": cuenta, "origen": "WHATSAPP"}
-        self.filas.append([fila.get(c, "") for c in self.encabezado])
-
-    def leer_movimientos(self):
-        time.sleep(self.demora)
-        return [list(f) for f in self.filas]
-
-    def escribir_fila(self, numero, valores):
-        time.sleep(self.demora)
-        while len(self.filas) < numero - 1:
-            self.filas.append([])
-        if len(self.filas) >= numero:
-            self.filas[numero - 1] = list(valores)  # igual que el Sheet: pisa
-        else:
-            self.filas.append(list(valores))
-
-    def leer_alias(self):
-        return [list(a) for a in self.alias]
-
-    def agregar_alias(self, fila):
-        self.alias.append(list(fila))
-
-    def movimientos(self) -> list[dict]:
-        return [dict(zip(self.encabezado, f)) for f in self.filas[1:]]
-
-
-class ArchivadorFalso:
-    def __init__(self, fallar: bool = False):
-        self.fallar = fallar
-        self.movidos: list[tuple] = []
-        self.avisos: list[str] = []
-
-    def archivar(self, file_id, carpetas, nombre_base):
-        if self.fallar:
-            raise ConnectionError("Drive caído (simulado)")
-        self.movidos.append((file_id, list(carpetas), nombre_base))
-        return f"https://drive.google.com/file/d/{file_id}/view"
+def libro_con_filas_reales(encabezado: list[str], alias: list[list], demora: float = 0.0) -> LibroMemoria:
+    libro = LibroMemoria(encabezado, alias, demora)
+    filas = [("2026-09-02", "EGRESO", i, "Lennon", "Pagado por el comitente") for i in LENNON] + \
+            [("2026-02-08", "INGRESO", i, "Moreno", "Caja obra Moreno") for i in MORENO]
+    for n, (fecha, tipo, importe, obra, cuenta) in enumerate(filas, start=1):
+        libro.sembrar(id_mov=f"M-{n:06d}", fecha=fecha, tipo=tipo, importe=importe, moneda="ARS", tc=1,
+                      importe_ars=importe, obra=obra, cuenta=cuenta, origen="WHATSAPP")
+    return libro
 
 
 def main() -> int:
@@ -110,7 +62,7 @@ async def _correr() -> int:
             fallas.append(descripcion)
 
     def preparar(demora=0.0, fallar_drive=False):
-        libro = LibroMemoria(encabezado, snapshot["ALIAS"], demora)
+        libro = libro_con_filas_reales(encabezado, snapshot["ALIAS"], demora)
         archivador = ArchivadorFalso(fallar_drive)
         app.dependency_overrides[obtener_libro] = lambda: libro
         app.dependency_overrides[obtener_archivador] = lambda: archivador

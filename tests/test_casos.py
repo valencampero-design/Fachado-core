@@ -117,6 +117,108 @@ def main() -> int:
     check("queda fuera del IVA y de la conciliación",
           para_iva([normal, pasante]) == [normal] and para_conciliacion([normal, pasante]) == [normal])
 
+    # ── Tanda 3 · duplicados entre usuarios y período de prueba ──────────────
+    import json
+
+    from app import comprobante
+    from app.maestros import Usuario
+    from app.models import Adjunto
+    from tests.dobles import LibroMemoria
+
+    encabezado = json.loads((RAIZ / "maestros_snapshot.json").read_text(encoding="utf-8"))["MOVIMIENTOS"][0]
+    titular = next(u for u in m.usuarios if u.rol == "titular")
+
+    def libro(*filas):
+        lib = LibroMemoria(encabezado)
+        for f in filas:
+            lib.sembrar(**f)
+        return lib
+
+    def lector_con(**leido):
+        """Un comprobante «leído» sin bajar nada: nombre de archivo real más los datos dados."""
+        def lector(adj):
+            d = comprobante.DatosComprobante(url=adj.url, nombre_archivo=adj.nombre or "", sha256=adj.sha256)
+            d.completar(comprobante.parsear_nombre(adj.nombre or ""), "nombre_archivo")
+            d.completar(leido, "pdf_texto")
+            return d
+        return lector
+
+    def leer_con(texto, estudio=None, personal=None, telefono=None, adjuntos=(), lector=None):
+        r = interpretar(InterpretarIn(texto=texto, fecha_mensaje="2026-09-25T12:00:00Z",
+                                      telefono=telefono or titular.telefono, adjuntos=list(adjuntos)),
+                        libros={"estudio": estudio or libro(), "personal": personal}, lector=lector)
+        return r, r.fichas[0]
+
+    transferencia_eco = dict(id_mov="M-000001", fecha="2026-08-27", tipo="EGRESO", importe=4032391.7,
+                             obra="Lennon", contratista="Eco Aislación SRL", cargado_por="Gabriel Fachado",
+                             ref_comprobante="op:LR8S9fk909")
+    cheque_510 = Adjunto(url="https://drive.google.com/file/d/CHEQUE510xxxxxxxxxxxxxxxx/view", mime="application/pdf",
+                         nombre="Cheque510_ECO AISLACION SRL_30715065157.pdf")
+
+    print("\nTanda 3 · el mismo hecho cargado dos veces (§5.16)")
+    r, f = leer_con("Ecoaislaciones/Lennon", estudio=libro(transferencia_eco), adjuntos=[cheque_510],
+                    lector=lector_con(importe=4032391.7, fecha="2026-08-27"))
+    dup = f.posible_duplicado
+    check("cheque 510 vs transferencia a Eco Aislación: probable, pregunta y NO se fusiona",
+          dup and dup.fuerza == "probable" and dup.id_mov == "M-000001" and f.campos["importe"] == 4032391.7
+          and any(p.campo == "duplicado" and p.motivo == "posible_duplicado" for p in r.preguntas),
+          (dup, [p.campo for p in r.preguntas]))
+    check("la ficha nueva guarda su propia referencia (el cheque), distinta de la del libro",
+          "cheque:510" in (f.campos["ref_comprobante"] or ""), f.campos["ref_comprobante"])
+
+    austral_1 = dict(id_mov="M-000010", fecha="2026-09-04", tipo="EGRESO", importe=150000, obra="Austral",
+                     cargado_por="Gabriel Fachado")
+    r, f = leer_con("AUSTRAL/IVA $150.000 04/09/26", estudio=libro(austral_1))
+    check("el segundo AUSTRAL/IVA del 4/9: probable, pregunta",
+          f.posible_duplicado and f.posible_duplicado.fuerza == "probable", f.posible_duplicado)
+    check("el texto dice quién lo cargó y cuándo",
+          any("Ya cargaste un pago igual el 4/9" in p.texto for p in r.preguntas), [p.texto for p in r.preguntas])
+
+    de_petrus = dict(transferencia_eco, cargado_por="Petrus", ref_comprobante="sha256:abc123")
+    r, f = leer_con("Ecoaislaciones/Lennon", estudio=libro(de_petrus),
+                    adjuntos=[Adjunto(url="https://drive.google.com/file/d/OTROxxxxxxxxxxxxxxxxxxxxx/view", sha256="abc123")],
+                    lector=lector_con(importe=999, fecha="2026-09-20"))
+    check("mismo archivo (sha256), aunque cambie todo lo demás: fuerte",
+          f.posible_duplicado and f.posible_duplicado.fuerza == "fuerte", f.posible_duplicado)
+    check("«Petrus ya cargó un pago igual el 27/8»",
+          any(p.texto.startswith("Petrus ya cargó un pago igual el 27/8") for p in r.preguntas), [p.texto for p in r.preguntas])
+
+    r, f = leer_con("AUSTRAL/IVA $999.999 04/09/26", estudio=libro(austral_1))
+    check("otro importe: no es duplicado", f.posible_duplicado is None, f.posible_duplicado)
+
+    sin_personal = Usuario("5490000000001", "Reemplazo de prueba", "colaborador", True, ve_personal=False)
+    m.usuarios.append(sin_personal)
+    try:
+        personal = libro(dict(austral_1, id_mov="P-000001"))
+        r, f = leer_con("AUSTRAL/IVA $150.000 04/09/26", personal=personal, telefono=sin_personal.telefono)
+        check("quien no ve lo personal no recibe duplicados del libro personal", f.posible_duplicado is None, f.posible_duplicado)
+        r, f = leer_con("AUSTRAL/IVA $150.000 04/09/26", personal=personal)
+        check("quien lo ve, sí", f.posible_duplicado and f.posible_duplicado.libro == "personal", f.posible_duplicado)
+    finally:
+        m.usuarios.remove(sin_personal)
+
+    print("\nTanda 3 · período de prueba (§5.12)")
+    felipe = Adjunto(url="https://drive.google.com/file/d/FELIPExxxxxxxxxxxxxxxxxxx/view", mime="application/pdf")
+    claro = lector_con(importe=300000, fecha="2026-09-02", cuit="20-40613900-0")
+    r, f = leer_con("Felipe J/Lennon", adjuntos=[felipe], lector=claro)
+    check("auto_confirmar = no (los dos usuarios hoy): siempre requiere confirmación",
+          f.requiere_confirmacion and r.requiere_confirmacion)
+    auto = Usuario("5490000000002", "Usuario con alta", "colaborador", True, ve_personal=True, auto_confirmar=True)
+    m.usuarios.append(auto)
+    try:
+        r, f = leer_con("Felipe J/Lennon", adjuntos=[felipe], lector=claro, telefono=auto.telefono)
+        check("auto_confirmar = sí y todo claro: no requiere confirmación",
+              not f.requiere_confirmacion and not r.requiere_confirmacion,
+              (f.origen_campo.get("importe"), [p.campo for p in r.preguntas], f.conflictos))
+        r, f = leer_con("Felipe J/Lennon", adjuntos=[felipe], lector=claro, telefono=auto.telefono,
+                        estudio=libro(dict(id_mov="M-000003", fecha="2026-09-02", tipo="EGRESO", importe=300000,
+                                           obra="Lennon", contratista="Felipe Andrés Scherer", cargado_por="Petrus")))
+        check("… pero con posible duplicado, sí requiere", f.requiere_confirmacion, f.posible_duplicado)
+        r, f = leer_con("Barba/Lennon", telefono=auto.telefono)
+        check("… y sin comprobante, también", f.requiere_confirmacion)
+    finally:
+        m.usuarios.remove(auto)
+
     print(f"\n{'TODO OK' if not fallas else str(len(fallas)) + ' FALLAS'}")
     return 1 if fallas else 0
 

@@ -24,6 +24,9 @@ class Settings:
 
     # Sheet maestro «FACHADO — Gestión de Obras»
     sheet_id: str = field(default_factory=lambda: os.getenv("FACHADO_SHEET_ID", ""))
+    # «FACHADO — Personal» (§5.14): el libro de lo personal, sin maestros propios. Si está
+    # vacío, lo personal no se puede confirmar: nunca se escribe en el libro del estudio.
+    personal_sheet_id: str = field(default_factory=lambda: os.getenv("FACHADO_PERSONAL_SHEET_ID", ""))
     # Si está seteado, los maestros se leen de este JSON en vez del Sheet
     # (tests offline). Mismo formato que Sheets values.get.
     maestros_snapshot: str = field(default_factory=lambda: os.getenv("MAESTROS_SNAPSHOT", ""))

@@ -28,6 +28,10 @@ class Adjunto(BaseModel):
     url: str
     mime: str | None = None
     nombre: str | None = None  # nombre de archivo original, si el gateway lo tiene
+    # El sha256 que WhatsApp manda en el payload del adjunto. Es la referencia más fuerte para
+    # detectar que dos usuarios mandaron el mismo comprobante (§5.16). Si no viene, el motor lo
+    # calcula cuando baja el archivo.
+    sha256: str | None = None
 
 
 class InterpretarIn(BaseModel):
@@ -48,7 +52,7 @@ class Conflicto(BaseModel):
 # Por qué se pregunta. `apodo_ambiguo` y `dual` son preguntas de diseño —el maestro dice
 # que hay que preguntar—, no fallas del parser: el gateway puede mostrarlas distinto y la
 # métrica del corpus las cuenta aparte.
-MotivoPregunta = Literal["apodo_ambiguo", "dual", "conflicto", "falta_dato"]
+MotivoPregunta = Literal["apodo_ambiguo", "dual", "conflicto", "falta_dato", "posible_duplicado"]
 
 
 class Pregunta(BaseModel):
@@ -57,6 +61,17 @@ class Pregunta(BaseModel):
     opciones: list[str] = Field(default_factory=list)
     motivo: MotivoPregunta = "falta_dato"
     ficha: int = 0  # índice de la ficha a la que aplica
+
+
+class PosibleDuplicado(BaseModel):
+    """Un movimiento ya cargado que podría ser el mismo hecho (§5.16). Nunca se descarta solo:
+    el usuario decide si es el mismo."""
+    id_mov: str
+    cargado_por: str
+    fecha: str
+    importe: float
+    fuerza: Literal["fuerte", "probable"]  # fuerte: misma referencia del comprobante
+    libro: Literal["estudio", "personal"]
 
 
 class Ficha(BaseModel):
@@ -70,6 +85,10 @@ class Ficha(BaseModel):
     # Datos que no tienen columna propia: certificado, fecha de pago del cheque,
     # número de operación, CUIT, alias propuesto, advertencias.
     extras: dict[str, Any] = Field(default_factory=dict)
+    posible_duplicado: PosibleDuplicado | None = None
+    # §5.12: el gateway obedece este campo. Mientras el usuario esté en período de prueba es
+    # siempre true; después, false solo si el movimiento está completamente claro.
+    requiere_confirmacion: bool = True
 
 
 class AliasPropuesto(BaseModel):
@@ -125,4 +144,5 @@ class ConfirmarOut(BaseModel):
 class InterpretarOut(BaseModel):
     fichas: list[Ficha]
     preguntas: list[Pregunta] = Field(default_factory=list)
+    requiere_confirmacion: bool = True  # true si alguna ficha lo requiere
     diagnostico: dict[str, Any] = Field(default_factory=dict)

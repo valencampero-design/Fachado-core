@@ -145,7 +145,14 @@ def main() -> int:
         cliente = httpx.Client(base_url=args.url, timeout=120)
     else:
         from fastapi.testclient import TestClient
-        from app.main import app
+
+        from app.main import app, obtener_libro, obtener_libro_personal
+        from tests.dobles import LibroMemoria
+        # Libros vacíos: la búsqueda de duplicados (§5.16) no puede depender de lo que haya en
+        # el libro real, o la métrica dejaría de ser reproducible.
+        encabezado = json.loads((RAIZ / "maestros_snapshot.json").read_text(encoding="utf-8"))["MOVIMIENTOS"][0]
+        app.dependency_overrides[obtener_libro] = lambda: LibroMemoria(encabezado)
+        app.dependency_overrides[obtener_libro_personal] = lambda: LibroMemoria(encabezado)
         cliente = TestClient(app)
     headers = {"X-API-Key": os.environ["MOTOR_API_KEY"]}
 
