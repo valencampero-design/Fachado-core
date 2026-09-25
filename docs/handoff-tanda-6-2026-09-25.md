@@ -155,3 +155,9 @@ Diferencias y precisiones respecto de los contratos de arriba. El detalle comple
 - **6.6** `id_mov` viene siempre. En un certificado es descriptivo («Moreno etapa 1 ·
   certificado 5»): los certificados no tienen `id_mov` y no se corrigen con «corregir».
 - **6.7** Métrica igual antes y después (92 %), mensaje por mensaje.
+- **6.3, agregado después (respuesta a la pregunta abierta del gateway, `chatbot-contable/
+  docs/handoff-fachado.md` §9):** `GET /movimientos/{id}` devuelve además `extras` (el
+  certificado de un cobro) y `ficha` (la misma `ficha_original` de `/anular`). El gateway ya
+  lee `extras`, así que el certificado no se pierde al corregir. Para los traspasos tiene que
+  usar `ficha` como `contexto_previo` en vez de armarla con `campos`: la fila cruda de un
+  traspaso trae una sola cuenta y el importe con signo.

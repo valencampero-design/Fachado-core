@@ -269,8 +269,10 @@ USUARIOS, nunca «bot»), `ts` (hora local), `msg_id`, `certificado`, `informal`
 
 ```jsonc
 // GET /movimientos/M-000012?telefono=549...
-→ { "id_mov": "M-000012", "libro": "estudio", "campos": { /* la fila */ },
-    "anulado_por": null, "vinculado": null }
+→ { "id_mov": "M-000012", "libro": "estudio", "campos": { /* la fila cruda, para mostrarla */ },
+    "anulado_por": null, "vinculado": null,
+    "extras": { "certificado": "4" },                       // lo que no tiene columna en la ficha
+    "ficha": { "campos": {...}, "extras": {...} } }         // lista para contexto_previo de la corrección
 
 // POST /anular
 { "telefono": "549...", "id_mov": "M-000012", "msg_id": "wamid...", "motivo": "otra obra" }
@@ -292,8 +294,10 @@ USUARIOS, nunca «bot»), `ts` (hora local), `msg_id`, `certificado`, `informal`
   un contraasiento o la línea del cierre semanal (esa se recalcula sola: se anula el personal).
 - **Idempotente por `msg_id`**, con clave propia `<wamid>#anula` (y `#anulab`): el mismo
   wamid del «corregir…» puede confirmar después la fila correcta con `<wamid>#0`.
-- `ficha_original` es para mandarla como `contexto_previo` de la corrección (sin `id_mov`; en
-  un traspaso, con `cuenta_origen`, `cuenta_destino` e importe positivo).
+- `ficha_original` (de `/anular`) y `ficha` (de `GET /movimientos`) son la misma: la que va
+  como `contexto_previo` de la corrección. Sin `id_mov`, con el certificado en `extras`, y en
+  un traspaso con `cuenta_origen`, `cuenta_destino` e importe positivo. **No armarla con los
+  `campos` crudos**: un traspaso llegaría con el importe negativo de una sola fila.
 - Lo derivado saca el par original + contraasiento (`filtros.sin_anulados`): saldos del
   estudio y de las obras, cajas de obra, `/consultar` («cuántos pagos a X» no cuenta ninguno
   de los dos), cobros de certificados, duplicados y conciliación. En el cierre semanal, un

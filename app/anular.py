@@ -71,9 +71,11 @@ def movimiento(id_mov: str, telefono: str, libro: Libro, libro_personal: Libro |
     movs = como_dicts(lib.leer_movimientos())
     mov = _encontrar(movs, id_mov, usuario)
     anulacion = _anulacion_de(movs, str(mov["id_mov"]))
+    vinculado = next((mv for mv in movs if mov.get("vinculo") and mv.get("id_mov") == mov["vinculo"]), None)
+    ficha = ficha_original(mov, vinculado)
     return MovimientoOut(id_mov=str(mov["id_mov"]), libro=nombre, campos=mov,
                          anulado_por=str(anulacion["id_mov"]) if anulacion else None,
-                         vinculado=str(mov.get("vinculo") or "") or None)
+                         vinculado=str(mov.get("vinculo") or "") or None, extras=ficha.extras, ficha=ficha)
 
 
 def ficha_original(mov: dict, vinculado: dict | None) -> FichaConfirmada:

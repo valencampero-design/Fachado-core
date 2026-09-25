@@ -189,9 +189,15 @@ class MovimientoOut(BaseModel):
     """GET /movimientos/{id_mov}: una fila del libro, tal como está."""
     id_mov: str
     libro: Literal["estudio", "personal"]
-    campos: dict[str, Any]
+    campos: dict[str, Any]          # la fila cruda: para mostrarla
     anulado_por: str | None = None  # el id_mov del contraasiento, si lo anularon (§5.19)
     vinculado: str | None = None    # la otra fila de un traspaso (§5.18)
+    # Lo que no tiene columna en la ficha (hoy: el certificado de un cobro).
+    extras: dict[str, Any] = Field(default_factory=dict)
+    # La ficha en el formato de /interpretar, lista para `contexto_previo` de la corrección: en
+    # un traspaso trae cuenta_origen, cuenta_destino e importe positivo. Es la misma
+    # `ficha_original` que devuelve /anular.
+    ficha: FichaConfirmada | None = None
 
 
 class AnularIn(BaseModel):

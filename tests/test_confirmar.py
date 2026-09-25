@@ -451,6 +451,39 @@ async def _correr() -> int:
               (a["ficha_original"]["campos"]["cuenta_origen"], a["ficha_original"]["campos"]["cuenta_destino"],
                a["ficha_original"]["campos"]["importe"]) == ("Efectivo", "Caja obra Lennon", 80000), a["ficha_original"])
 
+        print("\n6.3 · El flujo de corrección del gateway: GET → /interpretar → /anular → /confirmar")
+        libro, _ = preparar()
+        cobro = ficha(tipo="INGRESO", obra="Moreno", contratista=None, cuenta="Caja obra Moreno", tipo_gasto="obra",
+                      importe=2600000, comprobante_url=None, rubro_1=None, rubro_2=None)
+        cobro["extras"] = {"certificado": "4"}
+        c = (await confirmar("wamid.COB4", cobro)).json()
+        v = (await ver(c["id_mov"])).json()
+        check("GET /movimientos trae extras (el certificado) y la ficha lista para contexto_previo",
+              v["extras"].get("certificado") == "4" and v["ficha"]["extras"].get("certificado") == "4"
+              and v["ficha"]["campos"]["importe"] == 2600000 and v["ficha"]["campos"]["id_mov"] is None, v)
+        corr = (await cli.post("/interpretar", json={"telefono": titular.telefono, "texto": "$2.700.000",
+                                                     "contexto_previo": v["ficha"]})).json()
+        nueva = corr["fichas"][0]
+        check("la corrección («$2.700.000») conserva obra, caja y certificado",
+              (nueva["campos"]["importe"], nueva["campos"]["obra"], nueva["campos"]["cuenta"], nueva["extras"].get("certificado"))
+              == (2700000, "Moreno", "Caja obra Moreno", "4"), (nueva["campos"], nueva["extras"]))
+        await anular_(c["id_mov"], "wamid.CORR-COB")
+        r = (await confirmar("wamid.CORR-COB", {"campos": nueva["campos"], "extras": nueva["extras"]})).json()
+        fila = next(mv for mv in libro.movimientos() if mv["id_mov"] == r["id_mov"])
+        check("anular + confirmar con el mismo wamid: la fila correcta queda con su certificado",
+              not r["ya_existia"] and fila["importe"] == 2700000 and fila["certificado"] == "4", (r, fila))
+        t = (await confirmar("wamid.TRY", ficha_traspaso())).json()
+        v = (await ver(t["id_mov_vinculado"])).json()
+        check("GET de la fila de entrada de un traspaso: la ficha es el traspaso entero, importe positivo",
+              (v["ficha"]["campos"]["tipo"], v["ficha"]["campos"]["cuenta_origen"], v["ficha"]["campos"]["cuenta_destino"],
+               v["ficha"]["campos"]["importe"]) == ("TRASPASO", "Efectivo", "Caja obra Lennon", 80000), v["ficha"])
+        corr = (await cli.post("/interpretar", json={"telefono": titular.telefono, "texto": "$90.000",
+                                                     "contexto_previo": v["ficha"]})).json()
+        cf = corr["fichas"][0]["campos"]
+        check("y su corrección sigue siendo un traspaso Efectivo → Caja obra Lennon por 90.000",
+              (cf["tipo"], cf["cuenta_origen"], cf["cuenta_destino"], cf["importe"]) == ("TRASPASO", "Efectivo", "Caja obra Lennon", 90000),
+              cf)
+
         print("\n6.3 · Anular un personal: libro personal, acceso y cierre semanal")
         libro, _ = preparar()
         personal = personal_actual["libro"]
