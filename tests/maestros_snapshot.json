@@ -643,7 +643,10 @@
     [
       "Luis Pereyra",
       "",
-      "Pintura"
+      "Pintura",
+      "",
+      "inactivo",
+      "Misma persona que «Luis Pereira» (confirmado por Valentín, 25/09). Inactivo: no se borra."
     ],
     [
       "Sanos Sanitarios"
@@ -1576,7 +1579,9 @@
       "certificado",
       "etapa",
       "informal",
-      "ref_comprobante"
+      "ref_comprobante",
+      "vinculo",
+      "anula"
     ]
   ]
 }

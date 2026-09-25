@@ -18,7 +18,7 @@
 | | |
 |---|---|
 | ✅ Motor en producción | Servicio `web` del proyecto Railway `bountiful-trust`, con dos dominios que son el mismo servicio: `web-production-6c935.up.railway.app` (el que usan la documentación y el cron) y `web-production-70e97.up.railway.app`. Las tandas 1 a 5 están desplegadas desde el 25/09 |
-| ⏳ Tanda 6 | Commiteada **sin pushear**: PASANTE, TRASPASO, contraasiento, `intencion` / `respuestas` / `texto_compartido`, contratistas inactivos, el nombre de quien escribe en el prompt. Antes de desplegar hay que agregar las columnas `vinculo` y `anula` a los dos libros (§5) |
+| ✅ Tanda 6 | Desplegada el 25/09: PASANTE, TRASPASO, contraasiento, `intencion` / `respuestas` / `texto_compartido`, contratistas inactivos, el nombre de quien escribe en el prompt. Columnas `vinculo` y `anula` en los dos libros. Verificado en producción con `/interpretar`: un texto del corpus, una charla (`otro`) y un comprobante solo (un recibo manuscrito, leído por el modelo) |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
@@ -544,8 +544,6 @@ manda mensajes repetidos** con un segundo de diferencia.
 
 **Operativo**
 
-- [ ] **Desplegar la tanda 6**: pushear, agregar `vinculo` y `anula` a los dos libros
-      (`preparar_sheet.py`, §5), y verificar con `/salud` y una llamada real a `/interpretar`.
 - [ ] Confirmar que el primer cierre semanal corrió el lunes 28/09 (logs del servicio
       `cierre-semanal` en Railway).
 - [ ] Cargar las etapas en `ETAPAS` (hoy vacía: ninguna obra tiene etapas y el bot no las
@@ -598,13 +596,19 @@ borró):
   Petrus volvió a `activo` (§5.13).
 - «Pint Andina» → «Pinturería Andina», con los alias `pint andina` y `ferr andina` (§7).
 - Hojas nuevas: `ETAPAS` y `CERTIFICADOS`, vacías.
+- **«Luis Pereyra» → `inactivo`** (`scripts/migraciones/2026_09_25_luis_pereyra.py`): es la
+  misma persona que «Luis Pereira», confirmado por Valentín. El alias `luis pereyra` ya
+  apuntaba a Pereira. Efecto en el corpus: en «Retiro/Luis/CASA», «Luis» ahora identifica a
+  un único contratista activo y se atribuye a Luis Pereira (sigue siendo personal, sin
+  preguntas; la métrica no cambia).
+- MOVIMIENTOS de los dos libros tiene las columnas `vinculo` y `anula` (tanda 6).
 
 Lo que el motor todavía avisa:
 
 - **Filas repetidas en CONTRATISTAS** (Maderera Misiones, Marcelo Maragaño, Silla Cuádruple):
   se fusionan tomando los valores no vacíos de la última.
-- **Rubros habituales que no existen en RUBROS**: Contador Pasolli («Honorarios / Terceros») y
-  Luis Pereyra («Pintura»).
+- **Rubros habituales que no existen en RUBROS**: Contador Pasolli («Honorarios / Terceros»).
+  Los contratistas inactivos no se revisan: su rubro habitual no se usa.
 - **Filas que no se aplican**: un alias con un `tipo` fuera de `contratista·obra·cuit·tipo`, o
   un contratista con `rubro_habitual_2` sin `rubro_habitual_1`.
 - **M-000001 y M-000002 tienen `cargado_por = bot`**, de antes de que existiera USUARIOS.

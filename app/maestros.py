@@ -273,6 +273,8 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
     rubros = [Rubro(r.get("rubro_1", ""), r.get("rubro_2", ""), normalizar(r.get("afecta")))
               for r in _registros(crudo.get("RUBROS", [])) if r.get("rubro_1")]
     for c in contratistas:
+        if not c.activo:
+            continue  # su rubro habitual no se usa: un inactivo no se propone (§5.6)
         if c.rubro_2 and not c.rubro_1:
             advertencias.append(f"CONTRATISTAS: «{c.nombre}» tiene rubro_habitual_2 «{c.rubro_2}» "
                                 f"sin rubro_habitual_1: no se puede inferir el rubro")
