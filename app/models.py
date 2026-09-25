@@ -170,6 +170,35 @@ class ConfirmarOut(BaseModel):
     advertencias: list[str] = Field(default_factory=list)
 
 
+class MovimientoOut(BaseModel):
+    """GET /movimientos/{id_mov}: una fila del libro, tal como está."""
+    id_mov: str
+    libro: Literal["estudio", "personal"]
+    campos: dict[str, Any]
+    anulado_por: str | None = None  # el id_mov del contraasiento, si lo anularon (§5.19)
+    vinculado: str | None = None    # la otra fila de un traspaso (§5.18)
+
+
+class AnularIn(BaseModel):
+    telefono: str = Field(min_length=1)
+    id_mov: str = Field(min_length=1)
+    msg_id: str = Field(min_length=1)  # el wamid del mensaje que pide la corrección
+    motivo: str = ""
+
+
+class AnularOut(BaseModel):
+    """§5.19: el contraasiento. La fila original no se toca."""
+    id_mov_anulacion: str
+    anula: str
+    libro: Literal["estudio", "personal"]
+    # Un traspaso se anula entero: el contraasiento de la otra fila y la fila que anula.
+    id_mov_anulacion_vinculado: str | None = None
+    anula_vinculado: str | None = None
+    # Para que el gateway la mande como `contexto_previo` de la corrección.
+    ficha_original: FichaConfirmada
+    ya_existia: bool = False
+
+
 class ConsultarIn(BaseModel):
     """Las tres preguntas del arquitecto (handoff del 25/09). `consulta`, `obra` y
     `contratista` pueden venir explícitos; si no, se sacan de `texto`."""

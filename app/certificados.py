@@ -25,6 +25,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
+from app.filtros import sin_anulados
 from app.maestros import Maestros, normalizar, numero
 from app.models import EstadoCertificado
 
@@ -173,6 +174,7 @@ def estados(certs: list[dict], movs: list[dict], obra: str | None = None) -> tup
     para que el pendiente no dé negativo por un certificado que falta cargar.
     Obra, etapa y número tienen que coincidir los tres."""
     filtro = normalizar(obra) if obra else None
+    movs = sin_anulados(movs)  # un cobro anulado no cancela nada (§5.19)
     salida: list[EstadoCertificado] = []
     por_clave: dict[tuple, EstadoCertificado] = {}
     advertencias: list[str] = []

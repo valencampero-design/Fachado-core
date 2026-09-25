@@ -14,7 +14,7 @@ import re
 from datetime import date
 
 from app import certificados, maestros, resolver
-from app.filtros import es_cierre_semanal
+from app.filtros import es_cierre_semanal, sin_anulados
 from app.libro import Libro
 from app.maestros import Maestros, Usuario, normalizar, numero
 from app.models import ConsultarIn, ConsultarOut, Pregunta
@@ -81,12 +81,12 @@ def entidades(texto: str, m: Maestros) -> tuple[str | None, str | None, list[Pre
 
 def _visibles(libro: Libro, libro_personal: Libro | None, usuario: Usuario) -> list[dict]:
     movs = []
-    for mov in como_dicts(libro.leer_movimientos()):
+    for mov in sin_anulados(como_dicts(libro.leer_movimientos())):
         if normalizar(mov.get("tipo_gasto")) == "personal" and not es_cierre_semanal(mov) and not usuario.ve_personal:
             continue
         movs.append({**mov, "libro": "estudio"})
     if usuario.ve_personal and libro_personal is not None:
-        movs += [{**mov, "libro": "personal"} for mov in como_dicts(libro_personal.leer_movimientos())]
+        movs += [{**mov, "libro": "personal"} for mov in sin_anulados(como_dicts(libro_personal.leer_movimientos()))]
     return movs
 
 

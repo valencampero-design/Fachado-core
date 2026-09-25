@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from app import maestros
+from app.anular import anular, movimiento
 from app.archivo import Archivador, ArchivadorDrive
 from app.cierre import cierre_semanal
 from app.config import settings
@@ -18,7 +19,8 @@ from app.confirmar import ErrorConfirmar, confirmar
 from app.consultas import ErrorConsulta, consultar
 from app.interpretar import interpretar
 from app.libro import Libro, LibroSheets
-from app.models import ConfirmarIn, ConfirmarOut, ConsultarIn, ConsultarOut, InterpretarIn, InterpretarOut
+from app.models import (AnularIn, AnularOut, ConfirmarIn, ConfirmarOut, ConsultarIn, ConsultarOut, InterpretarIn,
+                        InterpretarOut, MovimientoOut)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -84,7 +86,32 @@ async def post_confirmar(req: ConfirmarIn, libro: Libro = Depends(obtener_libro)
     try:
         return await confirmar(req, libro, archivador, libro_personal)
     except ErrorConfirmar as e:
-        raise HTTPException(status_code=e.status, detail={"campo": e.campo, "detalle": e.detalle})
+        raise _http(e)
+
+
+def _http(e: ErrorConfirmar) -> HTTPException:
+    return HTTPException(status_code=e.status, detail={"campo": e.campo, "detalle": e.detalle, **e.datos})
+
+
+@app.get("/movimientos/{id_mov}", response_model=MovimientoOut, dependencies=[Depends(verificar_api_key)])
+def get_movimiento(id_mov: str, telefono: str, libro: Libro = Depends(obtener_libro),
+                   libro_personal: Libro | None = Depends(obtener_libro_personal)) -> MovimientoOut:
+    """Una fila del libro, para mostrarla antes de corregirla (§5.19). 404 si no existe; 403
+    si es personal y quien pregunta no tiene `ve_personal`."""
+    try:
+        return movimiento(id_mov, telefono, libro, libro_personal)
+    except ErrorConfirmar as e:
+        raise _http(e)
+
+
+@app.post("/anular", response_model=AnularOut, dependencies=[Depends(verificar_api_key)])
+async def post_anular(req: AnularIn, libro: Libro = Depends(obtener_libro),
+                      libro_personal: Libro | None = Depends(obtener_libro_personal)) -> AnularOut:
+    """El contraasiento de §5.19. 409 si ya estaba anulado (el detalle trae la anulación)."""
+    try:
+        return await anular(req, libro, libro_personal)
+    except ErrorConfirmar as e:
+        raise _http(e)
 
 
 class CierreIn(BaseModel):

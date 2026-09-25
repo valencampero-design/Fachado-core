@@ -365,6 +365,113 @@ async def _correr() -> int:
         check("sin la columna «vinculo» en el Sheet: 500 y no escribe nada",
               r.status_code == 500 and len(sin_vinculo.filas) == 1, (r.status_code, r.json()))
 
+        # ── Tanda 6.3 · contraasiento ─────────────────────────────────────────
+        print("\n6.3 · Corregir algo confirmado: el contraasiento (§5.19)")
+        from app.saldos import saldo_obra
+
+        async def anular_(id_mov, msg_id, telefono=titular.telefono, motivo="otra obra"):
+            return await cli.post("/anular", json={"telefono": telefono, "id_mov": id_mov, "msg_id": msg_id, "motivo": motivo})
+
+        async def ver(id_mov, telefono=titular.telefono):
+            return await cli.get(f"/movimientos/{id_mov}", params={"telefono": telefono})
+
+        def pagos_a(contratista):
+            return cli.post("/consultar", json={"telefono": titular.telefono, "consulta": "pagos", "contratista": contratista})
+
+        libro, _ = preparar()
+        saldo0 = saldo_estudio(libro.movimientos(), m)
+        pagos0 = (await pagos_a("Felipe Andrés Scherer")).json()["datos"]["cantidad"]
+        r = (await confirmar("wamid.MAL", ficha(cuenta="Banco", importe=300000))).json()
+        check("se confirma un pago por error (M-000010)", r["id_mov"] == "M-000010", r)
+        v = (await ver("M-000010")).json()
+        check("GET /movimientos/M-000010: la fila, sin anular", v["libro"] == "estudio" and v["campos"]["importe"] == 300000
+              and v["anulado_por"] is None, v)
+        filas_antes = len(libro.filas)
+        r = await anular_("M-000010", "wamid.CORR")
+        a = r.json()
+        contra = libro.movimientos()[-1]
+        check("POST /anular: 200, M-000011 anula M-000010 en el libro del estudio",
+              r.status_code == 200 and (a["id_mov_anulacion"], a["anula"], a["libro"]) == ("M-000011", "M-000010", "estudio"), a)
+        check("el contraasiento: mismos campos, importe con signo contrario, anula, origen ANULACION, quién anuló",
+              (contra["importe"], contra["anula"], contra["origen"], contra["cargado_por"], contra["obra"], contra["cuenta"])
+              == (-300000, "M-000010", "ANULACION", titular.nombre, "Lennon", "Banco")
+              and len(libro.filas) == filas_antes + 1, contra)
+        original = next(mv for mv in libro.movimientos() if mv["id_mov"] == "M-000010")
+        check("la original no se toca", original["importe"] == 300000 and not original.get("anula"), original)
+        check("ficha_original sirve de contexto_previo: sus campos, sin id_mov",
+              a["ficha_original"]["campos"]["obra"] == "Lennon" and a["ficha_original"]["campos"]["importe"] == 300000
+              and a["ficha_original"]["campos"]["id_mov"] is None, a["ficha_original"])
+        check("el saldo del estudio vuelve a ser el de antes", saldo_estudio(libro.movimientos(), m) == saldo0)
+        lennon, _ = saldo_obra(libro.movimientos(), "Lennon", m)
+        check("la cuenta corriente de Lennon, también", lennon.pagado_con_plata_del_estudio == 0, lennon)
+        check("«cuántos pagos a Felipe» no cuenta ni la original ni la anulación",
+              (await pagos_a("Felipe Andrés Scherer")).json()["datos"]["cantidad"] == pagos0)
+        check("GET muestra quién la anuló", (await ver("M-000010")).json()["anulado_por"] == "M-000011")
+        r2 = (await anular_("M-000010", "wamid.CORR")).json()
+        check("idempotente por msg_id: el reintento devuelve el mismo contraasiento",
+              r2["ya_existia"] and r2["id_mov_anulacion"] == "M-000011" and len(libro.filas) == filas_antes + 1, r2)
+        r = await anular_("M-000010", "wamid.CORR2")
+        check("anularla otra vez: 409 con la anulación existente",
+              r.status_code == 409 and r.json()["detail"].get("id_mov_anulacion") == "M-000011", r.json())
+        r = await anular_("M-000011", "wamid.CORR3")
+        check("no se anula un contraasiento: 422", r.status_code == 422, r.json())
+        r = await confirmar("wamid.CORR", ficha(cuenta="Banco", importe=300000, obra="Moreno", contratista="Marcelo Maragaño"))
+        check("la fila correcta con el mismo wamid se escribe (no se toma por un reintento de la anulación)",
+              r.status_code == 200 and not r.json()["ya_existia"] and r.json()["id_mov"] == "M-000012", r.json())
+        check("GET de un id inexistente: 404", (await ver("M-999999")).status_code == 404)
+
+        print("\n6.3 · Anular un traspaso anula las dos filas")
+        libro, _ = preparar()
+        caja0 = saldo_estudio(libro.movimientos(), m)
+        t = (await confirmar("wamid.TRX", ficha_traspaso())).json()
+        a = (await anular_(t["id_mov_vinculado"], "wamid.TRX-C")).json()
+        nuevas = libro.movimientos()[-2:]
+        check("anular la entrada escribe los dos contraasientos, vinculados, en una sola escritura",
+              {a["anula"], a["anula_vinculado"]} == {t["id_mov"], t["id_mov_vinculado"]}
+              and nuevas[0]["vinculo"] == nuevas[1]["id_mov"] and nuevas[1]["vinculo"] == nuevas[0]["id_mov"], (a, nuevas))
+        lennon, _ = saldo_obra(libro.movimientos(), "Lennon", m)
+        check("el efectivo del estudio y la caja de Lennon vuelven a cero",
+              saldo_estudio(libro.movimientos(), m) == caja0 and (lennon.caja_obra is None or lennon.caja_obra.por_rendir == 0),
+              (saldo_estudio(libro.movimientos(), m), lennon.caja_obra))
+        check("ficha_original del traspaso: origen y destino, importe positivo",
+              (a["ficha_original"]["campos"]["cuenta_origen"], a["ficha_original"]["campos"]["cuenta_destino"],
+               a["ficha_original"]["campos"]["importe"]) == ("Efectivo", "Caja obra Lennon", 80000), a["ficha_original"])
+
+        print("\n6.3 · Anular un personal: libro personal, acceso y cierre semanal")
+        libro, _ = preparar()
+        personal = personal_actual["libro"]
+        p = (await confirmar("wamid.PERS", ficha(obra=None, contratista="Marcelo Maragaño", rubro_1="Personal",
+                                                  rubro_2="Casa", cuenta="Banco", tipo_gasto="personal",
+                                                  fecha="2026-09-22", importe=40000, comprobante_url=None))).json()
+        await cli.post("/cierre-semanal", json={"semana": "2026-W39"})
+        vigente = maestros.cargar()
+        reemplazo = Usuario("5490000000003", "Reemplazo de prueba", "colaborador", True, ve_personal=False)
+        vigente.usuarios.append(reemplazo)
+        try:
+            r = await anular_(p["id_mov"], "wamid.PERS-X", telefono=reemplazo.telefono)
+            check("sin ve_personal: 403 al anular y al ver un P-",
+                  r.status_code == 403 and (await ver(p["id_mov"], reemplazo.telefono)).status_code == 403
+                  and len(personal.filas) == 2, r.json())
+        finally:
+            vigente.usuarios.remove(reemplazo)
+        a = (await anular_(p["id_mov"], "wamid.PERS-C")).json()
+        check("el contraasiento de un P- va al libro personal, con secuencia P-",
+              (a["libro"], a["id_mov_anulacion"]) == ("personal", "P-000002") and personal.movimientos()[-1]["importe"] == -40000, a)
+        r = (await cli.post("/cierre-semanal", json={"semana": "2026-W40"})).json()
+        check("el próximo cierre escribe el ajuste de la semana del personal anulado",
+              [(e["semana"], e["cuenta"], e["tipo"], e["importe"], e["ajuste"]) for e in r["escritas"]]
+              == [("2026-W39", "Banco", "INGRESO", 40000, True)], r["escritas"])
+        cierre = next(mv for mv in libro.movimientos() if mv.get("origen") == "CIERRE")
+        r = await anular_(cierre["id_mov"], "wamid.CIERRE-X")
+        check("la línea del cierre semanal no se anula a mano: 422", r.status_code == 422, r.json())
+
+        sin_anula = LibroMemoria([c for c in encabezado if c != "anula"])
+        sin_anula.sembrar(id_mov="M-000001", fecha="2026-09-01", tipo="EGRESO", importe=1, moneda="ARS", cuenta="Banco")
+        app.dependency_overrides[obtener_libro] = lambda: sin_anula
+        r = await anular_("M-000001", "wamid.SA")
+        check("sin la columna «anula» en el Sheet: 500 y no escribe nada",
+              r.status_code == 500 and len(sin_anula.filas) == 2, (r.status_code, r.json()))
+
         # ── Tanda 5 · CERTIFICADOS ────────────────────────────────────────────
         print("\nTanda 5 · el certificado va a CERTIFICADOS, no a MOVIMIENTOS (§5.11)")
 

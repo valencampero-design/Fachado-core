@@ -50,9 +50,10 @@ PREFIJO_ID = {"estudio": "M", "personal": "P"}
 
 
 class ErrorConfirmar(Exception):
-    def __init__(self, status: int, campo: str, detalle: str):
+    def __init__(self, status: int, campo: str, detalle: str, datos: dict | None = None):
         super().__init__(detalle)
         self.status, self.campo, self.detalle = status, campo, detalle
+        self.datos = datos or {}  # se agrega al `detail` de la respuesta (p. ej. la anulación que ya existía)
 
 
 def clave_idempotencia(msg_id: str, ficha_indice: int) -> str:

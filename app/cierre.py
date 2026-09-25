@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta, timezone
 from app import maestros
 from app.confirmar import _lock, _siguiente_id
 from app.config import settings
-from app.filtros import ORIGEN_CIERRE, es_cierre_semanal
+from app.filtros import ORIGEN_CIERRE, es_cierre_semanal, sin_anulados
 from app.libro import Libro
 from app.maestros import numero
 from app.saldos import como_dicts
@@ -67,7 +67,8 @@ async def cierre_semanal(libro: Libro, libro_personal: Libro, semana: str | None
     advertencias: list[str] = []
 
     async with _lock:
-        personales = como_dicts(await asyncio.to_thread(libro_personal.leer_movimientos))
+        # Un personal anulado sale de la suma: la próxima corrida escribe el ajuste (§5.19).
+        personales = sin_anulados(como_dicts(await asyncio.to_thread(libro_personal.leer_movimientos)))
         filas = await asyncio.to_thread(libro.leer_movimientos)
         encabezado = [str(x) for x in filas[0]]
         movs = como_dicts(filas)
