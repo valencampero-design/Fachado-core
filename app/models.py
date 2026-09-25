@@ -137,6 +137,7 @@ class ConfirmarOut(BaseModel):
     obra: SaldoObra | None = None
     alias_escrito: bool = False
     ya_existia: bool = False  # el msg_id ya estaba: se devuelve la fila que había
+    libro: Literal["estudio", "personal"] = "estudio"  # §5.14: dónde quedó escrito
     cargado_por: str
     advertencias: list[str] = Field(default_factory=list)
 

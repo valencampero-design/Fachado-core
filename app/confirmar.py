@@ -44,7 +44,8 @@ CAMPOS_DE_LA_FICHA = ["item", "contratista", "rubro_1", "rubro_2", "medio_pago",
                       "tipo_comprobante", "descripcion", "comprobante_url", "ref_comprobante"]
 
 TIPOS_GASTO = {"obra", "estructura", "personal"}
-RE_ID_MOV = re.compile(r"^M-(\d+)$")
+RE_ID_MOV = re.compile(r"^([MP])-(\d+)$")
+PREFIJO_ID = {"estudio": "M", "personal": "P"}
 
 
 class ErrorConfirmar(Exception):
@@ -172,9 +173,11 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
     return fila, advertencias
 
 
-def _siguiente_id(movs: list[dict]) -> str:
-    numeros = [int(mt.group(1)) for mov in movs if (mt := RE_ID_MOV.match(str(mov.get("id_mov", ""))))]
-    return f"M-{max(numeros, default=0) + 1:06d}"
+def _siguiente_id(movs: list[dict], prefijo: str = "M") -> str:
+    """Correlativo por libro: M-000001 en el del estudio, P-000001 en el personal (§5.14)."""
+    numeros = [int(mt.group(2)) for mov in movs
+               if (mt := RE_ID_MOV.match(str(mov.get("id_mov", "")))) and mt.group(1) == prefijo]
+    return f"{prefijo}-{max(numeros, default=0) + 1:06d}"
 
 
 def escribir_alias(libro: Libro, m: Maestros, propuesto: AliasPropuesto) -> tuple[bool, list[str]]:
@@ -206,7 +209,21 @@ def escribir_alias(libro: Libro, m: Maestros, propuesto: AliasPropuesto) -> tupl
     return True, avisos
 
 
-async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador) -> ConfirmarOut:
+def _leer_libro(libro: Libro, nombre: str) -> tuple[list[str], list[list], list[dict]]:
+    """(encabezado, filas crudas, movimientos) de un libro, verificando que tenga las columnas."""
+    filas = libro.leer_movimientos()
+    encabezado = [str(x) for x in filas[0]] if filas else []
+    faltan = [col for col in COLUMNAS_REQUERIDAS if col not in encabezado]
+    if faltan:
+        raise ErrorConfirmar(500, "MOVIMIENTOS", f"Faltan columnas en MOVIMIENTOS del libro {nombre}: {faltan}. "
+                                                 "Correr scripts/preparar_sheet.py")
+    return encabezado, filas, como_dicts(filas)
+
+
+async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
+                    libro_personal: Libro | None = None) -> ConfirmarOut:
+    """`libro` es el del estudio; `libro_personal`, «FACHADO — Personal» (§5.14), o None si
+    todavía no está configurado. Lo personal nunca se escribe en el libro del estudio."""
     m = await asyncio.to_thread(maestros.cargar)
     usuario = m.usuario(req.telefono)
     if usuario is None:
@@ -218,27 +235,35 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador) -> C
 
     fila, advertencias = armar_fila(req, m, usuario)
     clave = fila["msg_id"]
+    destino = "personal" if fila["tipo_gasto"] == "personal" else "estudio"
+    if destino == "personal" and not usuario.ve_personal:
+        raise ErrorConfirmar(403, "tipo_gasto", f"{usuario.nombre} no tiene acceso a lo personal (ve_personal = no)")
+    if destino == "personal" and libro_personal is None:
+        raise ErrorConfirmar(503, "libro_personal", "El libro personal no está configurado (FACHADO_PERSONAL_SHEET_ID). "
+                                                    "Lo personal nunca se escribe en el libro del estudio")
+    libros = {"estudio": libro, "personal": libro_personal}
 
     async with _lock:
-        filas = await asyncio.to_thread(libro.leer_movimientos)
-        encabezado = [str(x) for x in filas[0]] if filas else []
-        faltan = [col for col in COLUMNAS_REQUERIDAS if col not in encabezado]
-        if faltan:
-            raise ErrorConfirmar(500, "MOVIMIENTOS", f"Faltan columnas en MOVIMIENTOS: {faltan}. "
-                                                     "Correr scripts/preparar_sheet.py")
-        movs = como_dicts(filas)
-        existente = next(((n, mov) for n, mov in enumerate(movs, start=2) if mov.get("msg_id") == clave), None)
+        leidos = {nombre: await asyncio.to_thread(_leer_libro, lib, nombre)
+                  for nombre, lib in libros.items() if lib is not None}
+        # Idempotencia en los dos libros: un reintento no puede escribir en el otro.
+        existente = next(((nombre, n, mov) for nombre, (_, _, movs) in leidos.items()
+                          for n, mov in enumerate(movs, start=2) if mov.get("msg_id") == clave), None)
         if existente:
-            numero_fila, fila = existente
+            destino, numero_fila, fila = existente
+            if destino == "personal" and not usuario.ve_personal:
+                raise ErrorConfirmar(403, "tipo_gasto", f"{usuario.nombre} no tiene acceso a lo personal")
+            movs = leidos[destino][2]
             ya_existia = True
         else:
-            fila["id_mov"] = _siguiente_id(movs)
+            encabezado, filas, movs = leidos[destino]
+            fila["id_mov"] = _siguiente_id(movs, PREFIJO_ID[destino])
             numero_fila = len(filas) + 1
             no_escritas = sorted(set(fila) - set(encabezado))
             if no_escritas:
                 advertencias.append(f"Columnas que no existen en MOVIMIENTOS y no se escribieron: {no_escritas}")
             valores = [fila.get(col, "") for col in encabezado]
-            await asyncio.to_thread(libro.escribir_fila, numero_fila, valores)
+            await asyncio.to_thread(libros[destino].escribir_fila, numero_fila, valores)
             movs.append(fila)
             ya_existia = False
 
@@ -275,5 +300,5 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador) -> C
         advertencias += avisos
 
     return ConfirmarOut(id_mov=fila["id_mov"], fila=numero_fila, comprobante_url=comprobante_url, obra=saldo,
-                        alias_escrito=alias_escrito, ya_existia=ya_existia,
+                        alias_escrito=alias_escrito, ya_existia=ya_existia, libro=destino,
                         cargado_por=str(fila.get("cargado_por") or usuario.nombre), advertencias=advertencias)

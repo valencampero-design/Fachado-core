@@ -45,7 +45,7 @@ async def _correr() -> int:
 
     from app import confirmar as modulo_confirmar
     from app import maestros
-    from app.main import app, obtener_archivador, obtener_libro
+    from app.main import app, obtener_archivador, obtener_libro, obtener_libro_personal
     from app.saldos import saldo_estudio
 
     snapshot = json.loads((RAIZ / "maestros_snapshot.json").read_text(encoding="utf-8"))
@@ -61,10 +61,15 @@ async def _correr() -> int:
         if not ok:
             fallas.append(descripcion)
 
-    def preparar(demora=0.0, fallar_drive=False):
+    personal_actual = {"libro": None}
+
+    def preparar(demora=0.0, fallar_drive=False, con_personal=True):
         libro = libro_con_filas_reales(encabezado, snapshot["ALIAS"], demora)
+        personal = LibroMemoria(encabezado, demora=demora) if con_personal else None
         archivador = ArchivadorFalso(fallar_drive)
+        personal_actual["libro"] = personal
         app.dependency_overrides[obtener_libro] = lambda: libro
+        app.dependency_overrides[obtener_libro_personal] = lambda: personal
         app.dependency_overrides[obtener_archivador] = lambda: archivador
         return libro, archivador
 
@@ -121,20 +126,78 @@ async def _correr() -> int:
               f"{len(set(ids_sin_lock))} id distinto(s))", nuevas < 10 and len(set(ids_sin_lock)) < 10)
 
         # ── 3 · Personal sin obra ─────────────────────────────────────────────
-        print("\n3 · Un movimiento personal sin obra")
+        print("\n3 · Un movimiento personal sin obra: va al libro personal (§5.14)")
         libro, archivador = preparar()
-        r = await confirmar("wamid.P1", ficha(obra=None, contratista="Marcelo Maragaño", rubro_1="Personal",
-                                              rubro_2="Casa", cuenta="Banco", tipo_gasto="personal"))
+        filas_estudio = len(libro.filas)
+        personal_ficha = ficha(obra=None, contratista="Marcelo Maragaño", rubro_1="Personal",
+                               rubro_2="Casa", cuenta="Banco", tipo_gasto="personal")
+        r = await confirmar("wamid.P1", personal_ficha)
         cuerpo = r.json()
-        fila = libro.movimientos()[-1]
-        check("se escribe", r.status_code == 200, cuerpo)
-        check("con tipo_gasto = personal y sin obra", fila["tipo_gasto"] == "personal" and fila["obra"] == "", fila)
+        personal = personal_actual["libro"]
+        fila = personal.movimientos()[-1] if personal.movimientos() else {}
+        check("se escribe en el libro personal, no en el del estudio",
+              r.status_code == 200 and cuerpo.get("libro") == "personal" and len(libro.filas) == filas_estudio, cuerpo)
+        check("con su propia secuencia: P-000001", cuerpo.get("id_mov") == "P-000001", cuerpo.get("id_mov"))
+        check("con tipo_gasto = personal y sin obra", fila.get("tipo_gasto") == "personal" and fila.get("obra") == "", fila)
         check("el comprobante va a personal/2026-09/", archivador.movidos and archivador.movidos[-1][1] == ["personal", "2026-09"],
               archivador.movidos)
         check("el archivo empieza con el id_mov", archivador.movidos and archivador.movidos[-1][2].startswith(cuerpo["id_mov"] + " "),
               archivador.movidos)
         check("sin obra no hay saldo de obra", cuerpo["obra"] is None, cuerpo["obra"])
-        check("Banco concilia: VERDADERO y PENDIENTE", fila["concilia"] == "VERDADERO" and fila["estado_conc"] == "PENDIENTE", fila)
+        check("Banco concilia: VERDADERO y PENDIENTE", fila.get("concilia") == "VERDADERO" and fila.get("estado_conc") == "PENDIENTE", fila)
+        r2 = (await confirmar("wamid.P1", personal_ficha)).json()
+        check("la idempotencia mira los dos libros: el reintento devuelve la fila personal",
+              r2.get("ya_existia") and r2.get("id_mov") == "P-000001" and len(personal.filas) == 2, r2)
+
+        print("\n3b · Acceso a lo personal y libro no configurado")
+        from app.maestros import Usuario
+        sin_personal = Usuario("5490000000001", "Reemplazo de prueba", "colaborador", True, ve_personal=False)
+        m.usuarios.append(sin_personal)
+        try:
+            libro, _ = preparar()
+            r = await confirmar("wamid.P2", personal_ficha, telefono=sin_personal.telefono)
+            check("sin ve_personal: 403 y nada escrito en ningún libro",
+                  r.status_code == 403 and len(personal_actual["libro"].filas) == 1, (r.status_code, r.json()))
+            r = await confirmar("wamid.P3", ficha(), telefono=sin_personal.telefono)
+            check("… pero lo del estudio lo confirma igual", r.status_code == 200 and r.json()["libro"] == "estudio", r.json())
+        finally:
+            m.usuarios.remove(sin_personal)
+        libro, _ = preparar(con_personal=False)
+        antes = len(libro.filas)
+        r = await confirmar("wamid.P4", personal_ficha)
+        check("sin FACHADO_PERSONAL_SHEET_ID: 503, y lo personal NO cae en el libro del estudio",
+              r.status_code == 503 and len(libro.filas) == antes, (r.status_code, r.json()))
+        r = await confirmar("wamid.P5", ficha())
+        check("… y lo del estudio sigue funcionando", r.status_code == 200, r.json())
+
+        print("\n3c · Cierre semanal (§5.14)")
+        libro, _ = preparar()
+        personal = personal_actual["libro"]
+        for n, (fecha, importe, cuenta) in enumerate([("2026-09-22", 1000, "Banco"), ("2026-09-24", 2000, "Banco"),
+                                                      ("2026-09-23", 500, "Efectivo"), ("2026-09-29", 9999, "Banco")], start=1):
+            personal.sembrar(id_mov=f"P-{n:06d}", fecha=fecha, tipo="EGRESO", importe=importe, moneda="ARS", tc=1,
+                             importe_ars=importe, cuenta=cuenta, tipo_gasto="personal", cargado_por=titular.nombre)
+        antes_saldo = saldo_estudio(libro.movimientos(), m)["total"]
+        r = (await cli.post("/cierre-semanal", json={"semana": "2026-W39"})).json()
+        cierre = [mv for mv in libro.movimientos() if mv.get("origen") == "CIERRE"]
+        check("una fila por cuenta: Banco 3.000 y Efectivo 500 (la semana siguiente no entra)",
+              sorted((mv["cuenta"], mv["importe"]) for mv in cierre) == [("Banco", 3000), ("Efectivo", 500)], cierre)
+        check("EGRESO, personal, no concilia, con la descripción de la semana",
+              all(mv["tipo"] == "EGRESO" and mv["tipo_gasto"] == "personal" and mv["concilia"] == "FALSO"
+                  and mv["descripcion"] == "Gastos personales · semana 2026-W39" for mv in cierre), cierre)
+        check("el saldo del estudio baja por las líneas semanales, no por las filas personales",
+              round(antes_saldo - saldo_estudio(libro.movimientos(), m)["total"], 2) == 3500)
+        r = (await cli.post("/cierre-semanal", json={"semana": "2026-W39"})).json()
+        check("idempotente: la segunda corrida no escribe nada", r["escritas"] == [], r)
+        personal.sembrar(id_mov="P-000005", fecha="2026-09-25", tipo="EGRESO", importe=700, moneda="ARS", tc=1,
+                         importe_ars=700, cuenta="Banco", tipo_gasto="personal", cargado_por="Petrus")
+        r = (await cli.post("/cierre-semanal", json={"semana": "2026-W40"})).json()
+        check("carga atrasada: la próxima corrida escribe un ajuste por la diferencia, sin editar la anterior",
+              [(e["semana"], e["cuenta"], e["importe"], e["ajuste"]) for e in r["escritas"]]
+              == [("2026-W39", "Banco", 700, True), ("2026-W40", "Banco", 9999, False)], r["escritas"])
+        from app.filtros import para_conciliacion
+        check("las líneas de cierre quedan fuera de la conciliación",
+              not any(mv.get("origen") == "CIERRE" for mv in para_conciliacion(libro.movimientos())))
 
         # ── 4 · Pagado por el comitente ───────────────────────────────────────
         print("\n4 · «Pagado por el comitente» no mueve el saldo del estudio")

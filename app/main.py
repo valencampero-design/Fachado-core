@@ -8,9 +8,11 @@ import hmac
 import logging
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from pydantic import BaseModel
 
 from app import maestros
 from app.archivo import Archivador, ArchivadorDrive
+from app.cierre import cierre_semanal
 from app.config import settings
 from app.confirmar import ErrorConfirmar, confirmar
 from app.interpretar import interpretar
@@ -74,13 +76,31 @@ def post_recargar_maestros() -> dict:
 
 @app.post("/confirmar", response_model=ConfirmarOut, dependencies=[Depends(verificar_api_key)])
 async def post_confirmar(req: ConfirmarIn, libro: Libro = Depends(obtener_libro),
+                         libro_personal: Libro | None = Depends(obtener_libro_personal),
                          archivador: Archivador = Depends(obtener_archivador)) -> ConfirmarOut:
     # `async def`: el lock del id_mov es un asyncio.Lock. Todo lo bloqueante (Sheets, Drive)
     # corre en threads adentro de `confirmar`.
     try:
-        return await confirmar(req, libro, archivador)
+        return await confirmar(req, libro, archivador, libro_personal)
     except ErrorConfirmar as e:
         raise HTTPException(status_code=e.status, detail={"campo": e.campo, "detalle": e.detalle})
+
+
+class CierreIn(BaseModel):
+    semana: str | None = None  # AAAA-Www; por defecto, la semana anterior
+
+
+@app.post("/cierre-semanal", dependencies=[Depends(verificar_api_key)])
+async def post_cierre_semanal(req: CierreIn | None = None, libro: Libro = Depends(obtener_libro),
+                              libro_personal: Libro | None = Depends(obtener_libro_personal)) -> dict:
+    """La línea semanal de gastos personales (§5.14). La dispara un cron de Railway los lunes
+    a las 8 (scripts/cierre_semanal.py); también se puede llamar a mano. Es idempotente."""
+    if libro_personal is None:
+        raise HTTPException(status_code=503, detail="El libro personal no está configurado (FACHADO_PERSONAL_SHEET_ID)")
+    try:
+        return await cierre_semanal(libro, libro_personal, (req.semana if req else None))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 # ─── Pendientes ────────────────────────────────────────────────────────────────
