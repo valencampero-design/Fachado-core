@@ -1536,6 +1536,14 @@
       "no"
     ]
   ],
+  "ETAPAS": [
+    [
+      "obra",
+      "etapa",
+      "descripcion",
+      "estado"
+    ]
+  ],
   "MOVIMIENTOS": [
     [
       "id_mov",

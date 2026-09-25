@@ -108,9 +108,12 @@ CASOS = {
     "Electricidad Angostura/Retiro": lambda r, f: f["campos"]["tipo_gasto"] == "personal"
                                                   and f["campos"]["contratista"] == "Electricidad Angostura"
                                                   and f["campos"]["obra"] is None and not _p(r, "obra"),
+    # CONTEXTO-FACHADO.md §5.8: las certificaciones de Moreno son plata de la obra y van a su
+    # caja, no a la del estudio. «/efectivo» dice cómo se cobró, no a qué cuenta entra.
     "Ingreso $2.600.000 Moreno/ cert. 4 /efectivo": lambda r, f: f["campos"]["tipo"] == "INGRESO" and f["campos"]["importe"] == 2600000
                                                                  and f["campos"]["obra"] == "Moreno" and f["extras"].get("certificado") == "4"
-                                                                 and f["campos"]["cuenta"] == "Efectivo",
+                                                                 and f["campos"]["cuenta"] == "Caja obra Moreno"
+                                                                 and f["campos"]["medio_pago"] == "Efectivo",
     "Maragaño/Retiro/casa": lambda r, f: f["campos"]["tipo_gasto"] == "personal" and f["campos"]["rubro_2"] == "Casa"
                                          and f["campos"]["contratista"] == "Marcelo Maragaño",
 }

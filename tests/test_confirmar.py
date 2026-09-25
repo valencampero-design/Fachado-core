@@ -219,6 +219,9 @@ async def _correr() -> int:
             ("cuenta inexistente → 422", 422, "cuenta", {}, ficha(cuenta="Caja Chica")),
             ("TRASPASO todavía no → 422", 422, "tipo", {}, ficha(tipo="TRASPASO")),
             ("USD sin tipo de cambio → 422", 422, "tc", {}, ficha(moneda="USD", tc=None)),
+            ("PASANTE, sin cuenta definida en el contexto → 422", 422, "tipo", {}, ficha(tipo="PASANTE", cuenta=None)),
+            ("la caja de otra obra → 422", 422, "cuenta", {}, ficha(cuenta="Caja obra Moreno")),
+            ("una etapa en una obra sin etapas → 422", 422, "etapa", {}, ficha(etapa="1")),
         ]
         for descripcion, status, campo, extra, f in casos:
             libro, _ = preparar()

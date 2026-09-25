@@ -31,12 +31,22 @@ PALABRAS_TIPO = {
     "ingreso": "INGRESO", "ingresos": "INGRESO", "cobro": "INGRESO",
     "pago": "EGRESO", "egreso": "EGRESO",
     "traspaso": "TRASPASO", "extraccion": "TRASPASO", "cajero": "TRASPASO",
+    # §5.17: «depósito» es un pago informal a la cuenta de otra persona → PASANTE informal.
+    "deposito": "PASANTE", "depositos": "PASANTE",
 }
+# Un ingreso que dice honorarios es del estudio; uno que dice certificado es de la obra (§5.8).
+PALABRAS_HONORARIOS = {"hon", "honorario", "honorarios"}
 PALABRAS_RUIDO = {"e", "y", "imputar", "ingresar", "ingresarlo", "registrar", "cargar", "tambien",
                   "como", "aparte", "separado", "correccion", "corregir"}
 STOPWORDS_RUBRO = {"y", "de", "del", "la", "el", "los", "las", "a"}
 
 RE_FECHA = re.compile(r"(?<![\d$.,])(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})(?![\d])")
+# «del 20/9»: día y mes sin año. El año es el del mensaje (o el anterior, si quedaría en el futuro).
+RE_FECHA_SIN_ANIO = re.compile(r"(?:\bdel\s+)?(?<![\d/$.,])(\d{1,2})/(\d{1,2})(?![\d/])", re.I)
+# §5.8: la palabra suelta «caja» equivale a la C pegada a la obra.
+RE_CAJA = re.compile(r"\bcaja(?:\s+chica)?\b", re.I)
+# §5.15: «etapa 1» escrito aparte, además de la forma pegada «Lennon1».
+RE_ETAPA = re.compile(r"\betapa\s*(\d+)\b", re.I)
 RE_IMPORTE_PESOS = re.compile(r"(?:u\$s|usd|us\$|\$)\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)", re.I)
 RE_IMPORTE_SUELTO = re.compile(r"(?<![\d/])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?)(?![\d/])")
 RE_USD = re.compile(r"u\$s|usd|us\$|d[oó]lar", re.I)
@@ -54,6 +64,9 @@ class Resolucion:
     token: str
     puntaje: float = 100.0
     opciones: list[str] = field(default_factory=list)  # para ambiguo
+    # Solo para obras escritas con la sintaxis `<obra>[<etapa>][C]` (§5.15 y §5.8).
+    etapa: str | None = None
+    caja: bool = False
 
 
 @dataclass
@@ -78,6 +91,9 @@ class Segmento:
     candidatos: dict[str, list[str]] = field(default_factory=dict)
     es_correccion: bool = False
     alias_propuesto: dict | None = None
+    etapa: str | None = None   # «etapa 1» escrito aparte
+    caja: bool = False         # la palabra «caja»
+    honorarios: bool = False   # «hon», «honorarios»
 
     def de(self, categoria: str) -> list[Resolucion]:
         return [r for r in self.resueltos if r.categoria == categoria]
@@ -112,7 +128,23 @@ def _parsear_fecha(d: str, m: str, a: str) -> FechaTexto | None:
     return None
 
 
-def parsear(texto: str) -> list[Segmento]:
+def _fecha_sin_anio(d: str, m: str, hoy: date) -> FechaTexto | None:
+    """«20/9»: el año del mensaje, salvo que la fecha quede en el futuro (entonces el anterior)."""
+    try:
+        f = date(hoy.year, int(m), int(d))
+    except ValueError:
+        return None
+    if f > hoy:
+        try:
+            f = date(hoy.year - 1, int(m), int(d))
+        except ValueError:
+            return None
+    return FechaTexto(f, f"{d}/{m}")
+
+
+def parsear(texto: str, hoy: date | None = None) -> list[Segmento]:
+    """`hoy` es la fecha del mensaje: sirve para completar el año de «20/9»."""
+    hoy = hoy or date.today()
     texto = (texto or "").strip()
     if not texto:
         return [Segmento(texto="")]
@@ -139,6 +171,19 @@ def parsear(texto: str) -> list[Segmento]:
             else:
                 seg.fechas_invalidas.append(fm.group(0))
         resto = RE_FECHA.sub(" ", resto)
+        for fm in list(RE_FECHA_SIN_ANIO.finditer(resto)):
+            f = _fecha_sin_anio(fm.group(1), fm.group(2), hoy)
+            if f:
+                seg.fechas.append(f)
+                resto = resto.replace(fm.group(0), " ", 1)
+
+        if RE_CAJA.search(resto):
+            seg.caja = True
+            resto = RE_CAJA.sub(" ", resto)
+        me = RE_ETAPA.search(resto)
+        if me:
+            seg.etapa = me.group(1)
+            resto = RE_ETAPA.sub(" ", resto)
 
         if RE_USD.search(resto):
             seg.moneda = "USD"
@@ -156,6 +201,8 @@ def parsear(texto: str) -> list[Segmento]:
                 n = normalizar(p)
                 if n in PALABRAS_TIPO:
                     seg.tipo_mov = seg.tipo_mov or PALABRAS_TIPO[n]
+                elif n in PALABRAS_HONORARIOS:
+                    seg.honorarios = True
                 elif n not in PALABRAS_RUIDO:
                     limpias.append(p)
             token = " ".join(limpias).strip(" .,;:-")
@@ -186,6 +233,36 @@ def _rubro_valor(r) -> str:
     return f"{r.rubro_1} / {r.rubro_2}" if r.rubro_2 else r.rubro_1
 
 
+def _obra_exacta(n: str, token: str, m: Maestros) -> Resolucion | None:
+    """El token normalizado, entero, contra ALIAS de obra, OBRAS.obra y OBRAS.codigo."""
+    for a in m.alias:
+        if a.tipo == "obra" and normalizar(a.como_lo_dice) == n:
+            return Resolucion("obra", _canonico_obra(m, a.valor_canonico), "alias", token)
+    o = next((o for o in m.obras if n in (normalizar(o.nombre), normalizar(o.codigo))), None)
+    return Resolucion("obra", o.nombre, "exacto", token) if o else None
+
+
+def _obra_con_sufijo(n: str, token: str, m: Maestros) -> Resolucion | None:
+    """`<obra>[<etapa>][C]` (§5.15 y §5.8): `lennon1c` → Lennon, etapa 1, caja.
+
+    Se llega acá solo si el token entero no matcheó nada. Se prueba sacar una C final, un
+    número final, o los dos, y **solo se acepta el recorte si lo que queda es una obra**: así
+    una obra cuyo nombre termine en número o en «c» nunca se rompe."""
+    intentos: list[tuple[str, str | None, bool]] = []
+    if n.endswith("c"):
+        intentos.append((n[:-1].rstrip(), None, True))
+    for base, caja in ((n, False), (n[:-1].rstrip(), True) if n.endswith("c") else (None, False)):
+        md = re.fullmatch(r"(.+?)\s*(\d+)", base) if base else None
+        if md:
+            intentos.append((md.group(1).rstrip(), md.group(2), caja))
+    for base, etapa, caja in intentos:
+        r = _obra_exacta(base, token, m)
+        if r:
+            r.etapa, r.caja = etapa, caja
+            return r
+    return None
+
+
 def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
     n = normalizar(token)
     if not n:
@@ -194,7 +271,23 @@ def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
     cert = RE_CERTIFICADO.match(n)
     if cert:
         detalle = re.sub(r"^\W*cert(?:ificado)?\.?\s*", "", token, flags=re.I).strip()
-        return [Resolucion("certificado", detalle or cert.group(1), "exacto", token)]
+        # «Certificado 5 Moreno1»: sin «/», la obra queda pegada al número. Se suelta desde el
+        # final todo lo que sea una obra; lo que queda es el certificado («4 extras» sigue entero).
+        palabras, obras = detalle.split(), []
+        while len(palabras) > 1:
+            for k in (3, 2, 1):
+                if len(palabras) <= k:
+                    continue
+                cola = " ".join(palabras[-k:])
+                r = _obra_exacta(normalizar(cola), cola, m) or _obra_con_sufijo(normalizar(cola), cola, m)
+                if r:
+                    obras.insert(0, r)
+                    del palabras[-k:]
+                    break
+            else:
+                break
+        detalle = " ".join(palabras)
+        return [Resolucion("certificado", detalle or cert.group(1), "exacto", token)] + obras
 
     salida: list[Resolucion] = []
 
@@ -235,6 +328,11 @@ def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
         return salida + exactos
     if salida:  # era solo un marcador personal
         return salida
+
+    # 1b. La obra con etapa y/o caja pegadas: `Lennon1C`.
+    r = _obra_con_sufijo(n, token, m)
+    if r:
+        return [r]
 
     # 2. Una palabra que identifica a un único contratista o rubro.
     if " " not in n and len(n) >= 3:

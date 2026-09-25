@@ -31,6 +31,8 @@ COLUMNAS = {
 # Hojas que se crean vacías, con su encabezado.
 HOJAS_NUEVAS = {
     "USUARIOS": ["telefono", "nombre", "rol", "activo", "ve_personal", "auto_confirmar"],
+    # §5.15. Arranca vacía: las etapas las carga el arquitecto. Obra sin filas = sin etapas.
+    "ETAPAS": ["obra", "etapa", "descripcion", "estado"],
 }
 
 

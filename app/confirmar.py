@@ -41,7 +41,7 @@ COLUMNAS_REQUERIDAS = ["id_mov", "fecha", "tipo", "importe", "moneda", "tc", "im
 
 # Pasan tal cual de la ficha: lo que el usuario vio y confirmó.
 CAMPOS_DE_LA_FICHA = ["item", "contratista", "rubro_1", "rubro_2", "medio_pago", "pagado_por",
-                      "tipo_comprobante", "descripcion", "comprobante_url"]
+                      "tipo_comprobante", "descripcion", "comprobante_url", "ref_comprobante"]
 
 TIPOS_GASTO = {"obra", "estructura", "personal"}
 RE_ID_MOV = re.compile(r"^M-(\d+)$")
@@ -76,14 +76,17 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
     def falta(campo: str, detalle: str = "") -> ErrorConfirmar:
         return ErrorConfirmar(422, campo, detalle or f"Falta «{campo}»")
 
-    for campo in ("fecha", "tipo", "importe", "moneda", "cuenta"):
-        if _vacio(c.get(campo)):
-            raise falta(campo)
-
-    tipo = str(c["tipo"]).upper()
+    tipo = str(c.get("tipo") or "").upper()
     if tipo == "TRASPASO":
         raise falta("tipo", "Un TRASPASO todavía no se puede confirmar: MOVIMIENTOS tiene una sola "
                             "columna `cuenta` y un traspaso necesita origen y destino")
+    if tipo == "PASANTE":
+        raise falta("tipo", "Un PASANTE todavía no se puede confirmar: falta definir en el contexto qué "
+                            "cuenta lleva (§5.17 dice que no toca la caja del estudio, pero no cuál es)")
+
+    for campo in ("fecha", "tipo", "importe", "moneda", "cuenta"):
+        if _vacio(c.get(campo)):
+            raise falta(campo)
     if tipo not in ("INGRESO", "EGRESO"):
         raise falta("tipo", f"Tipo «{c['tipo']}» inválido: INGRESO o EGRESO")
 
@@ -123,6 +126,22 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
     if not obra and not tipo_gasto:
         raise falta("obra", "Hace falta la obra o el tipo_gasto (un gasto personal puede no tener obra)")
 
+    # §5.8: una caja de obra solo mueve plata de su propia obra.
+    if cuenta.tipo == "caja_obra":
+        propia = m.caja_de_obra(obra.nombre) if obra else None
+        if propia is None or propia.nombre != cuenta.nombre:
+            raise falta("cuenta", f"«{cuenta.nombre}» es la caja de otra obra, no de "
+                                  f"«{obra.nombre if obra else 'ninguna'}»")
+
+    # §5.15: si la obra tiene etapas, hace falta cuál; si no tiene, no puede venir una.
+    etapa = "" if _vacio(c.get("etapa")) else str(c["etapa"]).strip()
+    etapas_obra = m.etapas_de(obra.nombre) if obra else []
+    if etapa and not etapas_obra:
+        raise falta("etapa", f"«{obra.nombre if obra else '—'}» no tiene etapas cargadas en ETAPAS")
+    if etapas_obra and etapa not in etapas_obra:
+        raise falta("etapa", f"«{obra.nombre}» tiene etapas {etapas_obra}: hace falta cuál" if not etapa
+                    else f"«{obra.nombre}» no tiene una etapa {etapa}")
+
     if not _vacio(c.get("contratista")) and m.contratista(c["contratista"]) is None:
         advertencias.append(f"«{c['contratista']}» no está en CONTRATISTAS")
 
@@ -145,6 +164,8 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
         "cargado_por": usuario.nombre,
         "ts": _ahora_local(),
         "tipo_gasto": tipo_gasto or "",
+        "etapa": etapa,
+        "informal": "sí" if normalizar(c.get("informal")) in ("si", "true", "verdadero", "1", "x") else "",
         "msg_id": clave_idempotencia(req.msg_id, req.ficha_indice),
         "certificado": str(req.ficha.extras.get("certificado") or ""),
     })

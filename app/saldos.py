@@ -46,9 +46,17 @@ def saldo_obra(movs: list[dict], obra: str, m: Maestros) -> tuple[SaldoObra, lis
     advertencias: list[str] = []
     n_obra = normalizar(obra)
     for mov in movs:
-        if normalizar(mov.get("obra")) != n_obra or mov.get("tipo") not in TIPOS_QUE_MUEVEN_SALDO:
+        if normalizar(mov.get("obra")) != n_obra:
             continue
         importe = numero(mov.get("importe_ars"))
+        if mov.get("tipo") == "PASANTE":
+            # §5.17: una sola fila que suma a lo adelantado y a lo pagado de la obra. No toca
+            # ninguna cuenta del estudio, así que el saldo de la obra no se mueve.
+            adelantado += importe
+            pagado_estudio += importe
+            continue
+        if mov.get("tipo") not in TIPOS_QUE_MUEVEN_SALDO:
+            continue
         cuenta = m.cuenta(mov.get("cuenta"), incluir_inactivas=True)
         if cuenta is None:
             advertencias.append(f"{mov.get('id_mov')}: la cuenta «{mov.get('cuenta')}» no está en CUENTAS; "

@@ -58,7 +58,7 @@ def interpretar(req: InterpretarIn) -> InterpretarOut:
     m = maestros.cargar()
     diag: dict = {"llm_llamadas": 0, "llm_uso": [], "resoluciones": []}
 
-    segmentos = resolver.parsear(req.texto)
+    segmentos = resolver.parsear(req.texto, _fecha_local(req, s))
     for seg in segmentos:
         resolver.resolver_segmento(seg, m)
 
@@ -199,6 +199,11 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         poner("rubro_2", rubro_2, origen_de(r))
         factor *= FACTOR_METODO.get(r.metodo, 1.0)
 
+    # `Lennon1C`: la etapa y la caja vienen pegadas a la obra; «etapa 1» y «caja», sueltas.
+    r_obra = seg.primero("obra")
+    etapa_texto = (r_obra.etapa if r_obra else None) or seg.etapa
+    caja_pedida = bool(r_obra and r_obra.caja) or seg.caja
+
     cert = seg.primero("certificado")
     if cert:
         extras["certificado"] = cert.valor
@@ -266,7 +271,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     if obra:
         poner("comitente", obra.comitente, "maestro")
 
-    if tipo == "EGRESO" and not campos["rubro_1"]:
+    if tipo in ("EGRESO", "PASANTE") and not campos["rubro_1"]:
         if contratista and contratista.rubro_1 and m.rubro(contratista.rubro_1, contratista.rubro_2):
             poner("rubro_1", contratista.rubro_1, "inferido")
             poner("rubro_2", contratista.rubro_2, "inferido")
@@ -281,13 +286,63 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     # ── 5. Cascada de clasificación (código, no LLM) ──────────────────────────
     res = clasificador.clasificar(m, tipo, obra, contratista, rubro, marcador_personal)
 
-    if tipo == "EGRESO":
+    if tipo in ("EGRESO", "PASANTE"):
         poner("item", (comp.razon_social if comp else None) or campos["contratista"],
               "comprobante" if comp and comp.razon_social else "inferido")
     if campos["cuenta"] and not campos["medio_pago"] and normalizar(campos["cuenta"]) == "efectivo":
         poner("medio_pago", "Efectivo", "inferido")
-    if not campos["cuenta"] and normalizar(campos["medio_pago"]) == "efectivo":
+    if not campos["cuenta"] and normalizar(campos["medio_pago"]) == "efectivo" and tipo != "PASANTE":
         poner("cuenta", "Efectivo", "inferido")
+
+    # ── Caja de obra (§5.8) ────────────────────────────────────────────────────
+    # Sale o entra de la caja de la obra si lo dice la C (o «caja»), o si es el cobro de un
+    # certificado en una obra que el estudio administra: esa plata es de la obra, no del
+    # estudio. Si dice honorarios, es del estudio. La cuenta nunca se inventa.
+    es_cert = bool(extras.get("certificado"))
+    administrada = obra is not None and normalizar(obra.servicio) in ("administracion", "todo")
+    if obra and tipo in ("INGRESO", "EGRESO"):
+        caja = m.caja_de_obra(obra.nombre)
+        verbo = "entra" if tipo == "INGRESO" else "sale"
+        if caja_pedida or (tipo == "INGRESO" and administrada and es_cert and not seg.honorarios):
+            actual = m.cuenta(campos["cuenta"])
+            if caja is None:
+                advertencias.append(f"{obra.nombre} no tiene caja de obra en CUENTAS: no se inventa la cuenta")
+                campos["cuenta"] = None
+                origen.pop("cuenta", None)
+                preguntas.append(Pregunta(campo="cuenta", texto=f"{obra.nombre} no tiene caja de obra. ¿De qué cuenta {verbo}?",
+                                          opciones=[c.nombre for c in m.cuentas_del_estudio() if c.activa]))
+            elif actual and actual.nombre != caja.nombre and actual.tipo != "efectivo":
+                conflictos.append(Conflicto(campo="cuenta", valor_texto=actual.nombre, valor_comprobante=caja.nombre,
+                                            detalle=f"El texto dice «{actual.nombre}», pero va por la caja de {obra.nombre}"))
+                campos["cuenta"] = None
+                origen.pop("cuenta", None)
+                preguntas.append(Pregunta(campo="cuenta", texto=f"¿De qué cuenta {verbo}?",
+                                          opciones=[caja.nombre, actual.nombre], motivo="conflicto"))
+            else:
+                # «/efectivo» en un cobro de certificado dice cómo se pagó, no a qué cuenta entra.
+                if actual and actual.tipo == "efectivo":
+                    poner("medio_pago", "Efectivo", origen.get("cuenta", "texto"))
+                poner("cuenta", caja.nombre, "inferido")
+        elif tipo == "INGRESO" and administrada and not es_cert and not seg.honorarios:
+            preguntas.append(Pregunta(campo="concepto", texto=f"Este ingreso de {obra.nombre}, ¿es una certificación "
+                                      f"de obra o son honorarios del estudio?", opciones=["Certificación", "Honorarios"]))
+
+    # ── Etapa (§5.15) ──────────────────────────────────────────────────────────
+    etapas_obra = m.etapas_de(obra.nombre) if obra else []
+    if obra and etapa_texto:
+        if not etapas_obra:
+            advertencias.append(f"{obra.nombre} no tiene etapas cargadas en ETAPAS: se ignora la etapa {etapa_texto}")
+        elif etapa_texto in etapas_obra:
+            poner("etapa", etapa_texto, "texto")
+        else:
+            advertencias.append(f"{obra.nombre} no tiene una etapa {etapa_texto}")
+            preguntas.append(Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}?", opciones=etapas_obra))
+    elif obra and etapas_obra and tipo != "TRASPASO" and not campos["etapa"]:
+        preguntas.append(Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}?", opciones=etapas_obra))
+
+    # ── Depósito «en negro» (§5.17) ────────────────────────────────────────────
+    if tipo == "PASANTE":
+        poner("informal", "sí", "texto")
     poner("moneda", campos["moneda"] or "ARS", origen.get("moneda", "inferido"))
     if campos["moneda"] == "ARS":
         poner("tc", 1, "inferido")
@@ -342,7 +397,8 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         opciones = [o.nombre for o in m.obras if o.estado != "cerrada" and o.tipo in ("obra_terceros", "obra_propia")]
         preguntas.append(Pregunta(campo="obra", texto="¿A qué obra?", opciones=opciones[:MAX_OPCIONES]))
 
-    if tipo == "EGRESO" and not campos["contratista"] and res.clasificacion != "personal"             and not any(p.campo == "contratista" for p in preguntas):
+    if tipo in ("EGRESO", "PASANTE") and not campos["contratista"] and res.clasificacion != "personal" \
+            and not any(p.campo == "contratista" for p in preguntas):
         if sin_resolver:
             token = sin_resolver.pop(0)
             opciones = seg.candidatos.get(token) or resolver.candidatos(token, m, "contratista")
@@ -350,7 +406,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         elif not tiene_adjunto and res.clasificacion == "obra":
             preguntas.append(Pregunta(campo="contratista", texto="¿A quién se le pagó?"))
 
-    if tipo == "EGRESO" and not campos["rubro_1"] and res.preguntar != "clasificacion" \
+    if tipo in ("EGRESO", "PASANTE") and not campos["rubro_1"] and res.preguntar != "clasificacion" \
             and (res.clasificacion == "personal" or campos["contratista"]):
         afecta = "personal" if res.clasificacion == "personal" else "obra"
         opciones = [r.rubro_2 for r in m.rubros if r.afecta == afecta]
@@ -370,6 +426,8 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
                   + ([] if res.clasificacion == "personal" else ["obra"]),
         "INGRESO": ["fecha", "importe", "obra", "medio_pago", "cuenta", "tipo_gasto"],
         "TRASPASO": ["fecha", "importe", "cuenta"],
+        # Sin cuenta: qué cuenta lleva un pasante no está definido en el contexto (§5.17).
+        "PASANTE": ["fecha", "importe", "obra", "contratista", "tipo_gasto"],
     }[tipo]
     if res.clasificacion == "personal":
         requeridos = [c for c in requeridos if c != "contratista"]

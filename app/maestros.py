@@ -17,7 +17,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-HOJAS = ["OBRAS", "CONTRATISTAS", "RUBROS", "CUENTAS", "ALIAS", "USUARIOS"]
+HOJAS = ["OBRAS", "CONTRATISTAS", "RUBROS", "CUENTAS", "ALIAS", "USUARIOS", "ETAPAS"]
 
 # Qué clase de cosa nombra un alias. NO es la clasificación del gasto: para decir «esta
 # palabra significa personal» va tipo = tipo con valor_canonico = Personal (así están
@@ -138,6 +138,16 @@ class Usuario:
 
 
 @dataclass
+class Etapa:
+    """Subdivisión de una obra que se certifica (CONTEXTO-FACHADO.md §5.15). `Lennon1` es la
+    etapa 1 de Lennon. Una obra sin filas en ETAPAS no tiene etapas."""
+    obra: str
+    etapa: str
+    descripcion: str
+    activa: bool
+
+
+@dataclass
 class Maestros:
     obras: list[Obra]
     contratistas: list[Contratista]
@@ -145,8 +155,14 @@ class Maestros:
     cuentas: list[Cuenta]
     alias: list[Alias]
     usuarios: list[Usuario] = field(default_factory=list)
+    etapas: list[Etapa] = field(default_factory=list)
     cargado_en: float = field(default_factory=time.time)
     advertencias: list[str] = field(default_factory=list)
+
+    def etapas_de(self, obra: str | None) -> list[str]:
+        """Las etapas activas de la obra, en el orden del Sheet. Vacía = la obra no tiene etapas."""
+        n = normalizar(obra)
+        return [e.etapa for e in self.etapas if e.activa and normalizar(e.obra) == n]
 
     def usuario(self, telefono: str | None) -> Usuario | None:
         """El usuario activo con ese teléfono, o None."""
@@ -310,7 +326,19 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
     for hoja in crudo.get("_hojas_faltantes", []):
         advertencias.append(f"{hoja}: la hoja no existe en el Sheet. Correr scripts/preparar_sheet.py")
 
-    return Maestros(obras, contratistas, rubros, cuentas, alias, usuarios, advertencias=advertencias)
+    etapas: list[Etapa] = []
+    for r in _registros(crudo.get("ETAPAS", [])):
+        obra, etapa = r.get("obra", ""), re.sub(r"\D", "", r.get("etapa", ""))
+        if not (obra and etapa):
+            continue
+        canonica = next((o.nombre for o in obras if normalizar(o.nombre) == normalizar(obra)), None)
+        if canonica is None:
+            advertencias.append(f"ETAPAS: «{obra}» no está en OBRAS")
+            continue
+        etapas.append(Etapa(canonica, etapa, r.get("descripcion", ""),
+                            normalizar(r.get("estado")) not in ("inactiva", "inactivo", "cerrada", "terminada")))
+
+    return Maestros(obras, contratistas, rubros, cuentas, alias, usuarios, etapas, advertencias=advertencias)
 
 
 # ─── Carga con caché ───────────────────────────────────────────────────────────

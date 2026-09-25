@@ -13,6 +13,9 @@ COLUMNAS_MOVIMIENTOS: list[str] = [
     "comitente", "contratista", "rubro_1", "rubro_2", "medio_pago", "cuenta", "pagado_por",
     "tipo_comprobante", "descripcion", "origen", "concilia", "id_banco", "estado_conc",
     "comprobante_url", "tipo_gasto",
+    "etapa",            # §5.15: `Lennon1` es la etapa 1
+    "informal",         # §5.17: «sí» en un depósito en negro; fuera del IVA y de la conciliación
+    "ref_comprobante",  # §5.16: número de operación, de cheque o hash del archivo
 ]
 
 # De dónde salió cada valor. El gateway lo muestra al lado del campo.
