@@ -383,7 +383,7 @@ def _validar(categoria: str | None, valor: str | None, m: Maestros) -> str | Non
         return o.nombre if o else None
     if categoria == "contratista":
         c = m.contratista(valor)
-        return c.nombre if c else None
+        return c.nombre if c and c.activo else None  # el LLM nunca propone un inactivo (§5.6)
     if categoria == "cuenta":
         c = m.cuenta(valor)
         return c.nombre if c else None
@@ -521,6 +521,17 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     contratista = m.contratista(campos["contratista"])
     if campos["contratista"] and not contratista:
         advertencias.append(f"«{campos['contratista']}» no está en CONTRATISTAS (viene de ALIAS)")
+    # §5.6: un inactivo llega acá solo por nombre exacto, alias exacto o CUIT. Se pregunta si
+    # se reactiva; si el usuario dijo «Es otro», se descarta y se pregunta a quién.
+    if contratista and not contratista.activo:
+        if normalizar(contratista.nombre) == normalizar(extras.get("contratista_descartado")):
+            campos["contratista"] = None
+            origen.pop("contratista", None)
+            contratista = None
+        elif not extras.get("reactivar"):
+            extras["inactivo_propuesto"] = contratista.nombre
+            preguntas.append(Pregunta(campo="inactivo", texto=f"{contratista.nombre} está inactivo, ¿lo reactivo?",
+                                      opciones=["Reactivar", "Es otro"], motivo="inactivo"))
     if obra:
         poner("comitente", obra.comitente, "maestro")
 

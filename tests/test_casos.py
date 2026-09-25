@@ -367,7 +367,6 @@ def main() -> int:
         check(f"«{texto}» → {esperada}", r.intencion == esperada and (esperada == "movimiento" or (not r.fichas and not r.preguntas)),
               (r.intencion, len(r.fichas), [p.campo for p in r.preguntas]))
     foto = Adjunto(url="https://drive.google.com/file/d/FOTOOBRAxxxxxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="IMG_2031.jpg")
-    r, f = None, None
     r = interpretar(InterpretarIn(texto="", adjuntos=[foto]), lector=lector_con())
     check("una foto sin texto y sin nada de un comprobante (una foto de obra) → otro", r.intencion == "otro" and not r.fichas, r.intencion)
 
@@ -450,6 +449,33 @@ def main() -> int:
                                   texto_compartido=2), lector=lector_con(fecha="2026-09-02"))
     check("… y si ese comprobante no trae importe, pregunta (no usa el del texto)",
           r.fichas[0].campos["importe"] is None and campos_de(r, "importe"), (r.fichas[0].campos["importe"], r.preguntas))
+
+    # ── Tanda 6.5 · contratistas inactivos ────────────────────────────────────
+    from app import resolver as res_mod
+    from app.interpretar import _validar
+
+    print("\nTanda 6.5 · contratistas inactivos (§5.6)")
+    r, f, c = leer("Mercado Libre/Moreno")
+    check("nombre exacto de un inactivo: se reconoce y pregunta «¿lo reactivo?»",
+          c["contratista"] == "Mercado Libre" and any(p.motivo == "inactivo" and p.opciones == ["Reactivar", "Es otro"]
+                                                      for p in r.preguntas), (c["contratista"], r.preguntas))
+    for texto in ("Mercado/Moreno", "Mercadolibre/Moreno"):
+        r, f, c = leer(texto)
+        check(f"«{texto}»: por palabra única o por parecido, un inactivo no se propone", c["contratista"] != "Mercado Libre",
+              c["contratista"])
+    check("el LLM tampoco puede devolverlo", _validar("contratista", "Mercado Libre", m) is None)
+    check("ni aparece como opción de una pregunta", "Mercado Libre" not in res_mod.candidatos("mercado", m, "contratista", 20))
+    check("con el flag de históricos, sí se reconoce por parecido («mercadolibre»)",
+          any(x.valor == "Mercado Libre" for x in res_mod.resolver_token("mercadolibre", m, incluir_inactivos=True))
+          and not res_mod.resolver_token("mercadolibre", m))
+    r0 = interpretar(InterpretarIn(texto="Mercado Libre/Moreno", fecha_mensaje="2026-09-25T12:00:00Z"))
+    r1 = responder(r0, ("inactivo", "Reactivar"))
+    check("«Reactivar» → extras.reactivar, sin volver a preguntar",
+          r1.fichas[0].extras.get("reactivar") is True and not any(p.motivo == "inactivo" for p in r1.preguntas), r1.preguntas)
+    r2 = responder(r0, ("inactivo", "Es otro"))
+    check("«Es otro» → se descarta y pregunta a quién se le pagó",
+          r2.fichas[0].campos["contratista"] is None and campos_de(r2, "contratista")
+          and not any(p.motivo == "inactivo" for p in r2.preguntas), (r2.fichas[0].campos["contratista"], r2.preguntas))
 
     print(f"\n{'TODO OK' if not fallas else str(len(fallas)) + ' FALLAS'}")
     return 1 if fallas else 0

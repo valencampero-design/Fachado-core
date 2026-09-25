@@ -79,6 +79,11 @@ class Contratista:
     notas: str
     dual: bool
 
+    @property
+    def activo(self) -> bool:
+        """§5.6: un inactivo no se propone por parecido; solo por nombre exacto, alias o CUIT."""
+        return normalizar(self.estado) not in ("inactivo", "inactiva", "baja")
+
 
 @dataclass
 class Rubro:

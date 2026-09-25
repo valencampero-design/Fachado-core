@@ -292,6 +292,21 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
             logger.exception("No se pudo escribir el alias")
             advertencias.append(f"El movimiento quedó escrito pero el alias no ({type(e).__name__})")
 
+    # §5.6: el usuario contestó «Reactivar» a un contratista inactivo. Como el alias: si falla,
+    # el movimiento ya quedó escrito y vuelve una advertencia.
+    reactivado = False
+    inactivo = m.contratista(fila.get("contratista")) if fila.get("contratista") else None
+    if inactivo is not None and not inactivo.activo:
+        if req.ficha.extras.get("reactivar"):
+            try:
+                reactivado = await asyncio.to_thread(libro.reactivar_contratista, inactivo.nombre)
+                maestros.invalidar()
+            except Exception as e:  # noqa: BLE001
+                logger.exception("No se pudo reactivar %s", inactivo.nombre)
+                advertencias.append(f"El movimiento quedó escrito pero {inactivo.nombre} no se reactivó ({type(e).__name__})")
+        else:
+            advertencias.append(f"{inactivo.nombre} está inactivo en CONTRATISTAS")
+
     saldo = None
     if fila.get("obra"):
         saldo, avisos = saldo_obra(movs, fila["obra"], m)
@@ -313,7 +328,8 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
             advertencias.append(f"No se pudo calcular lo pendiente del certificado ({type(e).__name__})")
 
     return ConfirmarOut(id_mov=fila["id_mov"], fila=numero_fila, comprobante_url=comprobante_url, obra=saldo,
-                        certificado=estado, alias_escrito=alias_escrito, ya_existia=ya_existia, libro=destino,
+                        certificado=estado, alias_escrito=alias_escrito, contratista_reactivado=reactivado,
+                        ya_existia=ya_existia, libro=destino,
                         cargado_por=str(fila.get("cargado_por") or usuario.nombre), advertencias=advertencias)
 
 

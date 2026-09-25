@@ -178,6 +178,7 @@ class ConfirmarOut(BaseModel):
     # Al confirmar un certificado, o un cobro que nombra uno: cuánto queda por cobrar.
     certificado: EstadoCertificado | None = None
     alias_escrito: bool = False
+    contratista_reactivado: bool = False  # §5.6: la ficha traía extras.reactivar
     ya_existia: bool = False  # el msg_id ya estaba: se devuelve la fila que había
     libro: Literal["estudio", "personal", "certificados"] = "estudio"  # §5.14: dónde quedó escrito
     cargado_por: str

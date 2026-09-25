@@ -313,6 +313,20 @@ async def _correr() -> int:
         check("suma a lo pagado por el comitente en la obra", cuerpo["obra"]["pagado_por_el_comitente"] == 300000, cuerpo["obra"])
         check("no aparece en lo que concilia", not any(mv["id_mov"] == fila["id_mov"] for mv in para_conciliacion(libro.movimientos())))
 
+        # ── Tanda 6.5 · reactivar un contratista ──────────────────────────────
+        print("\n6.5 · «Reactivar» un contratista inactivo (§5.6)")
+        libro, _ = preparar()
+        f = ficha(contratista="Mercado Libre", comprobante_url=None)
+        f["extras"] = {"reactivar": True}
+        cuerpo = (await confirmar("wamid.REACT", f)).json()
+        check("con extras.reactivar: escribe el movimiento y pone activo en el maestro",
+              cuerpo["contratista_reactivado"] and libro.reactivados == ["Mercado Libre"], (cuerpo, libro.reactivados))
+        libro, _ = preparar()
+        cuerpo = (await confirmar("wamid.NOREACT", ficha(contratista="Mercado Libre", comprobante_url=None))).json()
+        check("sin reactivar: se escribe igual, no toca el maestro y avisa que está inactivo",
+              not cuerpo["contratista_reactivado"] and not libro.reactivados
+              and any("inactivo" in a for a in cuerpo["advertencias"]), cuerpo)
+
         # ── Tanda 6.2 · TRASPASO ──────────────────────────────────────────────
         print("\n6.2 · Un traspaso: dos filas vinculadas en una sola escritura (§5.18)")
 

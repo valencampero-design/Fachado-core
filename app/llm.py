@@ -82,10 +82,15 @@ def _system_maestros(m: Maestros) -> list[dict]:
                       for o in m.obras if o.estado != "cerrada")
     contratistas = "\n".join(
         f"- {c.nombre}" + (f" (rubro habitual: {c.rubro_1} / {c.rubro_2})" if c.rubro_1 else "")
-        for c in m.contratistas)
+        for c in m.contratistas if c.activo)  # §5.6: un inactivo no se propone por parecido
+
+    def alias_vigente(a) -> bool:
+        c = m.contratista(a.valor_canonico) if a.tipo == "contratista" else None
+        return c is None or c.activo
+
     rubros = "\n".join(f"- {r.rubro_1} / {r.rubro_2}" for r in m.rubros)
     cuentas = "\n".join(f"- {c.nombre}" for c in m.cuentas if c.activa)
-    alias = "\n".join(f"- «{a.como_lo_dice}» → {a.valor_canonico} ({a.tipo})" for a in m.alias)
+    alias = "\n".join(f"- «{a.como_lo_dice}» → {a.valor_canonico} ({a.tipo})" for a in m.alias if alias_vigente(a))
     texto = f"""Sos el intérprete de mensajes de WhatsApp de un estudio de arquitectura de Villa La Angostura (Argentina) que administra obras. El arquitecto anota pagos y cobros con mensajes cortos del estilo «contratista/obra», «obra/concepto» o «Retiro/club/cuota», en cualquier orden, con apodos, abreviaturas y errores de tipeo.
 
 Tu trabajo es acotado: te paso los fragmentos del mensaje que un diccionario no pudo reconocer, y para cada uno decís qué es y a qué valor canónico corresponde. Un sistema aparte, con reglas propias, decide si el gasto es de obra, de estructura o personal: vos no lo decidas.

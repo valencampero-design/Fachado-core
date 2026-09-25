@@ -8,6 +8,7 @@ from typing import Protocol
 
 from app import sheets
 from app.config import settings
+from app.maestros import normalizar
 
 # Hasta qué columna se lee MOVIMIENTOS. Holgado: las columnas nuevas van siempre al final.
 _RANGO_MOVIMIENTOS = "MOVIMIENTOS!A:AZ"
@@ -38,6 +39,11 @@ class Libro(Protocol):
         """CERTIFICADOS (§5.11), la primera fila es el encabezado. Solo en el libro del estudio."""
         ...
 
+    def reactivar_contratista(self, nombre: str) -> bool:
+        """Pone `estado = activo` en CONTRATISTAS (§5.6). True si cambió algo. Es el maestro,
+        no el libro: ahí sí se edita, y nada se borra."""
+        ...
+
     def escribir_certificado(self, numero: int, valores: list) -> None:
         ...
 
@@ -66,6 +72,21 @@ class LibroSheets:
 
     def leer_certificados(self) -> list[list]:
         return sheets.leer_rango(self.sheet_id, _RANGO_CERTIFICADOS)
+
+    def reactivar_contratista(self, nombre: str) -> bool:
+        filas = sheets.leer_rango(self.sheet_id, "CONTRATISTAS!A:Z", formato="FORMATTED_VALUE")
+        encabezado = [normalizar(x) for x in (filas[0] if filas else [])]
+        if "contratista" not in encabezado or "estado" not in encabezado:
+            raise ValueError("CONTRATISTAS no tiene las columnas «contratista» y «estado»")
+        col, est = encabezado.index("contratista"), encabezado.index("estado")
+        cambio = False
+        # Todas las filas con ese nombre: CONTRATISTAS tiene repetidos que se fusionan al leer.
+        for n, fila in enumerate(filas[1:], start=2):
+            if len(fila) > col and normalizar(fila[col]) == normalizar(nombre) \
+                    and normalizar(fila[est] if len(fila) > est else "") != "activo":
+                sheets.escribir_rango(self.sheet_id, f"CONTRATISTAS!{sheets.columna_a_letra(est + 1)}{n}", [["activo"]])
+                cambio = True
+        return cambio
 
     def escribir_certificado(self, numero: int, valores: list) -> None:
         ultima = sheets.columna_a_letra(len(valores))

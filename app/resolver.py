@@ -278,8 +278,15 @@ def _obra_con_sufijo(n: str, token: str, m: Maestros) -> Resolucion | None:
     return None
 
 
-def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
+def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> list[Resolucion]:
+    """`incluir_inactivos` es para la migración de históricos (§5.6): en la carga diaria un
+    contratista inactivo solo coincide por nombre exacto, alias exacto o CUIT, y ahí el bot
+    pregunta si se reactiva; nunca por palabra única ni por parecido."""
     n = normalizar(token)
+
+    def vigente(nombre: str) -> bool:
+        c = m.contratista(nombre)
+        return incluir_inactivos or c is None or c.activo
     if not n:
         return []
 
@@ -357,7 +364,7 @@ def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
         if len(rubros) == 1:
             return [Resolucion("rubro", _rubro_valor(rubros[0]), "palabra", token, 90)]
         if len(n) >= 4:
-            contratistas = [c for c in m.contratistas if normalizar(c.nombre).split()[0] == n]
+            contratistas = [c for c in m.contratistas if normalizar(c.nombre).split()[0] == n and vigente(c.nombre)]
             if len(contratistas) == 1 and not any(normalizar(o.nombre).split()[0] == n for o in m.obras):
                 return [Resolucion("contratista", contratistas[0].nombre, "palabra", token, 90)]
 
@@ -367,9 +374,10 @@ def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
         claves[normalizar(o.nombre)] = ("obra", o.nombre)
         claves.setdefault(normalizar(o.codigo), ("obra", o.nombre))
     for c in m.contratistas:
-        claves.setdefault(normalizar(c.nombre), ("contratista", c.nombre))
+        if vigente(c.nombre):
+            claves.setdefault(normalizar(c.nombre), ("contratista", c.nombre))
     for a in m.alias:
-        if a.tipo == "contratista":
+        if a.tipo == "contratista" and vigente(a.valor_canonico):
             claves.setdefault(normalizar(a.como_lo_dice), ("contratista", _canonico_contratista(m, a.valor_canonico)))
         elif a.tipo == "obra":
             claves.setdefault(normalizar(a.como_lo_dice), ("obra", _canonico_obra(m, a.valor_canonico)))
@@ -425,16 +433,16 @@ def candidatos(token: str, m: Maestros, categoria: str, limite: int = 3) -> list
     if categoria == "obra":
         nombres = [o.nombre for o in m.obras if o.estado != "cerrada"]
     else:
-        nombres = [c.nombre for c in m.contratistas]
+        nombres = [c.nombre for c in m.contratistas if c.activo]  # un inactivo no se propone (§5.6)
     if not n:
         return nombres[:limite]
     return [nombres[i] for _, _, i in process.extract(n, [normalizar(x) for x in nombres],
                                                         scorer=fuzz.WRatio, limit=limite)]
 
 
-def resolver_segmento(seg: Segmento, m: Maestros) -> Segmento:
+def resolver_segmento(seg: Segmento, m: Maestros, incluir_inactivos: bool = False) -> Segmento:
     for token in seg.tokens:
-        resoluciones = resolver_token(token, m)
+        resoluciones = resolver_token(token, m, incluir_inactivos)
         if resoluciones:
             vistos = {(r.categoria, r.valor) for r in seg.resueltos}
             seg.resueltos += [r for r in resoluciones if (r.categoria, r.valor) not in vistos]

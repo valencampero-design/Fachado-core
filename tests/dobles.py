@@ -21,6 +21,7 @@ class LibroMemoria:
         self.certificados: list[list] = [list(ENCABEZADO_CERTIFICADOS)]
         self.demora = demora
         self.escrituras = 0  # llamadas de escritura a MOVIMIENTOS: un traspaso tiene que ser una
+        self.reactivados: list[str] = []  # contratistas que /confirmar reactivó en el maestro
 
     def sembrar(self, **campos) -> None:
         """Una fila ya existente en el libro, cargada antes de la prueba."""
@@ -44,6 +45,10 @@ class LibroMemoria:
 
     def agregar_alias(self, fila):
         self.alias.append(list(fila))
+
+    def reactivar_contratista(self, nombre):
+        self.reactivados.append(nombre)
+        return True
 
     def leer_certificados(self):
         return [list(f) for f in self.certificados]
