@@ -99,19 +99,24 @@ def main() -> int:
 
     print("\nTanda 2 · depósitos en negro (§5.17)")
     r, f, c = leer("Deposito Marcelo/Moreno $300.000")
-    check("Deposito Marcelo/Moreno → PASANTE, informal = sí, Moreno",
-          c["tipo"] == "PASANTE" and c["informal"] == "sí" and c["obra"] == "Moreno", (c["tipo"], c["informal"], c["obra"]))
+    check("Deposito Marcelo/Moreno → PASANTE, informal = VERDADERO, Moreno",
+          c["tipo"] == "PASANTE" and c["informal"] == "VERDADERO" and c["obra"] == "Moreno", (c["tipo"], c["informal"], c["obra"]))
     r, f, c = leer("Depósito Felipe J/Lennon $150.000")
-    check("con tilde también, y sin cuenta: no toca la caja del estudio",
-          c["tipo"] == "PASANTE" and not c["cuenta"], (c["tipo"], c["cuenta"]))
-    pasante = {"id_mov": "M-X", "tipo": "PASANTE", "obra": "Moreno", "importe_ars": 300000, "informal": "sí", "cuenta": ""}
+    check("con tilde también, en «Pagado por el comitente», sin conciliar (§5.17 v1.6)",
+          c["tipo"] == "PASANTE" and c["cuenta"] == "Pagado por el comitente" and c["concilia"] == "FALSO",
+          (c["tipo"], c["cuenta"], c["concilia"]))
+    r, f, c = leer("Depósito Felipe J/Lennon/Banco $150.000")
+    check("aunque el texto diga otra cuenta: la fija el motor y avisa",
+          c["cuenta"] == "Pagado por el comitente" and any("Pagado por el comitente" in a for a in f.extras.get("advertencias", [])),
+          (c["cuenta"], f.extras.get("advertencias")))
+    pasante = {"id_mov": "M-X", "tipo": "PASANTE", "obra": "Moreno", "importe_ars": 300000, "informal": "VERDADERO",
+               "cuenta": "Pagado por el comitente"}
     normal = {"id_mov": "M-Y", "tipo": "EGRESO", "obra": "Moreno", "importe_ars": 1000, "informal": "", "cuenta": "Banco"}
     antes, _ = saldo_obra([normal], "Moreno", m)
     despues, _ = saldo_obra([normal, pasante], "Moreno", m)
-    check("el pasante suma a lo adelantado y a lo pagado, y el saldo de la obra no se mueve",
-          despues.adelantado - antes.adelantado == 300000
-          and despues.pagado_con_plata_del_estudio - antes.pagado_con_plata_del_estudio == 300000
-          and despues.saldo == antes.saldo, (antes, despues))
+    check("el pasante suma como pago del comitente, y el saldo de la obra no se mueve",
+          despues.pagado_por_el_comitente - antes.pagado_por_el_comitente == 300000
+          and despues.adelantado == antes.adelantado and despues.saldo == antes.saldo, (antes, despues))
     check("no toca el saldo del estudio",
           saldo_estudio([normal], m)["total"] == saldo_estudio([normal, pasante], m)["total"])
     check("queda fuera del IVA y de la conciliación",

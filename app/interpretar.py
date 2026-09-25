@@ -433,8 +433,14 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         preguntas.append(Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}?", opciones=etapas_obra))
 
     # ── Depósito «en negro» (§5.17) ────────────────────────────────────────────
+    # Una sola fila en «Pagado por el comitente»: suma a la cuenta corriente del contratista
+    # como un pago directo del comitente y no toca el saldo del estudio. La cuenta la fija el
+    # motor, diga lo que diga el texto.
     if tipo == "PASANTE":
-        poner("informal", "sí", "texto")
+        poner("informal", "VERDADERO", "inferido")
+        if campos["cuenta"] and normalizar(campos["cuenta"]) != normalizar(maestros.CUENTA_PAGADO_POR_COMITENTE):
+            advertencias.append(f"Un depósito va siempre a «{maestros.CUENTA_PAGADO_POR_COMITENTE}», no a «{campos['cuenta']}»")
+        poner("cuenta", maestros.CUENTA_PAGADO_POR_COMITENTE, "inferido")
     poner("moneda", campos["moneda"] or "ARS", origen.get("moneda", "inferido"))
     if campos["moneda"] == "ARS":
         poner("tc", 1, "inferido")
@@ -518,8 +524,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
                   + ([] if res.clasificacion == "personal" else ["obra"]),
         "INGRESO": ["fecha", "importe", "obra", "medio_pago", "cuenta", "tipo_gasto"],
         "TRASPASO": ["fecha", "importe", "cuenta"],
-        # Sin cuenta: qué cuenta lleva un pasante no está definido en el contexto (§5.17).
-        "PASANTE": ["fecha", "importe", "obra", "contratista", "tipo_gasto"],
+        "PASANTE": ["fecha", "importe", "obra", "contratista", "cuenta", "tipo_gasto"],
     }[tipo]
     if res.clasificacion == "personal":
         requeridos = [c for c in requeridos if c != "contratista"]

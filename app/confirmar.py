@@ -22,6 +22,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from app import archivo, certificados, maestros
 from app.archivo import Archivador
+from app.clasificador import CLASIFICACION_POR_TIPO_OBRA
 from app.comprobante import id_drive
 from app.config import settings
 from app.libro import Libro
@@ -82,14 +83,17 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
         raise falta("tipo", "Un TRASPASO todavía no se puede confirmar: MOVIMIENTOS tiene una sola "
                             "columna `cuenta` y un traspaso necesita origen y destino")
     if tipo == "PASANTE":
-        raise falta("tipo", "Un PASANTE todavía no se puede confirmar: falta definir en el contexto qué "
-                            "cuenta lleva (§5.17 dice que no toca la caja del estudio, pero no cuál es)")
+        # §5.17: la cuenta la fija el motor, venga lo que venga en la ficha.
+        c = {**c, "cuenta": maestros.CUENTA_PAGADO_POR_COMITENTE}
+        for campo in ("obra", "contratista"):
+            if _vacio(c.get(campo)):
+                raise falta(campo, f"Un depósito necesita «{campo}»")
 
     for campo in ("fecha", "tipo", "importe", "moneda", "cuenta"):
         if _vacio(c.get(campo)):
             raise falta(campo)
-    if tipo not in ("INGRESO", "EGRESO"):
-        raise falta("tipo", f"Tipo «{c['tipo']}» inválido: INGRESO o EGRESO")
+    if tipo not in ("INGRESO", "EGRESO", "PASANTE"):
+        raise falta("tipo", f"Tipo «{c['tipo']}» inválido: INGRESO, EGRESO, PASANTE o TRASPASO")
 
     try:
         fecha = date.fromisoformat(str(c["fecha"])[:10]).isoformat()
@@ -121,7 +125,9 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
     tipo_gasto = None if _vacio(c.get("tipo_gasto")) else str(c["tipo_gasto"]).lower()
     if tipo_gasto and tipo_gasto not in TIPOS_GASTO:
         raise falta("tipo_gasto", f"«{c['tipo_gasto']}» no es obra, estructura ni personal")
-    if tipo == "EGRESO" and not tipo_gasto:
+    if tipo == "PASANTE" and not tipo_gasto and obra:
+        tipo_gasto = CLASIFICACION_POR_TIPO_OBRA.get(obra.tipo)  # la regla R4 de la cascada
+    if tipo in ("EGRESO", "PASANTE") and not tipo_gasto:
         # La cascada siempre lo decide o pregunta: que llegue vacío a confirmar es un bug.
         raise falta("tipo_gasto", "Un EGRESO sin tipo_gasto es un bug de la cascada: no se escribe")
     if not obra and not tipo_gasto:
@@ -146,7 +152,9 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
     if not _vacio(c.get("contratista")) and m.contratista(c["contratista"]) is None:
         advertencias.append(f"«{c['contratista']}» no está en CONTRATISTAS")
 
-    concilia = cuenta.concilia_contra_banco
+    # Un informal (§5.17) nunca concilia contra el banco.
+    informal = tipo == "PASANTE" or normalizar(c.get("informal")) in ("si", "true", "verdadero", "1", "x")
+    concilia = cuenta.concilia_contra_banco and not informal
     fila = {campo: ("" if _vacio(c.get(campo)) else c[campo]) for campo in CAMPOS_DE_LA_FICHA}
     fila.update({
         "fecha": fecha,
@@ -166,7 +174,7 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
         "ts": _ahora_local(),
         "tipo_gasto": tipo_gasto or "",
         "etapa": etapa,
-        "informal": "sí" if normalizar(c.get("informal")) in ("si", "true", "verdadero", "1", "x") else "",
+        "informal": "VERDADERO" if informal else "",
         "msg_id": clave_idempotencia(req.msg_id, req.ficha_indice),
         "certificado": str(req.ficha.extras.get("certificado") or ""),
     })

@@ -96,6 +96,9 @@ TIPOS_CUENTA_DEL_ESTUDIO = {"banco", "efectivo", "chequera", "billetera"}
 # comitente paga directo: las dos son de terceros.
 TIPOS_CUENTA_FUERA_DEL_ESTUDIO = {"caja_obra", "externa"}
 TIPOS_CUENTA = TIPOS_CUENTA_DEL_ESTUDIO | TIPOS_CUENTA_FUERA_DEL_ESTUDIO
+# La cuenta de lo que paga el comitente directo (§5.9). El contexto la nombra: también es la
+# cuenta de un depósito «en negro» (§5.17).
+CUENTA_PAGADO_POR_COMITENTE = "Pagado por el comitente"
 
 
 @dataclass

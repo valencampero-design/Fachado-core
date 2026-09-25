@@ -234,7 +234,7 @@ async def _correr() -> int:
             ("cuenta inexistente → 422", 422, "cuenta", {}, ficha(cuenta="Caja Chica")),
             ("TRASPASO todavía no → 422", 422, "tipo", {}, ficha(tipo="TRASPASO")),
             ("USD sin tipo de cambio → 422", 422, "tc", {}, ficha(moneda="USD", tc=None)),
-            ("PASANTE, sin cuenta definida en el contexto → 422", 422, "tipo", {}, ficha(tipo="PASANTE", cuenta=None)),
+            ("PASANTE sin contratista → 422", 422, "contratista", {}, ficha(tipo="PASANTE", contratista=None)),
             ("la caja de otra obra → 422", 422, "cuenta", {}, ficha(cuenta="Caja obra Moreno")),
             ("una etapa en una obra sin etapas → 422", 422, "etapa", {}, ficha(etapa="1")),
         ]
@@ -285,6 +285,23 @@ async def _correr() -> int:
         check("un cobro de un certificado que no está en CERTIFICADOS: se escribe y avisa",
               cuerpo["certificado"] is None and any("no está cargado en CERTIFICADOS" in a for a in cuerpo["advertencias"]),
               cuerpo["advertencias"])
+
+        # ── Tanda 6.1 · PASANTE ───────────────────────────────────────────────
+        print("\n6.1 · Un depósito «en negro» se confirma (§5.17)")
+        from app.filtros import para_conciliacion
+        libro, _ = preparar()
+        antes_saldo = saldo_estudio(libro.movimientos(), m)["total"]
+        r = await confirmar("wamid.PAS1", ficha(tipo="PASANTE", obra="Moreno", contratista="Marcelo Maragaño",
+                                                 cuenta="Banco", tipo_gasto=None, comprobante_url=None))
+        cuerpo = r.json()
+        fila = libro.movimientos()[-1]
+        check("200: una sola fila PASANTE", r.status_code == 200 and fila["tipo"] == "PASANTE", (r.status_code, cuerpo))
+        check("cuenta forzada a «Pagado por el comitente», informal VERDADERO, concilia FALSO",
+              (fila["cuenta"], fila["informal"], fila["concilia"]) == ("Pagado por el comitente", "VERDADERO", "FALSO"), fila)
+        check("tipo_gasto derivado de la obra cuando no viene", fila["tipo_gasto"] == "obra", fila["tipo_gasto"])
+        check("no mueve el saldo del estudio", saldo_estudio(libro.movimientos(), m)["total"] == antes_saldo)
+        check("suma a lo pagado por el comitente en la obra", cuerpo["obra"]["pagado_por_el_comitente"] == 300000, cuerpo["obra"])
+        check("no aparece en lo que concilia", not any(mv["id_mov"] == fila["id_mov"] for mv in para_conciliacion(libro.movimientos())))
 
         # ── Tanda 5 · CERTIFICADOS ────────────────────────────────────────────
         print("\nTanda 5 · el certificado va a CERTIFICADOS, no a MOVIMIENTOS (§5.11)")

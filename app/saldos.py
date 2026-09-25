@@ -50,10 +50,9 @@ def saldo_obra(movs: list[dict], obra: str, m: Maestros) -> tuple[SaldoObra, lis
             continue
         importe = numero(mov.get("importe_ars"))
         if mov.get("tipo") == "PASANTE":
-            # §5.17: una sola fila que suma a lo adelantado y a lo pagado de la obra. No toca
-            # ninguna cuenta del estudio, así que el saldo de la obra no se mueve.
-            adelantado += importe
-            pagado_estudio += importe
+            # §5.17: un depósito «en negro» va a «Pagado por el comitente»: suma como un pago
+            # directo del comitente (§5.9) y no mueve el saldo de la obra ni el del estudio.
+            pagado_comitente += importe
             continue
         if mov.get("tipo") not in TIPOS_QUE_MUEVEN_SALDO:
             continue

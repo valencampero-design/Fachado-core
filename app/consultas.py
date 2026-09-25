@@ -161,7 +161,7 @@ def pagos(movs: list[dict], contratista: str, obra: str | None) -> ConsultarOut:
 def _quien_pago(mov: dict, m: Maestros) -> tuple[str, str | None]:
     """(estudio | caja_obra | comitente, advertencia)."""
     if mov.get("tipo") == "PASANTE":
-        return "estudio", None  # §5.17: suma a lo pagado de la obra
+        return "comitente", None  # §5.17: va a «Pagado por el comitente»
     cuenta = m.cuenta(mov.get("cuenta"), incluir_inactivas=True)
     if cuenta is None:
         return "estudio", f"{mov.get('id_mov')}: la cuenta «{mov.get('cuenta')}» no está en CUENTAS; se cuenta como del estudio"
