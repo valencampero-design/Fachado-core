@@ -237,8 +237,9 @@ def main() -> int:
             preg = ",".join(p["campo"] for p in r["preguntas"] if p["ficha"] == i)
             marca = "↺ " if x["mensaje"].es_correccion else ""
             texto = (marca + x["mensaje"].texto) if i == 0 else "  └ 2º movimiento"
-            print(f"{texto[:61]:<62} {c['tipo'] or '':<8} {f['campos']['tipo_gasto'] or '—':<10} {(c['obra'] or '—')[:11]:<12} "
-                  f"{(c['contratista'] or '—')[:23]:<24} {(c['rubro_2'] or '—')[:15]:<16} {preg or '—':<22} "
+            # Una ficha CERTIFICADO (§5.11) no tiene columnas de gasto: de ahí los .get.
+            print(f"{texto[:61]:<62} {(c.get('tipo') or '')[:8]:<8} {c.get('tipo_gasto') or '—':<10} {(c.get('obra') or '—')[:11]:<12} "
+                  f"{(c.get('contratista') or '—')[:23]:<24} {(c.get('rubro_2') or '—')[:15]:<16} {preg or '—':<22} "
                   f"{'sí' if usa_llm(x) and i == 0 else ''}")
 
     print(f"\nMensajes nuevos con texto: {n} (las correcciones se evalúan aparte, llegan con contexto_previo)")
@@ -274,8 +275,9 @@ def main() -> int:
         detalle = ""
         if x and not ok:
             f = x["respuesta"]["fichas"][0]
-            detalle = (f"  → tipo_gasto={f['campos']['tipo_gasto']} obra={f['campos']['obra']} contratista={f['campos']['contratista']} "
-                       f"rubro={f['campos']['rubro_2']} preguntas={[p['campo'] for p in x['respuesta']['preguntas']]} regla={f['regla']}")
+            c = f["campos"]
+            detalle = (f"  → tipo={c.get('tipo')} tipo_gasto={c.get('tipo_gasto')} obra={c.get('obra')} contratista={c.get('contratista')} "
+                       f"rubro={c.get('rubro_2')} preguntas={[p['campo'] for p in x['respuesta']['preguntas']]} regla={f['regla']}")
         print(f"  {'PASA ' if ok else 'FALLA'}  {texto}{detalle}")
 
     salida = Path(args.salida)

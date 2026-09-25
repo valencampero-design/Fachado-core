@@ -35,7 +35,7 @@ python -m tests.test_corpus            # diccionario + LLM
 python -m tests.test_corpus --sin-llm  # solo diccionario
 ```
 
-**Que ese porcentaje suba es el trabajo de las próximas semanas.** Al 18/09: 84 % de obras,
+**Que ese porcentaje suba es el trabajo de las próximas semanas.** Al 25/09: 84 % de obras,
 84 % de contratistas, **92 % contando las preguntas de diseño** —un apodo ambiguo o un
 contratista dual preguntan porque el maestro dice que hay que preguntar—, con 9 de 55 mensajes
 usando LLM.
@@ -44,8 +44,9 @@ La métrica sale también **por usuario**: el corpus es 100 % del titular y cóm
 no se sabe todavía. No mezclar los números de los dos.
 
 `python -m tests.test_reglas` es el otro test: no mide, verifica que lo que el motor resuelve
-sea lo que el negocio decidió. Y `python -m tests.test_confirmar` prueba la escritura. Correr
-los tres.
+sea lo que el negocio decidió. `python -m tests.test_casos` corre los ejemplos con los que el
+proyecto definió cada regla. Y `python -m tests.test_confirmar` prueba la escritura, el cierre
+semanal y `/consultar`. Correr los cuatro.
 
 Corre contra `tests/maestros_snapshot.json` para que sea reproducible. Si cambia la métrica es
 por código, o porque se regeneró el snapshot a propósito.
@@ -58,8 +59,12 @@ test.** Si el número baja, el cambio está mal aunque el caso puntual funcione.
 - **Sin base de datos.** La fuente de verdad es el Google Sheet.
 - **Sin estado entre requests.** Ni sesiones ni caché de conversación. Los maestros sí se
   cachean con TTL.
-- **`/interpretar` nunca escribe nada.** Es una función pura sobre los maestros. Solo
-  `/confirmar` escribe, y solo con la confirmación de un usuario.
+- **`/interpretar` nunca escribe nada.** Lee los libros solo para avisar de un posible
+  duplicado, y si no puede leerlos la ficha sale igual. Solo `/confirmar` escribe, con la
+  confirmación de un usuario, y `/cierre-semanal`, que resume lo ya confirmado.
+- **Lo personal nunca se escribe en el libro del estudio.** Va a «FACHADO — Personal», y si
+  ese libro no está configurado, se rechaza (503). Quién ve lo personal es por persona
+  (`USUARIOS.ve_personal`), no por rol.
 - **Los tests nunca escriben en el libro real.** MOVIMIENTOS es append-only: una fila de
   prueba no se borra. `test_confirmar` usa un libro en memoria; para eso existen los puertos
   `Libro` y `Archivador`.

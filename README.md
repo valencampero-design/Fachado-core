@@ -17,16 +17,17 @@ cp .env.example .env    # completar
 | | |
 |---|---|
 | `GET /salud` | sin auth |
-| `POST /interpretar` | texto + adjuntos → `{fichas, preguntas, diagnostico}`. Nunca escribe nada |
-| `POST /confirmar` | ficha confirmada → fila en MOVIMIENTOS, comprobante a su carpeta, alias. Idempotente por `msg_id` |
+| `POST /interpretar` | texto + adjuntos → `{fichas, preguntas, requiere_confirmacion, diagnostico}`. Nunca escribe nada |
+| `POST /confirmar` | ficha confirmada → fila en MOVIMIENTOS (del estudio o personal) o en CERTIFICADOS, comprobante a su carpeta, alias. Idempotente por `msg_id` |
+| `POST /cierre-semanal` | la línea semanal de gastos personales en el libro del estudio. Idempotente |
+| `POST /consultar` | pagos a un contratista, gasto por obra, certificaciones: números + texto para WhatsApp |
 | `POST /maestros/recargar` | fuerza la relectura del Sheet |
-| `POST /consultar` | 501, pendiente |
 
 Todos menos `/salud` piden `X-API-Key: $MOTOR_API_KEY`. El contrato completo está en
 `docs/handoff-fachado-core.md` §2.
 
 Antes del primer `/confirmar` contra un Sheet nuevo: `python scripts/preparar_sheet.py`
-(agrega las columnas y la hoja USUARIOS; es idempotente).
+(agrega las columnas y las hojas USUARIOS, ETAPAS y CERTIFICADOS; es idempotente).
 
 ## Cómo interpreta
 
@@ -45,7 +46,8 @@ Antes del primer `/confirmar` contra un Sheet nuevo: `python scripts/preparar_sh
 python -m tests.test_corpus            # diccionario + LLM (necesita ANTHROPIC_API_KEY)
 python -m tests.test_corpus --sin-llm  # solo diccionario
 python -m tests.test_reglas            # las reglas de negocio
-python -m tests.test_confirmar         # la escritura, contra un libro en memoria
+python -m tests.test_casos             # los casos del handoff del 25/09
+python -m tests.test_confirmar         # la escritura y las consultas, contra libros en memoria
 ```
 
 Corre los mensajes reales de `tests/corpus.csv` contra `tests/maestros_snapshot.json` y

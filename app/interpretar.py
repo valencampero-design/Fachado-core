@@ -13,10 +13,11 @@ Reparto de autoridad cuando hay adjunto:
 import logging
 from datetime import date, timedelta, timezone
 
-from app import clasificador, comprobante, duplicados, llm, maestros, resolver
+from app import certificados, clasificador, comprobante, duplicados, llm, maestros, resolver
 from app.config import Settings, settings
-from app.maestros import Maestros, Usuario, normalizar
-from app.models import COLUMNAS_MOVIMIENTOS, Conflicto, Ficha, InterpretarIn, InterpretarOut, Pregunta
+from app.maestros import Maestros, Usuario, normalizar, numero
+from app.models import (CAMPOS_FICHA_CERTIFICADO, COLUMNAS_MOVIMIENTOS, Conflicto, Ficha, InterpretarIn,
+                        InterpretarOut, PosibleDuplicado, Pregunta)
 from app.resolver import Resolucion, Segmento
 from app.saldos import como_dicts
 
@@ -79,13 +80,15 @@ def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> 
         # Un comprobante por movimiento si coinciden en cantidad; si no, el primero aplica a todos
         # (el cobro de un certificado que sale el mismo día como pago).
         comp = comprobantes[i] if len(comprobantes) == len(segmentos) else (comprobantes[0] if comprobantes else None)
-        ficha, pregs = _armar(seg, comp, req, m, s, diag, semilla if i == 0 else None)
+        armar = _armar_certificado if _es_certificado(seg, comp, semilla if i == 0 else None) else _armar
+        ficha, pregs = armar(seg, comp, req, m, s, diag, semilla if i == 0 else None)
         for p in pregs:
             p.ficha = i
         fichas.append(ficha)
         preguntas += pregs
 
     _marcar_duplicados(fichas, preguntas, libros, usuario, diag)
+    _marcar_certificados_repetidos(fichas, preguntas, libros, usuario, diag)
     for i, ficha in enumerate(fichas):
         ficha.requiere_confirmacion = _requiere_confirmacion(
             ficha, [p for p in preguntas if p.ficha == i], usuario, m)
@@ -100,7 +103,8 @@ def _marcar_duplicados(fichas: list[Ficha], preguntas: list[Pregunta], libros: d
     """§5.16: si el hecho ya está en el libro, lo dice y pregunta. Nunca lo descarta solo.
     El libro personal solo se mira si el que escribe tiene `ve_personal`: si no, ni siquiera
     se le puede decir que ahí hay algo parecido."""
-    if not libros or not any(f.campos.get("importe") is not None or f.campos.get("ref_comprobante") for f in fichas):
+    fichas_mov = [f for f in fichas if f.campos.get("tipo") != "CERTIFICADO"]
+    if not libros or not any(f.campos.get("importe") is not None or f.campos.get("ref_comprobante") for f in fichas_mov):
         return
     movs: dict[str, list[dict]] = {}
     for nombre, libro in libros.items():
@@ -112,7 +116,7 @@ def _marcar_duplicados(fichas: list[Ficha], preguntas: list[Pregunta], libros: d
             logger.exception("No se pudo leer el libro %s para buscar duplicados", nombre)
             diag["advertencias"].append(f"No se pudo buscar duplicados en el libro {nombre} ({type(e).__name__})")
     for i, ficha in enumerate(fichas):
-        dup = duplicados.buscar(ficha.campos, movs)
+        dup = duplicados.buscar(ficha.campos, movs) if ficha.campos.get("tipo") != "CERTIFICADO" else None
         if dup:
             ficha.posible_duplicado = dup
             preguntas.append(Pregunta(
@@ -120,11 +124,44 @@ def _marcar_duplicados(fichas: list[Ficha], preguntas: list[Pregunta], libros: d
                 texto=duplicados.texto_pregunta(dup, ficha.campos.get("tipo"), usuario.nombre if usuario else None)))
 
 
+def _marcar_certificados_repetidos(fichas: list[Ficha], preguntas: list[Pregunta], libros: dict | None,
+                                   usuario: Usuario | None, diag: dict) -> None:
+    """§5.16 aplicado a certificados: misma obra, etapa y número que uno ya cargado. Se avisa y
+    se pregunta, como con los movimientos; nunca se descarta solo."""
+    pendientes = [(i, f) for i, f in enumerate(fichas)
+                  if f.campos.get("tipo") == "CERTIFICADO" and f.campos.get("obra") and f.campos.get("numero")]
+    libro = (libros or {}).get("estudio")
+    if not pendientes or libro is None:
+        return
+    try:
+        certs = como_dicts(libro.leer_certificados())
+    except Exception as e:  # noqa: BLE001 — sin la hoja no hay repetidos, pero la ficha sale igual
+        logger.exception("No se pudo leer CERTIFICADOS para buscar repetidos")
+        diag["advertencias"].append(f"No se pudo buscar certificados repetidos ({type(e).__name__})")
+        return
+    for i, ficha in pendientes:
+        c = ficha.campos
+        clave = certificados.clave_certificado(c["obra"], c.get("etapa"), c["numero"])
+        previo = next((x for x in certs if certificados.clave_certificado(x.get("obra"), x.get("etapa"), x.get("numero")) == clave), None)
+        if previo is None:
+            continue
+        etapa = certificados.texto_etapa(previo.get("etapa"))
+        ficha.posible_duplicado = PosibleDuplicado(
+            id_mov=f"{previo.get('obra')}{' etapa ' + etapa if etapa else ''} · certificado {certificados.texto_etapa(previo.get('numero'))}",
+            cargado_por=str(previo.get("cargado_por") or "alguien"), fecha=str(previo.get("fecha") or ""),
+            importe=numero(previo.get("saldo_a_cobrar")), fuerza="fuerte", libro="certificados")
+        preguntas.append(Pregunta(
+            campo="duplicado", motivo="posible_duplicado", ficha=i, opciones=["Es el mismo", "Es otro"],
+            texto=duplicados.texto_pregunta(ficha.posible_duplicado, "CERTIFICADO", usuario.nombre if usuario else None)))
+
+
 def _requiere_confirmacion(ficha: Ficha, preguntas: list[Pregunta], usuario: Usuario | None, m: Maestros) -> bool:
     """§5.12. Durante el período de prueba del usuario, siempre true. Después, false solo si el
     movimiento está completamente claro: importe, fecha y destinatario del comprobante; obra y
-    contratista del maestro; sin preguntas, sin conflictos y sin posible duplicado."""
-    if usuario is None or not usuario.auto_confirmar:
+    contratista del maestro; sin preguntas, sin conflictos y sin posible duplicado.
+    Un certificado pide confirmación siempre: la regla de «completamente claro» está escrita
+    para movimientos."""
+    if usuario is None or not usuario.auto_confirmar or ficha.campos.get("tipo") == "CERTIFICADO":
         return True
     c, o = ficha.campos, ficha.origen_campo
     claro = (
@@ -353,7 +390,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     # Sale o entra de la caja de la obra si lo dice la C (o «caja»), o si es el cobro de un
     # certificado en una obra que el estudio administra: esa plata es de la obra, no del
     # estudio. Si dice honorarios, es del estudio. La cuenta nunca se inventa.
-    es_cert = bool(extras.get("certificado"))
+    es_cert = seg.primero("certificado") is not None  # «cert Moreno» también: sin número, pero certificado
     administrada = obra is not None and normalizar(obra.servicio) in ("administracion", "todo")
     if obra and tipo in ("INGRESO", "EGRESO"):
         caja = m.caja_de_obra(obra.nombre)
@@ -494,4 +531,177 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
 
     ficha = Ficha(campos=campos, origen_campo=origen, faltantes=faltantes, conflictos=conflictos,
                   confianza=round(max(0.0, min(1.0, factor)), 2), regla=res.regla, extras=extras)
+    return ficha, preguntas
+
+
+# ─── Certificados (§5.11) ──────────────────────────────────────────────────────
+
+def _es_certificado(seg: Segmento, comp, semilla: dict | None) -> bool:
+    """Un certificado es un documento, no un gasto. Lo es si llega el PDF de un certificado, o
+    si el texto nombra un certificado sin decir que es un movimiento: «Ingreso Moreno/cert. 4»
+    es el cobro de un certificado, «Certificado 5 Moreno1 $3.200.000» es el certificado."""
+    if seg.tipo_mov:
+        return False
+    if comp is not None and comp.certificado is not None:
+        return True
+    if semilla and semilla["campos"].get("tipo"):
+        # Una corrección sigue siendo lo que corrige: «Cert. 4 extras» después de un cobro
+        # corrige el número del cobro, no anuncia un certificado.
+        return semilla["campos"]["tipo"] == "CERTIFICADO"
+    return (comp is None and seg.primero("certificado") is not None and not seg.honorarios
+            and not (seg.primero("contratista") or seg.primero("cuenta") or seg.de("personal")))
+
+
+def _armar_certificado(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, diag: dict,
+                       semilla: dict | None) -> tuple[Ficha, list[Pregunta]]:
+    """La ficha de un certificado: obra, etapa, número, fecha y saldo a cobrar. Nada más.
+
+    Mismo reparto de autoridad que un movimiento: el comprobante manda en montos, fecha y
+    número; el texto, en obra y etapa. Si se contradicen, no se elige."""
+    campos: dict = {c: None for c in CAMPOS_FICHA_CERTIFICADO}
+    origen: dict[str, str] = {}
+    extras: dict = {}
+    advertencias: list[str] = []
+    conflictos: list[Conflicto] = []
+    preguntas: list[Pregunta] = []
+
+    def poner(campo: str, valor, org: str) -> None:
+        if valor not in (None, ""):
+            campos[campo] = valor
+            origen[campo] = org
+
+    descripciones, _ = _resolver_con_llm(seg, req, m, diag)
+    diag["resoluciones"].append([
+        {"token": r.token, "categoria": r.categoria, "valor": r.valor, "metodo": r.metodo} for r in seg.resueltos
+    ] + [{"token": t, "categoria": None, "valor": None, "metodo": "sin_resolver"} for t in seg.sin_resolver])
+
+    del_pdf = comp.certificado if comp is not None else None
+    poner("tipo", "CERTIFICADO", "comprobante" if del_pdf else "texto")
+    poner("fuente", "PDF" if del_pdf else "TEXTO", "inferido")
+
+    # ── 1. Lo que dice el texto ────────────────────────────────────────────────
+    r_obra = seg.primero("obra")
+    if r_obra:
+        o = m.obra(r_obra.valor)
+        if o is not None and o.tipo not in certificados.TIPOS_OBRA_CERTIFICABLE:
+            # «Austral» es también su constructora: en un certificado nunca es la obra de indirectos.
+            advertencias.append(f"«{r_obra.token}» no puede ser la obra de un certificado: {o.nombre} es {o.tipo}")
+            r_obra = None
+        else:
+            poner("obra", r_obra.valor, ORIGEN_METODO.get(r_obra.metodo, "texto"))
+    etapa = (r_obra.etapa if r_obra else None) or seg.etapa
+    origen_etapa = "texto"
+    cert = seg.primero("certificado")
+    if cert and certificados.clave_numero(cert.valor):
+        poner("numero", cert.valor, "texto")
+    if seg.importe is not None:
+        poner("saldo_a_cobrar", seg.importe, "texto")
+    if seg.fechas:
+        poner("fecha", seg.fechas[0].valor.isoformat(), "texto")
+
+    # ── 2. Lo que dice el PDF ──────────────────────────────────────────────────
+    if comp is not None:
+        extras["comprobante"] = {k: v for k, v in comp.dict().items() if v not in (None, "", {}) and k != "fuente"}
+    if del_pdf:
+        advertencias += del_pdf.get("advertencias") or []
+        for campo, valor_pdf, fmt in (("saldo_a_cobrar", del_pdf.get("saldo_a_cobrar"), _fmt_importe),
+                                      ("fecha", del_pdf.get("fecha"), str), ("numero", del_pdf.get("numero"), str)):
+            if valor_pdf in (None, ""):
+                continue
+            valor_texto = campos[campo]
+            igual = (certificados.clave_numero(valor_texto) == certificados.clave_numero(valor_pdf)) if campo == "numero" \
+                else valor_texto == valor_pdf
+            if valor_texto is not None and not igual:
+                conflictos.append(Conflicto(campo=campo, valor_texto=valor_texto, valor_comprobante=valor_pdf,
+                                            detalle=f"El texto dice {fmt(valor_texto)} y el certificado {fmt(valor_pdf)}"))
+                campos[campo] = None
+                origen.pop(campo, None)
+                preguntas.append(Pregunta(campo=campo, texto=f"¿Cuál es {'el saldo a cobrar' if campo == 'saldo_a_cobrar' else 'la fecha' if campo == 'fecha' else 'el número'}?",
+                                          opciones=[fmt(valor_texto), fmt(valor_pdf)], motivo="conflicto"))
+            else:
+                poner(campo, valor_pdf, "comprobante")
+
+        # La obra: si el texto no la dice, por el destinatario contra OBRAS.comitente.
+        if not campos["obra"]:
+            destinatario = del_pdf.get("destinatario")
+            obras = certificados.obras_por_comitente(destinatario, m)
+            if len(obras) == 1:
+                poner("obra", obras[0], "comprobante")
+            elif destinatario:
+                abiertas = [o.nombre for o in m.obras if o.estado != "cerrada" and o.tipo in certificados.TIPOS_OBRA_CERTIFICABLE]
+                texto = (f"El certificado está dirigido a {destinatario}, que es comitente de más de una obra. ¿De cuál es?"
+                         if obras else f"El certificado está dirigido a {destinatario}, que no es comitente de ninguna obra. "
+                                       f"¿De qué obra es?")
+                preguntas.append(Pregunta(campo="obra", texto=texto, opciones=(obras or abiertas)[:MAX_OPCIONES]))
+
+        # La etapa: el texto manda; si no dice, el cuerpo y el nombre del archivo, y si esos
+        # dos no coinciden, no se elige.
+        if not etapa:
+            cuerpo, del_archivo = del_pdf.get("etapa_cuerpo"), del_pdf.get("etapa_archivo")
+            if cuerpo and del_archivo and cuerpo != del_archivo:
+                conflictos.append(Conflicto(campo="etapa", valor_texto=del_archivo, valor_comprobante=cuerpo,
+                                            detalle=f"El certificado dice etapa {cuerpo} y el nombre del archivo, etapa {del_archivo}"))
+                preguntas.append(Pregunta(campo="etapa", texto="El certificado dice una etapa y el nombre del archivo, "
+                                          "otra. ¿De qué etapa es?", opciones=[cuerpo, del_archivo], motivo="conflicto"))
+            else:
+                etapa, origen_etapa = cuerpo or del_archivo, "comprobante"
+
+    # ── 3. Lo heredado de la ficha anterior (corrección) ───────────────────────
+    if semilla:
+        for campo, valor in semilla["campos"].items():
+            if campo in campos and campos[campo] in (None, "") and not any(c.campo == campo for c in conflictos):
+                poner(campo, valor, "contexto_previo")
+        for clave, valor in semilla["extras"].items():
+            extras.setdefault(clave, valor)
+        if not etapa and campos["etapa"]:
+            etapa, origen_etapa = campos["etapa"], origen["etapa"]
+
+    # ── 4. Etapa contra ETAPAS (§5.15) ─────────────────────────────────────────
+    obra = m.obra(campos["obra"])
+    etapas_obra = m.etapas_de(obra.nombre) if obra else []
+    campos["etapa"] = None
+    origen.pop("etapa", None)
+    ya_pregunta_etapa = any(p.campo == "etapa" for p in preguntas)
+    if obra and etapa:
+        if not etapas_obra:
+            advertencias.append(f"{obra.nombre} no tiene etapas cargadas en ETAPAS: se ignora la etapa {etapa}")
+        elif etapa in etapas_obra:
+            poner("etapa", etapa, origen_etapa)
+        elif not ya_pregunta_etapa:
+            advertencias.append(f"{obra.nombre} no tiene una etapa {etapa}")
+            preguntas.append(Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}?", opciones=etapas_obra))
+    elif obra and etapas_obra and not ya_pregunta_etapa:
+        preguntas.append(Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}?", opciones=etapas_obra))
+    elif not obra and etapa:
+        extras["etapa_leida"] = etapa  # se valida cuando se sepa la obra
+
+    fecha_msg = _fecha_local(req, s)
+    if not campos["fecha"] and fecha_msg and not any(c.campo == "fecha" for c in conflictos):
+        poner("fecha", fecha_msg.isoformat(), "fecha_mensaje")
+    if req.adjuntos:
+        poner("comprobante_url", req.adjuntos[0].url, "comprobante")
+
+    # ── 5. Preguntas y faltantes ───────────────────────────────────────────────
+    ya = {p.campo for p in preguntas}
+    if not campos["obra"] and "obra" not in ya:
+        opciones = [o.nombre for o in m.obras if o.estado != "cerrada" and o.tipo in certificados.TIPOS_OBRA_CERTIFICABLE]
+        preguntas.append(Pregunta(campo="obra", texto="¿De qué obra es el certificado?", opciones=opciones[:MAX_OPCIONES]))
+    if not campos["numero"] and "numero" not in ya:
+        preguntas.append(Pregunta(campo="numero", texto="¿Qué número de certificado es?"))
+    if campos["saldo_a_cobrar"] is None and "saldo_a_cobrar" not in ya:
+        preguntas.append(Pregunta(campo="saldo_a_cobrar", texto="¿Cuál es el saldo a cobrar de este certificado?"))
+
+    notas = descripciones + seg.sin_resolver
+    if notas:
+        extras["notas"] = " · ".join(notas)
+    if del_pdf:
+        extras["certificado_pdf"] = {k: v for k, v in del_pdf.items() if v not in (None, "", [], {})}
+    if advertencias:
+        extras["advertencias"] = advertencias
+
+    requeridos = ["obra", "numero", "fecha", "saldo_a_cobrar"] + (["etapa"] if etapas_obra else [])
+    faltantes = [c for c in CAMPOS_FICHA_CERTIFICADO if c in requeridos and campos[c] in (None, "")]
+    factor = 0.8 ** len(preguntas) * 0.7 ** len(conflictos)
+    ficha = Ficha(campos=campos, origen_campo=origen, faltantes=faltantes, conflictos=conflictos,
+                  confianza=round(max(0.0, min(1.0, factor)), 2), regla="§5.11", extras=extras)
     return ficha, preguntas

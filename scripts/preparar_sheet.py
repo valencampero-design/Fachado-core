@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, ".")
 from app import sheets  # noqa: E402
 from app.config import settings  # noqa: E402
+from app.models import COLUMNAS_CERTIFICADOS  # noqa: E402
 from app.sheets import columna_a_letra as letra  # noqa: E402
 
 # Columnas que tienen que existir, en el orden en que se agregan al final si faltan.
@@ -26,6 +27,7 @@ COLUMNAS = {
     "MOVIMIENTOS": ["msg_id", "certificado", "etapa", "informal", "ref_comprobante"],
     "USUARIOS": ["telefono", "nombre", "rol", "activo", "ve_personal", "auto_confirmar"],
     "CUENTAS": ["estado"],
+    "CERTIFICADOS": COLUMNAS_CERTIFICADOS,
 }
 
 # Hojas que se crean vacías, con su encabezado.
@@ -33,6 +35,8 @@ HOJAS_NUEVAS = {
     "USUARIOS": ["telefono", "nombre", "rol", "activo", "ve_personal", "auto_confirmar"],
     # §5.15. Arranca vacía: las etapas las carga el arquitecto. Obra sin filas = sin etapas.
     "ETAPAS": ["obra", "etapa", "descripcion", "estado"],
+    # §5.11. Cada certificado emitido, como cuenta por cobrar. La escribe /confirmar.
+    "CERTIFICADOS": COLUMNAS_CERTIFICADOS,
 }
 
 

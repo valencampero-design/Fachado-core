@@ -15,9 +15,10 @@ from app.archivo import Archivador, ArchivadorDrive
 from app.cierre import cierre_semanal
 from app.config import settings
 from app.confirmar import ErrorConfirmar, confirmar
+from app.consultas import ErrorConsulta, consultar
 from app.interpretar import interpretar
 from app.libro import Libro, LibroSheets
-from app.models import ConfirmarIn, ConfirmarOut, InterpretarIn, InterpretarOut
+from app.models import ConfirmarIn, ConfirmarOut, ConsultarIn, ConsultarOut, InterpretarIn, InterpretarOut
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -103,11 +104,16 @@ async def post_cierre_semanal(req: CierreIn | None = None, libro: Libro = Depend
         raise HTTPException(status_code=422, detail=str(e))
 
 
+@app.post("/consultar", response_model=ConsultarOut, dependencies=[Depends(verificar_api_key)])
+def post_consultar(req: ConsultarIn, libro: Libro = Depends(obtener_libro),
+                   libro_personal: Libro | None = Depends(obtener_libro_personal)) -> ConsultarOut:
+    """Las tres preguntas del arquitecto: pagos a un contratista, gasto por obra y rubro,
+    certificaciones cobradas y pendientes. Solo lee; lo personal, según `ve_personal`."""
+    try:
+        return consultar(req, libro, libro_personal)
+    except ErrorConsulta as e:
+        raise HTTPException(status_code=e.status, detail=e.detalle)
+
+
 # ─── Pendientes ────────────────────────────────────────────────────────────────
-# POST /consultar   saldos y cuentas corrientes por obra (app/saldos.py ya los calcula).
 # POST /conciliar   cruce BANCO_RAW ↔ MOVIMIENTOS.
-
-
-@app.post("/consultar", dependencies=[Depends(verificar_api_key)], status_code=501)
-def post_consultar() -> dict:
-    raise HTTPException(status_code=501, detail="Todavía no implementado")

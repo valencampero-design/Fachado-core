@@ -18,6 +18,14 @@ COLUMNAS_MOVIMIENTOS: list[str] = [
     "ref_comprobante",  # §5.16: número de operación, de cheque o hash del archivo
 ]
 
+# §5.11: la hoja CERTIFICADOS. Un certificado es un documento, no un gasto: no va a MOVIMIENTOS.
+COLUMNAS_CERTIFICADOS: list[str] = [
+    "obra", "etapa", "numero", "fecha", "saldo_a_cobrar", "fuente", "msg_id", "cargado_por", "comprobante_url",
+]
+# Lo que describe una ficha de tipo CERTIFICADO (`campos["tipo"] == "CERTIFICADO"`).
+CAMPOS_FICHA_CERTIFICADO: list[str] = ["tipo", "obra", "etapa", "numero", "fecha", "saldo_a_cobrar", "fuente",
+                                       "comprobante_url"]
+
 # De dónde salió cada valor. El gateway lo muestra al lado del campo.
 Origen = Literal["texto", "comprobante", "maestro", "inferido", "llm", "fecha_mensaje", "contexto_previo"]
 
@@ -66,12 +74,12 @@ class Pregunta(BaseModel):
 class PosibleDuplicado(BaseModel):
     """Un movimiento ya cargado que podría ser el mismo hecho (§5.16). Nunca se descarta solo:
     el usuario decide si es el mismo."""
-    id_mov: str
+    id_mov: str  # en un certificado, «Moreno etapa 1 · certificado 5» (la hoja no tiene id)
     cargado_por: str
     fecha: str
     importe: float
     fuerza: Literal["fuerte", "probable"]  # fuerte: misma referencia del comprobante
-    libro: Literal["estudio", "personal"]
+    libro: Literal["estudio", "personal", "certificados"]
 
 
 class Ficha(BaseModel):
@@ -130,15 +138,47 @@ class SaldoObra(BaseModel):
     caja_obra: CajaObra | None = None
 
 
+class EstadoCertificado(BaseModel):
+    """§5.11: un certificado como cuenta por cobrar."""
+    obra: str
+    etapa: str = ""
+    numero: str
+    fecha: str = ""
+    saldo_a_cobrar: float
+    cobrado: float
+    pendiente: float
+    cobros: list[str] = Field(default_factory=list)  # id_mov de los cobros que lo cancelan
+
+
 class ConfirmarOut(BaseModel):
-    id_mov: str
+    id_mov: str  # en un certificado, «Moreno etapa 1 · certificado 5»
     fila: int
     comprobante_url: str | None = None
     obra: SaldoObra | None = None
+    # Al confirmar un certificado, o un cobro que nombra uno: cuánto queda por cobrar.
+    certificado: EstadoCertificado | None = None
     alias_escrito: bool = False
     ya_existia: bool = False  # el msg_id ya estaba: se devuelve la fila que había
-    libro: Literal["estudio", "personal"] = "estudio"  # §5.14: dónde quedó escrito
+    libro: Literal["estudio", "personal", "certificados"] = "estudio"  # §5.14: dónde quedó escrito
     cargado_por: str
+    advertencias: list[str] = Field(default_factory=list)
+
+
+class ConsultarIn(BaseModel):
+    """Las tres preguntas del arquitecto (handoff del 25/09). `consulta`, `obra` y
+    `contratista` pueden venir explícitos; si no, se sacan de `texto`."""
+    telefono: str = Field(min_length=1)
+    consulta: Literal["pagos", "gasto", "certificaciones"] | None = None
+    texto: str = ""
+    obra: str | None = None
+    contratista: str | None = None
+
+
+class ConsultarOut(BaseModel):
+    consulta: Literal["pagos", "gasto", "certificaciones"] | None = None
+    datos: dict[str, Any] = Field(default_factory=dict)
+    texto: str  # listo para mandar por WhatsApp
+    preguntas: list[Pregunta] = Field(default_factory=list)  # si falta algo para contestar
     advertencias: list[str] = Field(default_factory=list)
 
 

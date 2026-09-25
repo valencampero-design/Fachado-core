@@ -73,6 +73,9 @@ def buscar(campos: dict, libros: dict[str, list[dict]]) -> PosibleDuplicado | No
 def texto_pregunta(dup: PosibleDuplicado, tipo: str, quien_pregunta: str | None) -> str:
     """«Petrus ya cargó un pago igual el 23/9. ¿Es el mismo?»"""
     f = _fecha(dup.fecha)
+    if tipo == "CERTIFICADO":
+        yo = quien_pregunta and normalizar(quien_pregunta) == normalizar(dup.cargado_por)
+        return f"{'Ya cargaste' if yo else dup.cargado_por + ' ya cargó'} ese certificado ({dup.id_mov}). ¿Es el mismo?"
     cuando = f"el {f.day}/{f.month}" if f else ""
     que = "un cobro igual" if tipo == "INGRESO" else "un pago igual"
     if quien_pregunta and normalizar(quien_pregunta) == normalizar(dup.cargado_por):

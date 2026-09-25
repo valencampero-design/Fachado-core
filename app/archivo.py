@@ -47,6 +47,21 @@ def nombre_base(id_mov: str, campos: dict) -> str:
     return re.sub(r'[\\/:*?"<>|]+', " ", nombre).strip()
 
 
+CARPETA_CERTIFICADOS = "certificados"
+
+
+def carpetas_certificado(fila: dict) -> list[str]:
+    """Los certificados van juntos, por obra: comprobantes/<obra>/certificados/."""
+    return [str(fila.get("obra") or CARPETA_SIN_IMPUTAR), CARPETA_CERTIFICADOS]
+
+
+def nombre_certificado(fila: dict) -> str:
+    """«Certificado 5 Moreno etapa 1 $3.200.000»: no hay id_mov, el nombre lo identifica."""
+    etapa = f" etapa {fila['etapa']}" if fila.get("etapa") else ""
+    nombre = f"Certificado {fila.get('numero')} {fila.get('obra')}{etapa} {_importe_legible(float(fila.get('saldo_a_cobrar') or 0))}"
+    return re.sub(r'[\\/:*?"<>|]+', " ", nombre).strip()
+
+
 class Archivador(Protocol):
     def archivar(self, file_id: str, carpetas: list[str], nombre_base: str) -> str:
         """Mueve el archivo a comprobantes/<carpetas...>/ con ese nombre. Devuelve el link."""

@@ -20,13 +20,13 @@ import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 
-from app import archivo, maestros
+from app import archivo, certificados, maestros
 from app.archivo import Archivador
 from app.comprobante import id_drive
 from app.config import settings
 from app.libro import Libro
 from app.maestros import TIPOS_ALIAS, Maestros, Usuario, normalizar, numero
-from app.models import AliasPropuesto, ConfirmarIn, ConfirmarOut
+from app.models import COLUMNAS_CERTIFICADOS, AliasPropuesto, ConfirmarIn, ConfirmarOut
 from app.saldos import como_dicts, saldo_obra
 
 logger = logging.getLogger(__name__)
@@ -233,6 +233,9 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
     if usuario is None:
         raise ErrorConfirmar(403, "telefono", "Ese teléfono no está en USUARIOS: no escribe en el libro")
 
+    if str(req.ficha.campos.get("tipo") or "").upper() == "CERTIFICADO":
+        return await confirmar_certificado(req, libro, archivador, m, usuario)
+
     fila, advertencias = armar_fila(req, m, usuario)
     clave = fila["msg_id"]
     destino = "personal" if fila["tipo_gasto"] == "personal" else "estudio"
@@ -268,22 +271,8 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
             ya_existia = False
 
     # ── Lo que puede fallar sin perder el movimiento ──────────────────────────
-    comprobante_url = fila.get("comprobante_url") or None
-    file_id = id_drive(comprobante_url) if comprobante_url else None
-    if file_id:
-        try:
-            comprobante_url = await asyncio.to_thread(
-                archivador.archivar, file_id, archivo.carpetas(fila), archivo.nombre_base(fila["id_mov"], fila))
-            avisos = getattr(archivador, "avisos", None)
-            if avisos:  # se consumen: son de esta operación, no de las siguientes
-                advertencias += avisos
-                avisos.clear()
-        except Exception as e:  # noqa: BLE001 — cualquier falla de Drive es una advertencia
-            logger.exception("No se pudo mover el comprobante de %s", fila["id_mov"])
-            advertencias.append(f"El movimiento quedó escrito pero el comprobante no se movió "
-                                f"({type(e).__name__}): sigue en la carpeta de captura")
-    elif comprobante_url:
-        advertencias.append("El comprobante no es un link de Drive: no se movió")
+    comprobante_url = await _mover_comprobante(archivador, fila.get("comprobante_url") or None, archivo.carpetas(fila),
+                                               archivo.nombre_base(fila["id_mov"], fila), advertencias, fila["id_mov"])
 
     alias_escrito = False
     if req.alias_propuesto:
@@ -299,6 +288,137 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
         saldo, avisos = saldo_obra(movs, fila["obra"], m)
         advertencias += avisos
 
+    # §5.11: un cobro que nombra un certificado lo cancela. Se informa cuánto queda.
+    estado = None
+    if destino == "estudio" and certificados.es_cobro(fila):
+        try:
+            certs = como_dicts(await asyncio.to_thread(libro.leer_certificados))
+            clave = certificados.clave_certificado(fila["obra"], fila.get("etapa"), fila["certificado"])
+            estado = next((e for e in certificados.estados(certs, movs, fila["obra"])[0]
+                           if certificados.clave_certificado(e.obra, e.etapa, e.numero) == clave), None)
+            if estado is None:
+                advertencias.append(f"El certificado «{fila['certificado']}» de {fila['obra']} no está cargado en "
+                                    f"CERTIFICADOS: el cobro queda sin certificado que cancelar")
+        except Exception as e:  # noqa: BLE001 — el cobro ya está escrito
+            logger.exception("No se pudo leer CERTIFICADOS")
+            advertencias.append(f"No se pudo calcular lo pendiente del certificado ({type(e).__name__})")
+
     return ConfirmarOut(id_mov=fila["id_mov"], fila=numero_fila, comprobante_url=comprobante_url, obra=saldo,
-                        alias_escrito=alias_escrito, ya_existia=ya_existia, libro=destino,
+                        certificado=estado, alias_escrito=alias_escrito, ya_existia=ya_existia, libro=destino,
+                        cargado_por=str(fila.get("cargado_por") or usuario.nombre), advertencias=advertencias)
+
+
+async def _mover_comprobante(archivador: Archivador, url: str | None, carpetas: list[str], nombre: str,
+                             advertencias: list[str], que: str) -> str | None:
+    """Mueve el adjunto a su carpeta. Cualquier falla es una advertencia: lo escrito queda."""
+    file_id = id_drive(url) if url else None
+    if not file_id:
+        if url:
+            advertencias.append("El comprobante no es un link de Drive: no se movió")
+        return url
+    try:
+        url = await asyncio.to_thread(archivador.archivar, file_id, carpetas, nombre)
+        avisos = getattr(archivador, "avisos", None)
+        if avisos:  # se consumen: son de esta operación, no de las siguientes
+            advertencias += avisos
+            avisos.clear()
+    except Exception as e:  # noqa: BLE001 — cualquier falla de Drive es una advertencia
+        logger.exception("No se pudo mover el comprobante de %s", que)
+        advertencias.append(f"Quedó escrito pero el comprobante no se movió ({type(e).__name__}): "
+                            f"sigue en la carpeta de captura")
+    return url
+
+
+# ─── Certificados (§5.11) ──────────────────────────────────────────────────────
+
+def armar_certificado(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> dict:
+    """La fila de CERTIFICADOS. 422 ante el primer problema; no escribe nada."""
+    c = req.ficha.campos
+
+    def falta(campo: str, detalle: str = "") -> ErrorConfirmar:
+        return ErrorConfirmar(422, campo, detalle or f"Falta «{campo}»")
+
+    for campo in ("obra", "numero", "fecha", "saldo_a_cobrar"):
+        if _vacio(c.get(campo)):
+            raise falta(campo)
+    obra = m.obra(c["obra"])
+    if obra is None:
+        raise falta("obra", f"La obra «{c['obra']}» no está en OBRAS. Nunca se inventa una obra")
+    if obra.tipo not in certificados.TIPOS_OBRA_CERTIFICABLE:
+        raise falta("obra", f"«{obra.nombre}» es {obra.tipo}: no se certifica")
+    numero_cert = certificados.texto_etapa(c["numero"])
+    if not certificados.clave_numero(numero_cert):
+        raise falta("numero", f"Número de certificado «{c['numero']}» inválido")
+    try:
+        fecha = date.fromisoformat(str(c["fecha"])[:10]).isoformat()
+    except ValueError:
+        raise falta("fecha", f"Fecha «{c['fecha']}» inválida: se espera AAAA-MM-DD")
+    saldo = numero(c["saldo_a_cobrar"])
+    if saldo <= 0:
+        raise falta("saldo_a_cobrar", f"Saldo a cobrar «{c['saldo_a_cobrar']}» inválido")
+
+    etapa = certificados.texto_etapa(c.get("etapa"))
+    etapas_obra = m.etapas_de(obra.nombre)
+    if etapa and not etapas_obra:
+        raise falta("etapa", f"«{obra.nombre}» no tiene etapas cargadas en ETAPAS")
+    if etapas_obra and etapa not in etapas_obra:
+        raise falta("etapa", f"«{obra.nombre}» tiene etapas {etapas_obra}: hace falta cuál" if not etapa
+                    else f"«{obra.nombre}» no tiene una etapa {etapa}")
+
+    fuente = str(c.get("fuente") or "TEXTO").upper()
+    return {"obra": obra.nombre, "etapa": etapa, "numero": numero_cert, "fecha": fecha, "saldo_a_cobrar": saldo,
+            "fuente": fuente if fuente in ("PDF", "TEXTO") else "TEXTO",
+            "msg_id": clave_idempotencia(req.msg_id, req.ficha_indice), "cargado_por": usuario.nombre,
+            "comprobante_url": "" if _vacio(c.get("comprobante_url")) else str(c["comprobante_url"])}
+
+
+def nombre_de_certificado(fila: dict) -> str:
+    """Cómo se lo nombra: la hoja CERTIFICADOS no tiene id propio."""
+    etapa = certificados.texto_etapa(fila.get("etapa"))
+    return f"{fila.get('obra')}{' etapa ' + etapa if etapa else ''} · certificado {certificados.texto_etapa(fila.get('numero'))}"
+
+
+async def confirmar_certificado(req: ConfirmarIn, libro: Libro, archivador: Archivador, m: Maestros,
+                                usuario: Usuario) -> ConfirmarOut:
+    """Un certificado va a CERTIFICADOS, nunca a MOVIMIENTOS: es una cuenta por cobrar, no plata
+    que se movió. Idempotente por msg_id, como un movimiento. Si ya hay uno con la misma obra,
+    etapa y número, /interpretar ya lo avisó y el usuario decidió: acá no se rechaza."""
+    fila = armar_certificado(req, m, usuario)
+    advertencias: list[str] = []
+
+    async with _lock:
+        filas = await asyncio.to_thread(libro.leer_certificados)
+        encabezado = [str(x) for x in filas[0]] if filas else []
+        faltan = [col for col in COLUMNAS_CERTIFICADOS if col not in encabezado]
+        if faltan:
+            raise ErrorConfirmar(500, "CERTIFICADOS", f"Faltan columnas en CERTIFICADOS: {faltan}. "
+                                                      "Correr scripts/preparar_sheet.py")
+        existentes = como_dicts(filas)
+        previo = next(((n, c) for n, c in enumerate(existentes, start=2) if c.get("msg_id") == fila["msg_id"]), None)
+        if previo:
+            numero_fila, fila = previo
+            ya_existia = True
+        else:
+            numero_fila = len(filas) + 1
+            await asyncio.to_thread(libro.escribir_certificado, numero_fila, [fila.get(col, "") for col in encabezado])
+            existentes.append(fila)
+            ya_existia = False
+
+    comprobante_url = await _mover_comprobante(archivador, fila.get("comprobante_url") or None,
+                                               archivo.carpetas_certificado(fila), archivo.nombre_certificado(fila),
+                                               advertencias, nombre_de_certificado(fila))
+    estado = None
+    try:
+        movs = como_dicts(await asyncio.to_thread(libro.leer_movimientos))
+        # Contra todos los certificados, no solo este: si está repetido, los cobros van al primero.
+        clave = certificados.clave_certificado(fila["obra"], fila.get("etapa"), fila["numero"])
+        todos, _, avisos = certificados.estados(existentes, movs, fila["obra"])
+        estado = next((e for e in todos if certificados.clave_certificado(e.obra, e.etapa, e.numero) == clave), None)
+        advertencias += avisos
+    except Exception as e:  # noqa: BLE001 — el certificado ya está escrito
+        logger.exception("No se pudo calcular lo cobrado del certificado")
+        advertencias.append(f"No se pudo calcular lo cobrado ({type(e).__name__})")
+
+    return ConfirmarOut(id_mov=nombre_de_certificado(fila), fila=numero_fila, comprobante_url=comprobante_url,
+                        certificado=estado, ya_existia=ya_existia, libro="certificados",
                         cargado_por=str(fila.get("cargado_por") or usuario.nombre), advertencias=advertencias)

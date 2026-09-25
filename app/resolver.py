@@ -273,10 +273,11 @@ def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
         detalle = re.sub(r"^\W*cert(?:ificado)?\.?\s*", "", token, flags=re.I).strip()
         # «Certificado 5 Moreno1»: sin «/», la obra queda pegada al número. Se suelta desde el
         # final todo lo que sea una obra; lo que queda es el certificado («4 extras» sigue entero).
+        # Puede no quedar nada: «Certificado Moreno» es un certificado sin número.
         palabras, obras = detalle.split(), []
-        while len(palabras) > 1:
+        while palabras:
             for k in (3, 2, 1):
-                if len(palabras) <= k:
+                if len(palabras) < k:
                     continue
                 cola = " ".join(palabras[-k:])
                 r = _obra_exacta(normalizar(cola), cola, m) or _obra_con_sufijo(normalizar(cola), cola, m)
@@ -287,7 +288,7 @@ def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
             else:
                 break
         detalle = " ".join(palabras)
-        return [Resolucion("certificado", detalle or cert.group(1), "exacto", token)] + obras
+        return [Resolucion("certificado", detalle if obras else (detalle or cert.group(1)), "exacto", token)] + obras
 
     salida: list[Resolucion] = []
 

@@ -219,6 +219,100 @@ def main() -> int:
     finally:
         m.usuarios.remove(auto)
 
+    # ── Tanda 5 · certificados ────────────────────────────────────────────────
+    from app import certificados
+    from tests.dobles import ENCABEZADO_CERTIFICADOS
+
+    print("\nTanda 5 · el certificado por texto: documento, no gasto (§5.11)")
+    with con_etapas(("Moreno", "1")):
+        r, f, c = leer("Certificado 5 Moreno1 $3.200.000")
+        check("Certificado 5 Moreno1 $3.200.000 → CERTIFICADO, Moreno, etapa 1, número 5, $3.200.000",
+              (c["tipo"], c["obra"], c["etapa"], c["numero"], c["saldo_a_cobrar"]) == ("CERTIFICADO", "Moreno", "1", "5", 3200000), c)
+        check("… con fuente TEXTO, la fecha del mensaje y sin preguntas",
+              c["fuente"] == "TEXTO" and c["fecha"] == "2026-09-25" and not r.preguntas, (c, r.preguntas))
+        check("… y sin columnas de gasto: no tiene cuenta, contratista ni rubro",
+              not {"cuenta", "contratista", "rubro_1", "importe"} & set(c), sorted(c))
+    with con_etapas(("Lennon", "1")):
+        r, f, c = leer("cert 2 etapa 1 Lennon 1.500.000 del 20/9")
+        check("cert 2 etapa 1 Lennon 1.500.000 del 20/9 → Lennon, etapa 1, número 2, fecha 2026-09-20",
+              (c["tipo"], c["obra"], c["etapa"], c["numero"], c["saldo_a_cobrar"], c["fecha"])
+              == ("CERTIFICADO", "Lennon", "1", "2", 1500000, "2026-09-20"), c)
+    r, f, c = leer("Ingreso Moreno/cert. 4/efectivo $2.600.000")
+    check("«Ingreso Moreno/cert. 4» sigue siendo el cobro, no un certificado",
+          c["tipo"] == "INGRESO" and c["cuenta"] == "Caja obra Moreno" and f.extras.get("certificado") == "4", c)
+    r, f, c = leer("Cert. 4 extras")
+    check("«Cert. 4 extras» suelto: CERTIFICADO número «4 extras», pregunta la obra",
+          c["tipo"] == "CERTIFICADO" and c["numero"] == "4 extras" and campos_de(r, "obra"), (c, r.preguntas))
+    previo = interpretar(InterpretarIn(texto="Ingreso Moreno/cert 4 $566.596", fecha_mensaje="2026-09-25T12:00:00Z")).fichas[0]
+    r = interpretar(InterpretarIn(texto="Cert. 4 extras", fecha_mensaje="2026-09-25T12:00:00Z",
+                                  contexto_previo=previo.model_dump()))
+    c = r.fichas[0].campos
+    check("… pero como corrección de un cobro (corpus fila 77) sigue siendo el cobro, con el número corregido",
+          c["tipo"] == "INGRESO" and c["obra"] == "Moreno" and r.fichas[0].extras.get("certificado") == "4 extras", c)
+    r, f, c = leer("Certificado 3 Austral $100.000")
+    check("«Austral» en un certificado nunca es la obra de indirectos: pregunta la obra",
+          not c["obra"] and campos_de(r, "obra"), (c["obra"], f.extras.get("advertencias")))
+    r, f, c = leer("Certificado Moreno $500.000")
+    check("sin número: lo pregunta", c["obra"] == "Moreno" and campos_de(r, "numero"), [p.campo for p in r.preguntas])
+
+    print("\nTanda 5 · el PDF de ejemplo (tests/fixtures/cert_loguercio_etapa3.pdf)")
+    pdf = (RAIZ / "fixtures" / "cert_loguercio_etapa3.pdf").read_bytes()
+    adj_cert = Adjunto(url="https://drive.google.com/file/d/CERTLOGUERCIOxxxxxxxxxxxx/view", mime="application/pdf",
+                       nombre="cert_loguercio_etapa3.pdf")
+
+    def lector_pdf(adj):
+        d = comprobante.DatosComprobante(url=adj.url, nombre_archivo=adj.nombre or "", sha256=adj.sha256)
+        return comprobante.leer_bytes(pdf, adj.nombre, "application/pdf", d)
+
+    r, f = leer_con("", adjuntos=[adj_cert], lector=lector_pdf)
+    c = f.campos
+    check("sin texto → ficha CERTIFICADO con fuente PDF", c["tipo"] == "CERTIFICADO" and c["fuente"] == "PDF", c)
+    check("saldo_a_cobrar 3.402.032,64 (el punto 7, anclado en el rótulo)", c["saldo_a_cobrar"] == 3402032.64, c["saldo_a_cobrar"])
+    check("número 1 y fecha 2024-02-19 (día y mes sin cero)", c["numero"] == "1" and c["fecha"] == "2024-02-19", c)
+    check("la obra pregunta: Lo Guercio no es comitente de ninguna obra",
+          not c["obra"] and any(p.campo == "obra" and "Lo Guercio" in p.texto for p in r.preguntas), [p.texto for p in r.preguntas])
+    check("… y no toma «Austral» (la constructora) ni «tres cerros» (la ubicación) como obra",
+          c["obra"] not in ("Austral", "Tres Cerros"), c["obra"])
+    check("la etapa pregunta: el cuerpo dice 2 y el archivo 3, no elige",
+          not c["etapa"] and any(k.campo == "etapa" for k in f.conflictos)
+          and any(p.campo == "etapa" and set(p.opciones) == {"2", "3"} for p in r.preguntas), (f.conflictos, r.preguntas))
+    ctrl = f.extras["certificado_pdf"]["control"]
+    check("control 5 + 6 = 7: pasa por $0,01 de redondeo, sin advertencia",
+          ctrl["diferencia"] <= 1 and not any("suma" in a for a in f.extras.get("advertencias", [])), ctrl)
+    check("el punto 6 sin separador de miles (348143,38) se lee bien", ctrl["incremento"] == 348143.38, ctrl)
+    check("ningún otro monto del documento va a la ficha",
+          set(c) == set(("tipo", "obra", "etapa", "numero", "fecha", "saldo_a_cobrar", "fuente", "comprobante_url")), sorted(c))
+    check("el certificado no se toma como comprobante de pago: sin importe ni LLM",
+          f.extras["comprobante"].get("importe") is None and not r.diagnostico["uso_llm"], f.extras["comprobante"])
+
+    r, f = leer_con("Moreno etapa 2", adjuntos=[adj_cert], lector=lector_pdf)
+    check("si el texto dice obra y etapa, manda el texto", (f.campos["obra"], f.campos["etapa"]) == ("Moreno", None)
+          and any("no tiene etapas" in a for a in f.extras.get("advertencias", [])), (f.campos, f.extras.get("advertencias")))
+    with con_etapas(("Moreno", "2"), ("Moreno", "3")):
+        r, f = leer_con("Moreno2", adjuntos=[adj_cert], lector=lector_pdf)
+        check("… con etapas cargadas: Moreno etapa 2, sin conflicto de etapa",
+              (f.campos["obra"], f.campos["etapa"]) == ("Moreno", "2") and not f.conflictos, (f.campos, f.conflictos))
+    r, f = leer_con("Certificado 7 Moreno", adjuntos=[adj_cert], lector=lector_pdf)
+    check("número del texto contra número del PDF: conflicto, pregunta",
+          any(k.campo == "numero" for k in f.conflictos) and not f.campos["numero"], f.conflictos)
+
+    texto_mal = "Sr. Juan\nOBRA: Casa\n5 Sub. Total de certificación de obra (2-3-4): 1.000,00\n" \
+                "6 Incremento CAC 10% 100,00\n7 Saldo a cancelar en la presente certificación (5+6): 1.200,00\n" \
+                "CERTIFICADO AUSTRAL Nº: 3 FECHA: 1/3/2025"
+    d = certificados.parsear(texto_mal)
+    check("control 5 + 6 ≠ 7 por más de $1 → advertencia", any("suma" in a for a in d.advertencias), d.advertencias)
+
+    print("\nTanda 5 · el mismo certificado cargado dos veces")
+    estudio = libro()
+    estudio.certificados.append([dict(obra="Moreno", numero="5", fecha="2026-09-20", saldo_a_cobrar=3200000,
+                                      cargado_por="Petrus").get(k, "") for k in ENCABEZADO_CERTIFICADOS])
+    r, f = leer_con("Certificado 5 Moreno $3.200.000", estudio=estudio)
+    check("misma obra, etapa y número → posible_duplicado fuerte y pregunta, sin descartar",
+          f.posible_duplicado and f.posible_duplicado.libro == "certificados"
+          and any(p.motivo == "posible_duplicado" and "Petrus" in p.texto for p in r.preguntas), (f.posible_duplicado, r.preguntas))
+    r, f = leer_con("Certificado 5 extras Moreno $3.200.000", estudio=estudio)
+    check("«5 extras» es otra serie: no es el mismo", f.posible_duplicado is None, f.posible_duplicado)
+
     print(f"\n{'TODO OK' if not fallas else str(len(fallas)) + ' FALLAS'}")
     return 1 if fallas else 0
 

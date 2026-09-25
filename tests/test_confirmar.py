@@ -282,6 +282,130 @@ async def _correr() -> int:
         check("el cobro entra a la caja de Moreno, no al estudio (§5.8)",
               abs(caja.get("ingresado", 0) - (sum(MORENO) + 2600000)) < 0.01 and cuerpo["obra"]["adelantado"] == 0,
               cuerpo["obra"])
+        check("un cobro de un certificado que no está en CERTIFICADOS: se escribe y avisa",
+              cuerpo["certificado"] is None and any("no está cargado en CERTIFICADOS" in a for a in cuerpo["advertencias"]),
+              cuerpo["advertencias"])
+
+        # ── Tanda 5 · CERTIFICADOS ────────────────────────────────────────────
+        print("\nTanda 5 · el certificado va a CERTIFICADOS, no a MOVIMIENTOS (§5.11)")
+
+        def ficha_cert(**campos):
+            base = {"tipo": "CERTIFICADO", "obra": "Moreno", "etapa": None, "numero": "5", "fecha": "2026-09-20",
+                    "saldo_a_cobrar": 3200000, "fuente": "PDF",
+                    "comprobante_url": "https://drive.google.com/file/d/1CERTxxxxxxxxxxxxxxxxxxxxxx/view"}
+            base.update(campos)
+            return {"campos": base, "extras": {}}
+
+        libro, archivador = preparar()
+        antes = len(libro.filas)
+        r = await confirmar("wamid.CERT5", ficha_cert())
+        cuerpo = r.json()
+        cert = libro.certificados[-1]
+        check("200, libro = certificados, y MOVIMIENTOS no se toca",
+              r.status_code == 200 and cuerpo["libro"] == "certificados" and len(libro.filas) == antes, (r.status_code, cuerpo))
+        check("la fila: obra, etapa, número, fecha, saldo, fuente, msg_id, cargado_por, comprobante",
+              cert[:6] == ["Moreno", "", "5", "2026-09-20", 3200000, "PDF"] and cert[6] == "wamid.CERT5#0"
+              and cert[7] == titular.nombre and cert[8], cert)
+        check("el PDF va a comprobantes/Moreno/certificados/",
+              archivador.movidos and archivador.movidos[-1][1] == ["Moreno", "certificados"]
+              and archivador.movidos[-1][2].startswith("Certificado 5 Moreno"), archivador.movidos)
+        check("devuelve el estado: pendiente = saldo, nada cobrado",
+              cuerpo["certificado"]["pendiente"] == 3200000 and cuerpo["certificado"]["cobrado"] == 0, cuerpo["certificado"])
+        r2 = (await confirmar("wamid.CERT5", ficha_cert(saldo_a_cobrar=1))).json()
+        check("idempotente: el reintento devuelve la misma fila", r2["ya_existia"] and r2["fila"] == cuerpo["fila"]
+              and len(libro.certificados) == 2, r2)
+
+        cobro = ficha(tipo="INGRESO", obra="Moreno", contratista=None, cuenta="Caja obra Moreno", tipo_gasto="obra",
+                      importe=1200000, comprobante_url=None, descripcion="Certificado 5")
+        cobro["extras"] = {"certificado": "5"}
+        cuerpo = (await confirmar("wamid.COBRO5", cobro)).json()
+        check("un cobro del certificado 5 lo cancela en parte: pendiente 2.000.000",
+              cuerpo["certificado"] and cuerpo["certificado"]["cobrado"] == 1200000
+              and cuerpo["certificado"]["pendiente"] == 2000000, cuerpo.get("certificado"))
+        cobro["extras"] = {"certificado": "5 extras"}
+        cuerpo = (await confirmar("wamid.COBRO5X", cobro)).json()
+        check("el cobro de «5 extras» no cancela al certificado 5 (otra serie)", cuerpo["certificado"] is None, cuerpo)
+
+        casos_cert = [
+            ("Austral no se certifica → 422", "obra", ficha_cert(obra="Austral")),
+            ("obra inexistente → 422", "obra", ficha_cert(obra="Lo Guercio")),
+            ("sin número → 422", "numero", ficha_cert(numero="")),
+            ("saldo cero → 422", "saldo_a_cobrar", ficha_cert(saldo_a_cobrar=0)),
+            ("una etapa en una obra sin etapas → 422", "etapa", ficha_cert(etapa="2")),
+        ]
+        for descripcion, campo, f in casos_cert:
+            libro, _ = preparar()
+            r = await confirmar(f"wamid.EC-{campo}", f)
+            detalle = r.json().get("detail", {})
+            check(descripcion, r.status_code == 422 and detalle.get("campo") == campo and len(libro.certificados) == 1,
+                  (r.status_code, detalle))
+
+        # ── Tanda 5 · /consultar ──────────────────────────────────────────────
+        print("\nTanda 5 · /consultar: las tres preguntas, filtradas por ve_personal")
+        from app.maestros import Usuario
+        libro, _ = preparar()
+        personal = personal_actual["libro"]
+        libro.sembrar(id_mov="M-000010", fecha="2026-09-10", tipo="EGRESO", importe=500000, moneda="ARS", tc=1,
+                      importe_ars=500000, obra="Moreno", contratista="Marcelo Maragaño", rubro_1="Mano de obra",
+                      cuenta="Caja obra Moreno", medio_pago="Efectivo", tipo_gasto="obra", cargado_por="Petrus")
+        libro.sembrar(id_mov="M-000011", fecha="2026-09-12", tipo="EGRESO", importe=200000, moneda="ARS", tc=1,
+                      importe_ars=200000, obra="Moreno", contratista="Marcelo Maragaño", rubro_1="Mano de obra",
+                      cuenta="Banco", medio_pago="Transferencia", tipo_gasto="obra", cargado_por=titular.nombre)
+        libro.sembrar(id_mov="M-000012", fecha="2026-09-01", tipo="EGRESO", importe=77000, moneda="ARS", tc=1,
+                      importe_ars=77000, contratista="Marcelo Maragaño", rubro_1="Personal", cuenta="Banco",
+                      tipo_gasto="personal", cargado_por=titular.nombre)  # personal viejo, en el libro del estudio
+        personal.sembrar(id_mov="P-000001", fecha="2026-09-15", tipo="EGRESO", importe=90000, moneda="ARS", tc=1,
+                         importe_ars=90000, contratista="Marcelo Maragaño", rubro_1="Personal", cuenta="Efectivo",
+                         tipo_gasto="personal", cargado_por=titular.nombre)
+        libro.certificados.append(["Moreno", "", "4", "2026-02-01", 3000000, "TEXTO", "w#0", "Petrus", ""])
+
+        async def consultar(**cuerpo):
+            return await cli.post("/consultar", json={"telefono": titular.telefono, **cuerpo})
+
+        r = (await consultar(texto="¿Cuántos pagos se le hicieron a Marcelo Maragaño por la obra Moreno?")).json()
+        check("pagos a X por obra Y: cantidad, total y detalle con quién cargó",
+              r["consulta"] == "pagos" and r["datos"]["cantidad"] == 2 and r["datos"]["total"] == 700000
+              and {d["cargado_por"] for d in r["datos"]["detalle"]} == {"Petrus", titular.nombre}, r["datos"])
+        check("… con un texto para WhatsApp", "2 pagos, total $700.000" in r["texto"] and "Petrus" in r["texto"], r["texto"])
+        r = (await consultar(consulta="pagos", contratista="Marcelo Maragaño")).json()
+        check("sin obra, con ve_personal: suma lo personal de los dos libros",
+              r["datos"]["cantidad"] == 4 and {d["libro"] for d in r["datos"]["detalle"]} == {"estudio", "personal"}, r["datos"])
+        sin_personal = Usuario("5490000000002", "Reemplazo de prueba", "colaborador", True, ve_personal=False)
+        vigente = maestros.cargar()  # el caso «teléfono desconocido» recargó la caché
+        vigente.usuarios.append(sin_personal)
+        try:
+            r = (await consultar(consulta="pagos", contratista="Marcelo Maragaño", telefono=sin_personal.telefono)).json()
+            check("sin ve_personal: ni el libro personal ni las filas personales del estudio",
+                  r["datos"]["cantidad"] == 2 and {d["libro"] for d in r["datos"]["detalle"]} == {"estudio"}
+                  and r["datos"]["total"] == 700000, r)
+        finally:
+            vigente.usuarios.remove(sin_personal)
+        r = (await consultar(texto="pagos a Marce")).json()
+        check("apodo ambiguo: repregunta, no adivina", r["preguntas"] and r["preguntas"][0].get("motivo") == "apodo_ambiguo", r)
+        r = await consultar(texto="¿pagos?", telefono="5490000000000")
+        check("teléfono desconocido → 403", r.status_code == 403, r.status_code)
+
+        r = (await consultar(texto="¿Cuánto va gastado en cada obra, de mano de obra y de materiales?")).json()
+        obras = {o["obra"]: o for o in r["datos"]["obras"]}
+        check("gasto por obra: incluye lo que pagó el comitente, aparte",
+              obras["Lennon"]["comitente"] == sum(LENNON) and obras["Lennon"]["estudio"] == 0, obras.get("Lennon"))
+        check("… abierto por rubro_1 y por quién puso la plata",
+              obras["Moreno"]["por_rubro"]["Mano de obra"] == {"total": 700000, "estudio": 200000, "caja_obra": 500000,
+                                                               "comitente": 0}, obras["Moreno"]["por_rubro"])
+        check("… el texto separa al comitente", "pagó el comitente" in r["texto"] and "*Lennon*" in r["texto"], r["texto"])
+
+        for n, (cert_n, importe) in enumerate([("4", 1000000), ("9", 450000)], start=13):
+            libro.sembrar(id_mov=f"M-{n:06d}", fecha="2026-09-14", tipo="INGRESO", importe=importe, moneda="ARS", tc=1,
+                          importe_ars=importe, obra="Moreno", cuenta="Caja obra Moreno", tipo_gasto="obra",
+                          certificado=cert_n, cargado_por="Petrus")
+        r = (await consultar(texto="¿El comitente de Moreno pagó todas las certificaciones?")).json()
+        g = r["datos"]["grupos"]
+        check("certificaciones: certificado, cobrado y pendiente por obra y etapa",
+              len(g) == 1 and (g[0]["obra"], g[0]["certificado"], g[0]["cobrado"], g[0]["pendiente"])
+              == ("Moreno", 3000000, 1000000, 2000000), g)
+        check("el cobro de un certificado no cargado (el 9) se muestra aparte y no se resta",
+              [c["certificado"] for c in r["datos"]["cobros_sin_certificado"]] == ["9"]
+              and "pendiente $2.000.000" in r["texto"] and "no está cargado" in r["texto"], r)
 
     app.dependency_overrides.clear()
 

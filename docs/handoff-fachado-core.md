@@ -1,9 +1,10 @@
 # Handoff — `fachado-core`, el motor de imputación de Fachado
 
-> **Estado técnico del repo al 2026-09-24.** Qué está hecho, qué falta, cómo se corre y qué
-> variables hacen falta.
+> **Estado técnico del repo al 2026-09-25**, después de las cinco tandas del handoff del
+> proyecto (`docs/handoff-proyecto-2026-09-25.md`). Qué está hecho, qué falta, cómo se corre y
+> qué variables hacen falta.
 >
-> **Las reglas de negocio NO viven acá: viven en `CONTEXTO-FACHADO.md`** (v1.3), que se edita
+> **Las reglas de negocio NO viven acá: viven en `CONTEXTO-FACHADO.md`** (v1.5), que se edita
 > en el proyecto de Claude de A&C y baja a los dos repos. Si este documento y el contexto se
 > contradicen, **gana el contexto**. Este handoff dice dónde está implementada cada regla, no
 > cuál es.
@@ -15,18 +16,18 @@
 
 | | |
 |---|---|
-| ✅ Motor en producción | `https://web-production-6c935.up.railway.app` · `/salud`, `/interpretar` y `/confirmar` desplegados |
-| ✅ GitHub | `valencampero-design/Fachado-core` (se renombró con mayúscula), rama `main` |
+| ✅ Motor en producción | `https://web-production-6c935.up.railway.app` · `/salud`, `/interpretar` y `/confirmar` desplegados. **Las tandas 1 a 5 están commiteadas y sin pushear**: producción corre la versión anterior |
+| ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
 | ✅ Lee y escribe el Sheet | Con la service account del gateway, compartida como Editor |
-| ✅ Lee los comprobantes | Token de Drive cargado en Railway. Verificado en producción: «Felipe J/Lennon» + su PDF da importe $300.000 y fecha 02/09 **desde el comprobante** |
-| ✅ App OAuth publicada | En producción: el token ya no vence a los 7 días. Solo falta la verificación de **marca**, que es cosmética (la pantalla de consentimiento dice «no verificada») y no hace falta |
-| ✅ Métrica del corpus | Obra 84 %, contratista 84 %, **92 % contando las preguntas de diseño**, 6/6 casos obligatorios (§4) |
-| ✅ `/confirmar` | Idempotencia por `msg_id`, lock del `id_mov`, `tests/test_confirmar.py`. Verificado en producción que un teléfono desconocido da 403. **Todavía no escribió ninguna fila real** |
-| ✅ Maestro alineado al contexto | Mercado Libre, Silla Cuádruple, Andina y Municipalidad corregidos el 24/09 (§8) |
-| ⏳ Primera fila real | Con un movimiento verdadero, antes de conectar el gateway |
-| ⏳ Petrus | Falta su teléfono en USUARIOS: lo asigna el arquitecto |
-| ⏳ Conectar el gateway | Es el paso que hace que el sistema exista para el arquitecto (§6) |
-| ⏳ `/consultar`, conciliación, IVA | No empezados (§7) |
+| ✅ Lee los comprobantes | Token de Drive en Railway, app OAuth publicada |
+| ✅ Métrica del corpus | 92 % contando las preguntas de diseño, igual antes y después de las cinco tandas (§4) |
+| ✅ Maestro alineado al contexto v1.5 | Cajas de obra, Petrus con teléfono y activo, Pinturería Andina, cobros de Moreno en su caja (§8) |
+| ✅ Hojas nuevas en el Master | `ETAPAS` (vacía: las carga el arquitecto) y `CERTIFICADOS` (vacía) |
+| ⏳ Pushear y desplegar | Después de revisar los cinco commits |
+| ⏳ «FACHADO — Personal» | El archivo no existe todavía: hasta que se cree y se cargue `FACHADO_PERSONAL_SHEET_ID`, lo personal da 503 en `/confirmar` (§5) |
+| ⏳ Cron del cierre semanal | Un servicio aparte en Railway (§5) |
+| ⏳ Conectar el gateway | Lo que necesita, en §6 |
+| ⏳ Conciliación, IVA | No empezados (§7) |
 
 ## 1. Qué es este repo
 
@@ -41,30 +42,40 @@ un WhatsApp, y si el motor se cae el gateway sigue archivando en modo captura.
 
 ```
 app/
-  main.py          FastAPI, rutas, auth por X-API-Key
+  main.py          FastAPI, rutas, auth por X-API-Key, proveedores de libros y archivador
   config.py        settings desde env
-  models.py        Pydantic de entrada y salida + las columnas de MOVIMIENTOS
-  maestros.py      carga y cachea OBRAS, CONTRATISTAS, RUBROS, CUENTAS, ALIAS, USUARIOS
-  resolver.py      texto libre → obra / contratista / rubro / cuenta, SIN LLM
+  models.py        Pydantic de entrada y salida + columnas de MOVIMIENTOS y CERTIFICADOS
+  maestros.py      carga y cachea OBRAS, CONTRATISTAS, RUBROS, CUENTAS, ALIAS, USUARIOS, ETAPAS
+  resolver.py      texto libre → obra (con etapa y C) / contratista / rubro / cuenta, SIN LLM
   clasificador.py  la cascada obra / estructura / personal, SIN LLM
-  interpretar.py   orquesta: resolver → LLM para lo que falta → comprobante → ficha
+  interpretar.py   orquesta: resolver → LLM → comprobante → ficha → duplicados
   llm.py           cliente de Anthropic, prompts y esquemas de salida
-  comprobante.py   nombre de archivo → texto del PDF → visión
-  confirmar.py     /confirmar: valida, asigna id_mov bajo lock, escribe, archiva, alias
-  libro.py         el puerto al libro (MOVIMIENTOS y ALIAS): real o en memoria para tests
+  comprobante.py   nombre de archivo → texto del PDF → visión; reconoce certificados
+  certificados.py  el PDF del certificado, el número como clave, lo cobrado y lo pendiente
+  duplicados.py    el mismo hecho cargado dos veces: referencias y búsqueda
+  confirmar.py     /confirmar: valida, asigna id_mov bajo lock, enruta al libro, archiva, alias
+  cierre.py        la línea semanal de gastos personales en el libro del estudio
+  consultas.py     /consultar: pagos a un contratista, gasto por obra, certificaciones
+  filtros.py       qué entra en IVA y en la conciliación (informales, cierre semanal)
+  libro.py         el puerto al libro (MOVIMIENTOS, ALIAS, CERTIFICADOS): real o en memoria
   archivo.py       dónde queda cada comprobante, y el puerto a Drive
   saldos.py        saldo de una obra y saldo del estudio, derivados del libro
   sheets.py        clientes de Google Sheets (service account) y Drive (OAuth), con reintentos
 scripts/
   get_google_token.py    genera el refresh token de Drive, se corre una vez
   snapshot_maestros.py   baja los maestros a tests/maestros_snapshot.json
-  preparar_sheet.py      deja el Sheet listo para /confirmar (columnas y USUARIOS). Idempotente
+  preparar_sheet.py      columnas y hojas que el motor necesita. Idempotente, simulacro por defecto
+  cierre_semanal.py      lo corre el cron: llama a POST /cierre-semanal
+  migraciones/           correcciones de datos del maestro, una por fecha, idempotentes
 tests/
   corpus.csv             las 101 filas de la hoja CAPTURA
   maestros_snapshot.json copia de los maestros, para correr reproducible y offline
+  fixtures/              cert_loguercio_etapa3.pdf, el certificado real de ejemplo
+  dobles.py              libro en memoria y Drive falso
   test_corpus.py         la métrica: cuánto resuelve sin preguntar, en total y por usuario
   test_reglas.py         que lo que resuelve sea lo que el negocio decidió
-  test_confirmar.py      /confirmar contra un libro en memoria: nunca escribe en el Sheet real
+  test_casos.py          los casos del handoff del 25/09, con su resultado esperado
+  test_confirmar.py      /confirmar, /cierre-semanal y /consultar contra libros en memoria
 ```
 
 ### Endpoints
@@ -72,14 +83,15 @@ tests/
 | Ruta | Estado |
 |---|---|
 | `GET /salud` | ok, sin auth |
-| `POST /interpretar` | **implementado.** Nunca escribe nada |
-| `POST /confirmar` | **implementado.** Escribe una fila en MOVIMIENTOS, mueve el comprobante, escribe el alias |
-| `POST /maestros/recargar` | implementado: relee el Sheet y devuelve las advertencias |
-| `POST /consultar` | 501, pendiente |
+| `POST /interpretar` | Nunca escribe. Lee los libros solo para buscar duplicados |
+| `POST /confirmar` | Escribe una fila en MOVIMIENTOS del estudio, en el libro personal o en CERTIFICADOS; mueve el comprobante; escribe el alias |
+| `POST /cierre-semanal` | Escribe las líneas semanales de gastos personales. Idempotente. Lo dispara el cron |
+| `POST /consultar` | Las tres preguntas del arquitecto. Solo lee |
+| `POST /maestros/recargar` | Relee el Sheet y devuelve las advertencias |
 
 Todos menos `/salud` piden `X-API-Key` contra `MOTOR_API_KEY`: el único cliente HTTP es el
 gateway. Las personas son otra cosa: viven en `USUARIOS` y se identifican por el `telefono`
-que manda el gateway en cada `/confirmar`.
+que manda el gateway.
 
 ### Contrato de `/interpretar`
 
@@ -87,10 +99,11 @@ Entrada:
 
 ```jsonc
 {
-  "telefono": "549294...",              // quien escribe, como llega de WhatsApp
+  "telefono": "549294...",              // quien escribe: decide qué libros se miran para duplicados
   "texto": "Felipe J/Lennon",          // texto del mensaje, o el caption del adjunto
   "adjuntos": [
-    { "url": "https://drive.google.com/...", "mime": "application/pdf", "nombre": "Cheque9679_....pdf" }
+    { "url": "https://drive.google.com/...", "mime": "application/pdf", "nombre": "Cheque9679_....pdf",
+      "sha256": "…" }                  // el que manda WhatsApp; si no viene, el motor lo calcula
   ],
   "fecha_mensaje": "2026-09-08T19:29:00Z",
   "contexto_previo": null               // la ficha anterior, si esto es una corrección
@@ -102,18 +115,21 @@ Salida:
 ```jsonc
 {
   "fichas": [{
-    "campos": { /* las columnas de MOVIMIENTOS, null donde falta */ },
+    "campos": { /* las columnas de MOVIMIENTOS, o las de un CERTIFICADO; null donde falta */ },
     "origen_campo": { "importe": "comprobante", "obra": "texto", "tipo_gasto": "inferido" },
     "faltantes": ["rubro_2"],
     "conflictos": [],
     "confianza": 0.86,
     "regla": "R4: tipo de la obra (obra_terceros)",
-    "extras": { "certificado": "4", "fecha_pago": "2026-09-28", "alias_propuesto": {...} }
+    "extras": { "certificado": "4", "fecha_pago": "2026-09-28", "alias_propuesto": {...} },
+    "posible_duplicado": null,          // o { id_mov, cargado_por, fecha, importe, fuerza, libro }
+    "requiere_confirmacion": true
   }],
   "preguntas": [
     { "campo": "obra", "texto": "¿A qué obra?", "opciones": [...], "motivo": "falta_dato", "ficha": 0 }
   ],
-  "diagnostico": { "uso_llm": false, "llm_llamadas": 0, "resoluciones": [...] }
+  "requiere_confirmacion": true,        // true si alguna ficha lo requiere
+  "diagnostico": { "uso_llm": false, "llm_llamadas": 0, "resoluciones": [...], "advertencias": [] }
 }
 ```
 
@@ -124,14 +140,20 @@ Lo que el gateway tiene que respetar:
   comprobante» al lado del dato en la ficha de confirmación.
 - **`fichas` es una lista.** Casi siempre trae una, pero un mensaje puede traer dos
   movimientos. Cada pregunta dice a qué ficha aplica con `ficha`.
-- **`preguntas[].motivo`**: `apodo_ambiguo` y `dual` son preguntas **de diseño** —el maestro
-  dice que hay que preguntar—; `conflicto` es texto contra comprobante; `falta_dato` es que no
-  se pudo resolver. Sirve para mostrarlas distinto y para medir bien.
+- **Dos formas de ficha.** Un movimiento trae las columnas de MOVIMIENTOS (con las nuevas
+  `etapa`, `informal` y `ref_comprobante`). Un certificado trae `campos.tipo = "CERTIFICADO"` y
+  solo `obra · etapa · numero · fecha · saldo_a_cobrar · fuente · comprobante_url`.
+- **`preguntas[].motivo`**: `apodo_ambiguo` y `dual` son preguntas **de diseño**; `conflicto`
+  es texto contra comprobante (o cuerpo del PDF contra nombre de archivo); `falta_dato` es que
+  no se pudo resolver; `posible_duplicado` es «ya está cargado, ¿es el mismo?», con botones
+  «Es el mismo» / «Es otro».
+- **`requiere_confirmacion`** (contexto §5.12) es la orden para el gateway: si es true, muestra
+  la ficha y espera el botón. Hoy es true para todos (ningún usuario tiene `auto_confirmar`).
 - **`campos["tipo_gasto"]`** lo decide la cascada, nunca el LLM, y `regla` dice qué regla lo
   decidió.
-- **`extras`** lleva lo que no tiene columna: certificado, fecha de pago del cheque diferido,
-  número de operación, CUIT, razón social, advertencias y `alias_propuesto`. `/confirmar`
-  persiste el certificado en su propia columna (contexto §5.11).
+- **`extras`** lleva lo que no tiene columna: certificado del cobro, fecha de pago del cheque
+  diferido, número de operación, CUIT, razón social, advertencias, `alias_propuesto` y, en un
+  certificado, lo leído del PDF (`certificado_pdf`).
 
 ### Contrato de `/confirmar`
 
@@ -151,17 +173,14 @@ Salida:
 
 ```jsonc
 {
-  "id_mov": "M-000010",
+  "id_mov": "M-000010",          // P-000001 en el libro personal; en un certificado, «Moreno etapa 1 · certificado 5»
   "fila": 11,
+  "libro": "estudio",            // estudio | personal | certificados
   "comprobante_url": "https://drive.google.com/...",  // mismo id de archivo, ya en su carpeta
-  "obra": {
-    "nombre": "Lennon",
-    "adelantado": 0,
-    "pagado_con_plata_del_estudio": 0,
-    "pagado_por_el_comitente": 22110441.70,
-    "saldo": 0,                   // solo cuenta la plata del estudio
-    "caja_obra": null             // { ingresado, pagado, por_rendir } si la obra tiene caja
-  },
+  "obra": { "nombre": "Lennon", "adelantado": 0, "pagado_con_plata_del_estudio": 0,
+            "pagado_por_el_comitente": 22110441.70, "saldo": 0, "caja_obra": null },
+  "certificado": null,           // en un certificado o en un cobro que nombra uno:
+                                 // { obra, etapa, numero, fecha, saldo_a_cobrar, cobrado, pendiente, cobros }
   "alias_escrito": false,
   "ya_existia": false,           // true si el msg_id ya estaba: se devuelve la fila existente
   "cargado_por": "Gabriel Fachado",
@@ -174,18 +193,42 @@ Lo que el gateway tiene que saber:
 - **Qué `msg_id` mandar.** El del mensaje original que se está confirmando. Si manda el del
   botón «Sí», dos toques al botón son dos wamid distintos y **se escriben dos filas**.
 - **`ficha_indice`.** Un mensaje con dos movimientos manda dos `/confirmar` con el mismo
-  `msg_id` e índices 0 y 1. En la columna `msg_id` del libro se guarda `<wamid>#<índice>`.
-- **Qué es un error y qué no.** 403 si el teléfono no está en USUARIOS; 422 con
-  `{"campo", "detalle"}` si falta un obligatorio, la obra o la cuenta no existen, o un EGRESO
-  llega sin `tipo_gasto`. En todos esos casos no se escribe nada. Que el comprobante no se
-  pueda mover o que el alias no se pueda escribir **no** es error: la fila se escribe y vuelve
-  una advertencia.
-- **Un TRASPASO todavía no se puede confirmar** (422): MOVIMIENTOS tiene una sola columna
-  `cuenta` y un traspaso necesita origen y destino. Está en §7.
+  `msg_id` e índices 0 y 1. En la columna `msg_id` se guarda `<wamid>#<índice>`.
+- **A qué libro va.** `tipo_gasto = personal` va a «FACHADO — Personal» con su propia
+  secuencia `P-`; un `CERTIFICADO` va a la hoja CERTIFICADOS; el resto, a MOVIMIENTOS del
+  estudio. La idempotencia mira los dos libros de movimientos.
+- **Qué es un error y qué no.** 403 si el teléfono no está en USUARIOS, o si lo personal lo
+  confirma alguien sin `ve_personal`. 503 si lo personal llega y el libro personal no está
+  configurado: **nunca cae en el libro del estudio**. 422 con `{"campo", "detalle"}` si falta
+  un obligatorio, la obra o la cuenta no existen, la caja es de otra obra, la etapa no
+  corresponde, o un EGRESO llega sin `tipo_gasto`. En todos esos casos no se escribe nada.
+  Que el comprobante no se pueda mover o que el alias no se pueda escribir **no** es error.
+- **TRASPASO y PASANTE todavía no se pueden confirmar** (422): el traspaso necesita cuenta de
+  origen y de destino; qué cuenta lleva un pasante (§5.17) no está definido. Están en §7.
 
 Lo que completa el motor, sin importar qué venga en la ficha: `id_mov`, `origen`,
 `concilia`, `estado_conc`, `importe_ars`, `comitente` (de OBRAS), `cargado_por` (de
-USUARIOS, nunca «bot»), `ts` (hora local), `msg_id` y `certificado`.
+USUARIOS, nunca «bot»), `ts` (hora local), `msg_id`, `certificado` e `informal`.
+
+### `/cierre-semanal`
+
+`{"semana": "2026-W39"}` o vacío (la semana anterior). Escribe en MOVIMIENTOS del estudio una
+fila por semana y cuenta con los egresos personales de esa semana: `origen = CIERRE`,
+`concilia = FALSO`, `tipo_gasto = personal`, fecha = el domingo de la semana, `cargado_por =
+Cierre semanal`. Revisa todas las semanas hasta la pedida, así que una carga atrasada o una
+semana que el cron se salteó generan una fila de **ajuste** por la diferencia; nunca edita una
+fila anterior. Idempotente: la clave está en `msg_id` (`cierre:<semana>:<cuenta>#<n>`).
+
+### `/consultar`
+
+```jsonc
+{ "telefono": "549294...", "texto": "¿Cuántos pagos se le hicieron a Marcelo por la obra Moreno?" }
+// o explícito: { "telefono", "consulta": "pagos" | "gasto" | "certificaciones", "obra", "contratista" }
+```
+
+Devuelve `{ consulta, datos, texto, preguntas, advertencias }`. `texto` está listo para
+WhatsApp. Si falta algo (un apodo ambiguo, el contratista), `preguntas` trae qué preguntar.
+Del texto solo se toman coincidencias firmes del diccionario: nada difuso, nada de LLM.
 
 ## 3. Dónde está implementada cada regla
 
@@ -196,20 +239,28 @@ El contexto dice **qué**; esta tabla dice **dónde**. Si cambia una regla allá
 | §5.3 · el orden `algo/algo` no es fijo | `resolver.parsear` + `resolver_token`: se parte por `/` y cada token se resuelve contra los diccionarios |
 | §5.5 · diccionario antes que LLM | `resolver.resolver_token` (exacto → palabra única → difuso ≥ 88) y `interpretar._resolver_con_llm` |
 | §5.5 · el LLM solo devuelve valores de los maestros | `interpretar._validar`: lo que no existe se descarta |
-| §5.5 · un apodo ambiguo **pregunta** | `resolver_token` devuelve `categoria="ambiguo"` con las opciones cuando empatan dos filas de ALIAS → `Pregunta(motivo="apodo_ambiguo")` |
-| §5.5 · el CUIT no es clave única | `resolver.contratista_por_cuit`, que junta los CUIT de CONTRATISTAS y los de ALIAS |
+| §5.5 · un apodo ambiguo **pregunta** | `resolver_token` devuelve `categoria="ambiguo"` → `Pregunta(motivo="apodo_ambiguo")` |
+| §5.5 · el CUIT no es clave única | `resolver.contratista_por_cuit` |
 | §5.4 · la cascada completa | `clasificador.clasificar`, una regla por rama; la ficha devuelve cuál ganó en `regla` |
-| §5.2 · reparto de autoridad texto/comprobante | `interpretar._armar`, bloques 1 y 2; los choques de importe o fecha van a `conflictos` |
-| §5.8 · las cajas de obra no suman al saldo | `maestros.TIPOS_CUENTA_DEL_ESTUDIO` (lista blanca: un tipo mal cargado queda afuera, no adentro) y `saldos.saldo_estudio`. **Cualquier cálculo de saldo del estudio tiene que salir de ahí** |
-| §5.8 y §5.9 · el saldo de la obra solo cuenta plata del estudio | `saldos.saldo_obra`: lo que pagó el comitente se informa aparte y la caja de obra también |
-| §5.11 · el certificado viaja con el cobro | `extras["certificado"]` → columna `certificado` de MOVIMIENTOS al confirmar |
-| §5.12 · nada se escribe sin confirmación | Solo `/confirmar` escribe; `/interpretar` es una función pura |
+| §5.2 · reparto de autoridad texto/comprobante | `interpretar._armar` y `_armar_certificado`, bloques 1 y 2 |
+| §5.8 · las cajas de obra no suman al saldo | `maestros.TIPOS_CUENTA_DEL_ESTUDIO` (lista blanca) y `saldos.saldo_estudio`. **Cualquier saldo del estudio sale de ahí** |
+| §5.8 · la `C` pegada a la obra y los cobros de certificados en obras administradas | `resolver._obra_con_sufijo` y el bloque «Caja de obra» de `interpretar._armar`; `Maestros.caja_de_obra` |
+| §5.8 y §5.9 · el saldo de la obra solo cuenta plata del estudio | `saldos.saldo_obra` |
+| §5.11 · el certificado es un documento, no un gasto | `interpretar._es_certificado` / `_armar_certificado`; el PDF en `certificados.parsear` (anclado en «Saldo a cancelar en la presente certificación», texto en modo layout) |
+| §5.11 · el cobro cancela al certificado | `certificados.estados`: obra, etapa y número (`clave_numero`) tienen que coincidir |
+| §5.12 · nada se escribe sin confirmación; período de prueba | Solo `/confirmar` escribe; `interpretar._requiere_confirmacion` con `USUARIOS.auto_confirmar` |
 | §5.13 · un teléfono fuera de USUARIOS no escribe | `confirmar.confirmar` → 403 antes de tocar nada; `cargado_por` = `Usuario.nombre` |
-| §5.1 · libro append-only | `confirmar.py`: fila completa y validada en memoria, idempotencia por `msg_id`, `id_mov` y escritura bajo un mismo lock |
-| Lectura de comprobantes | `comprobante.leer`: nombre de archivo → texto del PDF → modelo |
-| Destino del comprobante confirmado | `archivo.carpetas` y `archivo.nombre_base` |
+| §5.13 y §5.14 · lo personal, por persona y en otro libro | `confirmar.confirmar` (ruteo, 403, 503), `consultas._visibles`, `interpretar._marcar_duplicados` |
+| §5.14 · la línea semanal | `cierre.cierre_semanal`; `filtros.para_conciliacion` la excluye |
+| §5.15 · etapas | `resolver._obra_con_sufijo` (`Lennon1`), `resolver.RE_ETAPA` («etapa 1»), el bloque «Etapa» de `_armar`, y la validación en `confirmar.armar_fila` |
+| §5.16 · el mismo hecho cargado dos veces | `duplicados.buscar` (referencias fuertes y probables), `interpretar._marcar_duplicados` y `_marcar_certificados_repetidos` |
+| §5.17 · depósito = PASANTE informal | `resolver.PALABRAS_TIPO`, `interpretar._armar` (`informal = sí`), `saldos.saldo_obra`, `filtros.para_iva` / `para_conciliacion` |
+| §5.1 · libro append-only | `confirmar.py` y `cierre.py`: fila completa y validada en memoria; idempotencia, `id_mov` y escritura bajo el mismo lock |
+| Lectura de comprobantes | `comprobante.leer` / `leer_bytes`: nombre de archivo → texto del PDF → modelo |
+| Destino del comprobante confirmado | `archivo.carpetas` / `nombre_base`; certificados en `archivo.carpetas_certificado` |
 
-`tests/test_reglas.py` verifica las de esta tabla que se pueden probar sin escribir nada.
+`tests/test_reglas.py` y `tests/test_casos.py` verifican las de esta tabla que se pueden
+probar sin escribir nada.
 
 ## 4. La métrica
 
@@ -219,36 +270,34 @@ python -m tests.test_corpus --sin-llm  # solo diccionario
 python -m tests.test_corpus --sheet    # contra el Sheet en vivo, no el snapshot
 python -m tests.test_corpus --adjuntos # además baja y lee los comprobantes (requiere OAuth)
 python -m tests.test_reglas            # las reglas de negocio, sin métrica
-python -m tests.test_confirmar         # /confirmar contra un libro en memoria
+python -m tests.test_casos             # los casos del handoff del 25/09
+python -m tests.test_confirmar         # /confirmar, /cierre-semanal y /consultar en memoria
 ```
 
-**`test_confirmar` nunca escribe en el Sheet real**: MOVIMIENTOS es append-only y una fila de
-prueba no se puede borrar. Si alguna vez hace falta probar contra el libro de verdad, que sea
-con un movimiento real que el usuario confirma.
+**Ningún test escribe en el Sheet real**: MOVIMIENTOS es append-only y una fila de prueba no
+se puede borrar. Si alguna vez hace falta probar contra el libro de verdad, que sea con un
+movimiento real que el usuario confirma.
 
 La métrica sale **en total y por usuario**. Hoy el corpus es 100 % del titular; cuando Petrus
-empiece a cargar, alcanza con que el CSV traiga una columna `telefono` (la hoja CAPTURA la
-tiene) para que cada fila se atribuya a quien la mandó.
+empiece a cargar, alcanza con que el CSV traiga una columna `telefono` para que cada fila se
+atribuya a quien la mandó.
 
 Las 101 filas de CAPTURA se reagrupan en 57 mensajes (50 con texto, 5 correcciones, 2
-adjuntos sin texto). Contra el Sheet en vivo (sin cambios desde la reunión 3: `/confirmar` no
-toca `/interpretar`):
+adjuntos sin texto). Contra el snapshot, con LLM:
 
-| | Antes de la reunión 3 | Después |
+| | Antes de las tandas del 25/09 | Después |
 |---|---|---|
 | Obra/destino sin preguntar | 42/50 (84 %) | 42/50 (84 %) |
-| Contratista sin preguntar | 50/50 (100 %) | 42/50 (84 %) |
-| Las dos cosas | 42/50 (84 %) | 34/50 (68 %) |
-| **Contando las preguntas de diseño** | 46/50 (92 %) | **46/50 (92 %)** |
-| Necesitaron LLM | 10/55 | 9/55 |
+| Contratista sin preguntar | 42/50 (84 %) | 42/50 (84 %) |
+| Las dos cosas | 34/50 (68 %) | 34/50 (68 %) |
+| **Contando las preguntas de diseño** | **46/50 (92 %)** | **46/50 (92 %)** |
+| Gabriel Fachado | 68 % · 92 % | 68 % · 92 % |
+| Petrus | sin mensajes en el corpus | sin mensajes en el corpus |
+| Necesitaron LLM | 9/55 | 9/55 |
 | Casos obligatorios | 6/6 | 6/6 |
 
-La caída de «contratista sin preguntar» **es el comportamiento correcto**: antes «Marce» y
-«Marcelo» se resolvían solos a una persona, y son tres. Ahora preguntan. La línea que mide la
-calidad real del parser es la de preguntas de diseño, que no se movió.
-
-Lo que todavía pregunta por falta de dato: 4 capturas cuyo único texto es «ingreso», que se
-resolverían leyendo el CUIT del comitente en el comprobante.
+El caso obligatorio de Moreno cambió de expectativa con la tanda 2: ahora el cobro del
+certificado va a `Caja obra Moreno` con `medio_pago = Efectivo` (§5.8).
 
 El test corre contra `tests/maestros_snapshot.json` para ser reproducible; se regenera a
 propósito con `python scripts/snapshot_maestros.py`.
@@ -262,7 +311,8 @@ Railway, al lado del gateway, desde GitHub. `nixpacks.toml` fija Python 3.11 y a
 |---|---|
 | `MOTOR_API_KEY` | Secreto compartido con el gateway (header `X-API-Key`) |
 | `FACHADO_SHEET_ID` | `1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A` |
-| `GOOGLE_CREDENTIALS_JSON` | Service account del gateway, para **leer y escribir el Sheet** |
+| `FACHADO_PERSONAL_SHEET_ID` | «FACHADO — Personal» (§5.14). **Vacía hasta que se cree el archivo**: mientras tanto, lo personal da 503 |
+| `GOOGLE_CREDENTIALS_JSON` | Service account del gateway, para **leer y escribir los Sheets** |
 | `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` | OAuth de usuario, para **bajar y mover los adjuntos** |
 | `DRIVE_CARPETA_COMPROBANTES_ID` | Carpeta raíz «comprobantes». Si queda vacía, el motor la crea la primera vez y devuelve el id en una advertencia |
 | `ANTHROPIC_API_KEY` | |
@@ -270,7 +320,20 @@ Railway, al lado del gateway, desde GitHub. `nixpacks.toml` fija Python 3.11 y a
 | `MAESTROS_TTL_SEGUNDOS` · `LEER_ADJUNTOS` · `UTC_OFFSET_HORAS` | Default 300 · true · -3 |
 | `MAESTROS_SNAPSHOT` | Solo para correr offline; en Railway va vacía |
 
-Para cargarlas de una, el editor **Raw** de Railway acepta un pegado estilo `.env`:
+**El libro personal.** Crear el Google Sheet «FACHADO — Personal» con una hoja `MOVIMIENTOS`
+con el mismo encabezado que la del Master, compartirlo como Editor con la service account y
+cargar su id en `FACHADO_PERSONAL_SHEET_ID`. No lleva maestros: usa los del Master.
+
+**El cron del cierre semanal.** Un segundo servicio en Railway, desde el mismo repo, con:
+
+- start command `python scripts/cierre_semanal.py`;
+- cron schedule `0 11 * * 1` (lunes 8:00 de Argentina, en UTC);
+- variables `MOTOR_URL` (la URL pública del motor) y `MOTOR_API_KEY`.
+
+Llama al motor por HTTP para que el cierre use el mismo lock del `id_mov` que `/confirmar`. Si
+corre dos veces, la segunda no escribe nada.
+
+Para cargar las variables de una, el editor **Raw** de Railway acepta un pegado estilo `.env`:
 
 ```powershell
 $vars = Get-Content .env | Where-Object { $_ -match '^[A-Z_]+=.+' -and $_ -notmatch '^GOOGLE_CREDENTIALS_PATH' }
@@ -281,138 +344,129 @@ $json = (Get-Content ..\chatbot-contable\config\google_credentials.json -Raw | C
 ### Por qué cada API usa una credencial distinta
 
 - **Sheets → service account** (la del gateway, con el Sheet compartido como **Editor**), con
-  scope `spreadsheets`: desde `/confirmar` escribe. Usarlo por OAuth de usuario sería un scope
-  **sensible**: publicar la app OAuth requeriría verificación, y en «Prueba» el token caduca
-  cada 7 días. La service account no tiene consentimiento ni vencimiento. Si no hay service
-  account configurada, el motor cae a OAuth y lo avisa por log.
+  scope `spreadsheets`. Usarlo por OAuth de usuario sería un scope **sensible**: publicar la
+  app requeriría verificación, y en «Prueba» el token caduca cada 7 días.
 - **Drive → OAuth de usuario.** Una service account no tiene cuota en un Drive personal, y
   `drive.file` solo alcanza a los archivos que creó **esa misma app OAuth**: los adjuntos del
   gateway y las carpetas que crea el motor. Por eso **la carpeta «comprobantes» tiene que
-  crearla el motor**, no una persona a mano, y el cliente OAuth tiene que ser el mismo del
-  gateway, con otro refresh token:
+  crearla el motor**, y el cliente OAuth tiene que ser el mismo del gateway, con otro refresh
+  token:
 
 ```bash
 pip install google-auth-oauthlib
 python scripts/get_google_token.py <client_secret.json>   # autorizar con valencampero@gmail.com
 ```
 
-## 6. Cómo se conecta el gateway (nada de esto está hecho del lado del gateway)
+## 6. Qué necesita el gateway (nada de esto está hecho del lado del gateway)
+
+El circuito:
 
 1. El gateway sigue archivando en CAPTURA: es la red de seguridad, no se toca.
-2. Además llama a `POST /interpretar` con el texto, los adjuntos ya subidos a Drive y, si el
-   mensaje parece una corrección, la ficha anterior **de ese mismo usuario** en
-   `contexto_previo`.
-3. Muestra la ficha con el origen de cada campo y los botones de `preguntas`.
+2. Llama a `POST /interpretar` con el `telefono`, el texto, los adjuntos ya subidos a Drive
+   —**con el `sha256` que trae el payload de WhatsApp**— y, si el mensaje es una corrección,
+   la ficha anterior **de ese mismo usuario** en `contexto_previo`.
+3. Si `requiere_confirmacion` es true (hoy siempre), muestra la ficha con el origen de cada
+   campo y los botones de `preguntas`.
 4. Cuando el usuario confirma, llama a `POST /confirmar` con el `msg_id` **del mensaje
-   original** (no del botón), el `telefono` de quien confirma y el `ficha_indice`.
+   original**, el `telefono` de quien confirma y el `ficha_indice`, y responde con lo que
+   vuelve (el saldo de la obra, o lo pendiente del certificado).
 5. El perfil del tenant pasa de `mode: "captura"` a un modo propio del proyecto `obras`.
+
+Lo nuevo de las tandas del 25/09:
+
+- **Campos nuevos de la ficha**: `etapa`, `informal`, `ref_comprobante`, `posible_duplicado`,
+  `requiere_confirmacion`, y la ficha de tipo `CERTIFICADO`, con sus propios campos.
+- **La pregunta de duplicado** (`motivo = posible_duplicado`): «Petrus ya cargó un pago igual
+  el 27/8 (M-000001). ¿Es el mismo?», con «Es el mismo» / «Es otro». Si es el mismo, el
+  gateway **no** llama a `/confirmar`. Si es otro, confirma normalmente.
+- **`adjuntos[].sha256`**: es la referencia más fuerte para reconocer el mismo archivo
+  mandado por dos usuarios.
+- **`ConfirmarOut.libro`** (`estudio · personal · certificados`) y
+  **`ConfirmarOut.certificado`** (cuánto queda por cobrar).
+- **403 y 503 de lo personal**: sin `ve_personal`, el gateway tiene que decir que esa persona
+  no carga lo personal; con 503, que el libro personal todavía no está configurado.
+- **`/consultar`**: el gateway puede pasarle el texto tal cual; si vuelven `preguntas`, las
+  muestra con botones y repregunta con `consulta`, `obra` y `contratista` explícitos.
+- **El cron** del cierre semanal no pasa por el gateway: es un servicio de Railway (§5).
 
 Lo que el gateway tiene que cambiar para tener dos usuarios (contexto §5.13): hoy un teléfono
 es un perfil (`config/tenants/<telefono>.json`). **Varios teléfonos tienen que mapear al mismo
 cliente**, y la sesión —la ficha pendiente, la anterior para las correcciones— tiene que
 seguir siendo por teléfono, para que la corrección de uno no se aplique a la ficha del otro.
 
-Dos cosas del corpus que el agrupamiento del gateway tiene que contemplar (también anotadas en
-el contexto §8): **el adjunto a veces llega 8 a 18 segundos antes que el texto** que lo
-etiqueta, y **el usuario manda mensajes repetidos** con un segundo de diferencia.
+Dos cosas del corpus que el agrupamiento del gateway tiene que contemplar (contexto §8): **el
+adjunto a veces llega 8 a 18 segundos antes que el texto** que lo etiqueta, y **el usuario
+manda mensajes repetidos** con un segundo de diferencia.
 
 ## 7. Lo que falta
 
 **Operativo**
 
-- [ ] **La primera fila real**, con un movimiento verdadero, mirándola en el Sheet antes de
-      que el gateway dependa de `/confirmar`: los tests corren contra un libro en memoria.
-- [ ] **Cargar el teléfono de Petrus en USUARIOS.** Hasta entonces no puede confirmar nada.
+- [ ] Revisar los cinco commits del 25/09, pushear y verificar el deploy.
+- [ ] Crear «FACHADO — Personal», compartirlo con la service account y cargar
+      `FACHADO_PERSONAL_SHEET_ID` (§5).
+- [ ] Crear el servicio cron del cierre semanal (§5).
+- [ ] Cargar las etapas en `ETAPAS` (hoy vacía: ninguna obra tiene etapas y el bot no las
+      pregunta).
+- [ ] **La primera fila real**, con un movimiento verdadero, mirándola en el Sheet.
 - [ ] La primera vez que un `/confirmar` mueva un comprobante, el motor crea la carpeta
       «comprobantes» y devuelve su id en una advertencia: cargarlo en
       `DRIVE_CARPETA_COMPROBANTES_ID` en Railway.
 - [ ] Correr `python -m tests.test_corpus --sheet --adjuntos`: la métrica con los
-      comprobantes reales. Hoy la métrica se mide sin leerlos.
-- [ ] Revisar el token de Drive **del gateway**: si se generó cuando la app estaba en
-      «Prueba», vence cada 7 días aunque la app ya esté publicada. Si los adjuntos siguen
-      apareciendo con link en CAPTURA, está bien.
-- [ ] Cargar en `CUENTAS` una fila por obra administrada con `tipo = caja_obra` (contexto
-      §5.8), y corregir la fila llamada «caja_obra» (§8).
+      comprobantes reales.
 - [ ] Correr en Python 3.11 (local hay 3.14; Railway ya está fijado en 3.11).
 
-**Código**
+**Código, esperando una decisión del contexto**
 
-- [ ] `POST /consultar` — saldos y cuentas corrientes por obra. `app/saldos.py` ya los
-      calcula; falta exponerlos.
-- [ ] **TRASPASO en `/confirmar`**: MOVIMIENTOS tiene una sola columna `cuenta`. Cómo se
-      registra un traspaso (dos filas, o una columna de cuenta destino) es una decisión de
-      modelo que tiene que escribirse en el contexto antes de implementarla.
-- [ ] Corregir un movimiento ya confirmado. El libro es append-only: hace falta definir si
-      una corrección es un contraasiento o una fila que reemplaza a otra.
+- [ ] **PASANTE en `/confirmar`**: §5.17 dice que no toca la caja del estudio, pero no qué
+      cuenta lleva. Hasta que se defina, 422.
+- [ ] **TRASPASO en `/confirmar`**: MOVIMIENTOS tiene una sola columna `cuenta`.
+- [ ] **Corregir un movimiento ya confirmado**: decisión de diseño abierta.
+- [ ] **Las series de certificados de Moreno** («cert 4» y «cert 4 extras», «cert.pintura»,
+      «certificado 18 obra»): el motor las trata como números distintos y no las mezcla, pero
+      el contexto no dice si son series ni cómo se numeran.
+- [ ] Qué es «Estudio» en `Estudio/Austral`, y a qué certificado corresponden las cuatro
+      fotos del 11/9 que dicen solo «ingreso» (abiertas en el handoff del proyecto).
+- [ ] El prompt del LLM habla de «el arquitecto» (`llm.py`): con Petrus escribiendo, puede
+      necesitar el nombre de quien escribe. No se tocó porque mueve la métrica.
+
+**Código, sin decisión pendiente**
+
 - [ ] El lock del `id_mov` es de proceso: alcanza con un solo worker, que es como está
       desplegado. Si algún día se escala a más de una réplica, hay que moverlo.
-- [ ] **El resolver no mira `estado`**: un contratista inactivo se sigue reconociendo. Hoy
-      «Mercado Libre/Moreno» todavía lo toma como contratista, aunque el maestro ya lo marca
-      inactivo y el contexto §5.6 dice que va a `medio_pago`. Falta definir en el contexto qué
-      hace un inactivo y **dónde viven los medios de pago en el maestro** (hoy no hay hoja ni
-      tipo de alias para eso).
-- [ ] El número de operación viene en el nombre de algunos PDF del homebanking
-      (`13851988_LR92K2y581_1.pdf`) y el parser de texto no lo saca. Mejora chica.
-- [ ] Conciliación contra `BANCO_RAW`, que incluye **la regla de cruce de Mercado Libre**
-      (contexto §5.6): cruzar por fecha e importe los comprobantes recibidos contra las líneas
-      del extracto, y lo que no cruza queda como personal sin clasificar.
-- [ ] **IVA con alcance completo** (contexto §5.10): distinguir factura emitida de comprobante
-      de gasto, extraer neto / IVA / tipo / número / CUIT, y usar las emitidas como fuente de
-      los ingresos por honorarios. Alcance nuevo, se planifica aparte.
-- [ ] Detección de pagos duplicados. **Ojo con el falso positivo conocido**: el cheque 510 y
-      la transferencia del 27/08 a Eco Aislación, los dos por $4.032.391,70, **son dos pagos
-      distintos** (reunión 3). La idempotencia de `/confirmar` es otra cosa: evita escribir dos
-      veces el **mismo mensaje**, no detecta dos pagos parecidos.
-- [ ] Lugares que todavía asumen un solo usuario y **no** se tocaron porque cambiarlos mueve
-      la métrica o es negocio sin definir: el prompt del LLM habla de «el arquitecto»
-      (`llm.py`), y las señales personales («retiro», «casa») significan el circuito personal
-      *del arquitecto*. Si Petrus escribe «Retiro», ¿de quién es? Es la P-20 del contexto.
+- [ ] **El resolver no mira `estado` de CONTRATISTAS**: un contratista inactivo se sigue
+      reconociendo (Mercado Libre). Las cuentas inactivas ya no se reconocen.
+- [ ] Conciliación contra `BANCO_RAW` (§5.6), con los filtros de `app/filtros.py`.
+- [ ] IVA con alcance completo (§5.10), con `filtros.para_iva`. Se planifica aparte.
 
 ## 8. Estado de los datos del Sheet
 
 El maestro lo mantiene una persona a mano, así que llega sucio. El motor no lo corrige solo:
-resuelve lo que puede y **deja advertencias**, que se ven en `POST /maestros/recargar`. Lo que
-avisa hoy:
+resuelve lo que puede y **deja advertencias**, que se ven en `POST /maestros/recargar`.
+
+**Corregido el 25/09** (`scripts/migraciones/2026_09_25_tanda1.py`, idempotente; nada se
+borró):
+
+- `CUENTAS` tiene una columna `estado`. La fila mal cargada «caja_obra» pasó a `inactiva`, y
+  hay una «Caja obra X» por cada obra de terceros activa (Lennon, Moreno, Cerro Bayo, Lumaia,
+  Muelle de piedra, Tonga, Moquehue). Las obras propias no tienen caja.
+- **Los tres cobros de Moreno (M-000007 a M-000009)** pasaron de `Efectivo` a `Caja obra
+  Moreno` (§5.8). **El saldo del estudio bajó $5.245.596**, de $5.245.596 a $0; esa plata
+  queda como `por_rendir` en la caja de Moreno.
+- `USUARIOS` tiene `ve_personal` y `auto_confirmar`, y Petrus su teléfono. En `TERCEROS`,
+  Petrus volvió a `activo` (§5.13).
+- «Pint Andina» → «Pinturería Andina», con los alias `pint andina` y `ferr andina` (§7).
+- Hojas nuevas: `ETAPAS` y `CERTIFICADOS`, vacías.
+
+Lo que el motor todavía avisa:
 
 - **Filas repetidas en CONTRATISTAS** (Maderera Misiones, Marcelo Maragaño, Silla Cuádruple):
   se fusionan tomando los valores no vacíos de la última.
 - **Rubros habituales que no existen en RUBROS**: Contador Pasolli («Honorarios / Terceros») y
   Luis Pereyra («Pintura»).
-- **Alias que apunta a un nombre inexistente**: `pinturería andina` → «Pinturería Andina»,
-  pero la fila se llama «Pint Andina». El contexto §7 dice que la pinturería es otro comercio,
-  sin dar su nombre canónico: por eso no se renombró.
 - **Filas que no se aplican**: un alias con un `tipo` fuera de `contratista·obra·cuit·tipo`, o
   un contratista con `rubro_habitual_2` sin `rubro_habitual_1`.
-- **CUENTAS: una fila llamada «caja_obra» con tipo «Externa».** Parece el concepto cargado en
-  la columna equivocada: una caja de obra es una fila por obra («Caja obra Moreno») con tipo
-  `caja_obra`. Hoy queda afuera del saldo del estudio porque su tipo es `externa`.
-- **USUARIOS: Petrus sin teléfono.** No puede confirmar hasta que se cargue.
-
-Pendientes de dato que **no** son del motor:
-
-- **Los tres cobros de Moreno (M-000007 a M-000009, $5.245.596) están en la cuenta
-  `Efectivo`**, que suma al saldo del estudio. Según el contexto §5.8, en una obra
-  administrada la plata del comitente no es del estudio: si esos certificados son plata de la
-  obra, tendrían que estar en una «Caja obra Moreno», y hoy **inflan el saldo del estudio en
-  $5,2 millones**. Si son honorarios, están bien. Hay que decidirlo; el libro es append-only y
-  no se corrigió.
-- **Petrus figura en TERCEROS como `inactivo`** («106 pagos del histórico lo referencian»).
-  Valentín definió el 24/09 que Petrus tiene **las mismas atribuciones que el arquitecto**;
-  cuando eso esté escrito en el contexto (§5.13, P-19 a P-22), corresponde reactivarlo. En el
-  código no hace falta nada: el `rol` se lee pero no restringe.
 - **M-000001 y M-000002 tienen `cargado_por = bot`**, de antes de que existiera USUARIOS.
-
-**Alineado al contexto el 24/09** (regla: si el maestro contradice al contexto, se corrige el
-maestro; nada se borra):
-
-- Mercado Libre → `inactivo` y deja de ser DUAL (§5.6: pasarela, no proveedor).
-- Silla Cuádruple, sus dos filas → `inactivo`, más el alias `silla cuádruple` → obra Cerro
-  Bayo (§7: no es proveedor, es parte de la obra).
-- «Ferr. Andina» → «Ferretería Andina» (§7). Desapareció el aviso del alias `andina`.
-- Municipalidad: la nota decía «A DEFINIR»; el contexto §7 lo define.
-
-**RUBROS cambió el 24/09 por fuera del motor**: las categorías combinadas de Materiales se
-partieron («Áridos y hormigón» → «Áridos» y «Hormigón», etc.) y hay 20 rubros nuevos
-(Durlock, Steel, Herrería, Riego…). No contradice el contexto, ningún contratista quedó
-apuntando a un rubro borrado y la métrica no se movió. Detalles menores de carga: «pisos» en
-minúscula y «Artefactos Sanitarios.» con punto final.
+- Los cobros de Moreno ya cargados (M-000007 a M-000009) tienen el certificado solo en la
+  descripción («Certificado 4», «4 extras», «pintura»), no en la columna `certificado`: en
+  `/consultar` no cancelan ningún certificado.

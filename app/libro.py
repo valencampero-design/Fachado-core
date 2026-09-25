@@ -1,4 +1,4 @@
-"""El libro: MOVIMIENTOS y ALIAS en el Sheet maestro.
+"""El libro: MOVIMIENTOS, ALIAS y CERTIFICADOS en el Sheet maestro.
 
 Es una interfaz chica a propósito. /confirmar solo necesita leer MOVIMIENTOS, escribir una
 fila y agregar un alias; con eso, los tests usan un libro en memoria y **nunca escriben en
@@ -11,6 +11,7 @@ from app.config import settings
 
 # Hasta qué columna se lee MOVIMIENTOS. Holgado: las columnas nuevas van siempre al final.
 _RANGO_MOVIMIENTOS = "MOVIMIENTOS!A:AZ"
+_RANGO_CERTIFICADOS = "CERTIFICADOS!A:Z"
 
 
 class Libro(Protocol):
@@ -26,6 +27,13 @@ class Libro(Protocol):
         ...
 
     def agregar_alias(self, fila: list) -> None:
+        ...
+
+    def leer_certificados(self) -> list[list]:
+        """CERTIFICADOS (§5.11), la primera fila es el encabezado. Solo en el libro del estudio."""
+        ...
+
+    def escribir_certificado(self, numero: int, valores: list) -> None:
         ...
 
 
@@ -47,3 +55,10 @@ class LibroSheets:
 
     def agregar_alias(self, fila: list) -> None:
         sheets.agregar_filas(self.sheet_id, "ALIAS!A:C", [fila])
+
+    def leer_certificados(self) -> list[list]:
+        return sheets.leer_rango(self.sheet_id, _RANGO_CERTIFICADOS)
+
+    def escribir_certificado(self, numero: int, valores: list) -> None:
+        ultima = sheets.columna_a_letra(len(valores))
+        sheets.escribir_rango(self.sheet_id, f"CERTIFICADOS!A{numero}:{ultima}{numero}", [valores])

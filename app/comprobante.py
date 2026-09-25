@@ -13,7 +13,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
-from app import llm
+from app import certificados, llm
 from app.config import settings
 from app.models import Adjunto
 from app.resolver import parsear_importe
@@ -44,7 +44,10 @@ class DatosComprobante:
     fuente: dict[str, str] = field(default_factory=dict)  # campo → nombre_archivo | pdf_texto | vision
     uso_llm: bool = False
     error: str | None = None
-    texto: str = ""                  # el texto del PDF, para reconocer un certificado; no se devuelve
+    texto: str = ""                  # el texto del PDF; no se devuelve
+    # Si el PDF es un certificado de obra (§5.11): lo que se leyó de él. Un certificado no es
+    # un comprobante de pago: sus montos no son el importe de nada.
+    certificado: dict | None = None
 
     def referencias(self) -> list[str]:
         """Lo que identifica al comprobante, del más fuerte al más débil (§5.16)."""
@@ -109,10 +112,12 @@ def parsear_nombre(nombre: str) -> dict:
 
 # ─── 2. Texto del PDF ──────────────────────────────────────────────────────────
 
-def texto_pdf(contenido: bytes) -> str:
+def texto_pdf(contenido: bytes, layout: bool = False) -> str:
+    """`layout` conserva la disposición: cada monto queda en la línea de su rótulo."""
     try:
         from pypdf import PdfReader
-        return "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(contenido)).pages).strip()
+        modo = {"extraction_mode": "layout"} if layout else {}
+        return "\n".join(p.extract_text(**modo) or "" for p in PdfReader(io.BytesIO(contenido)).pages).strip()
     except Exception as e:  # PDF roto o escaneado
         logger.warning("No se pudo extraer texto del PDF: %s", e)
         return ""
@@ -211,6 +216,11 @@ def leer_bytes(contenido: bytes, nombre: str, mime: str, datos: DatosComprobante
 
     texto = texto_pdf(contenido) if mime == "application/pdf" else ""
     datos.texto = texto
+    if certificados.es_certificado(texto):
+        # Ni el parser de comprobantes de pago ni el modelo: sus montos no son un importe.
+        datos.certificado = certificados.parsear(texto_pdf(contenido, layout=True) or texto, datos.nombre_archivo).dict()
+        datos.tipo_comprobante = "Certificado de obra"
+        return datos
     if texto:
         datos.completar(parsear_texto(texto), "pdf_texto")
 
