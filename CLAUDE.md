@@ -70,7 +70,11 @@ test.** Si el número baja, el cambio está mal aunque el caso puntual funcione.
   `Libro` y `Archivador`.
 - **Una fila se escribe entera o no se escribe.** Se arma y valida en memoria antes de tocar el
   Sheet. Idempotencia por `msg_id`, cálculo del `id_mov` y escritura van bajo el mismo lock: no
-  separarlos.
+  separarlos. Las dos filas de un traspaso, y los dos contraasientos que lo anulan, van en
+  **una sola escritura**.
+- **El libro no se edita nunca.** Una corrección es un contraasiento (`/anular`, §5.19) y
+  después la fila correcta. Todo lo derivado —saldos, consultas, duplicados, conciliación—
+  saca el par anulado con `filtros.sin_anulados`: un cálculo nuevo también tiene que hacerlo.
 - **Un teléfono que no está en USUARIOS no escribe.** Ningún teléfono va escrito en el código:
   salen de USUARIOS.
 - **Cualquier saldo del estudio sale de `Maestros.cuentas_del_estudio()`**, que es una lista

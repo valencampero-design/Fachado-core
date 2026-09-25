@@ -126,3 +126,32 @@ Orden: tests → commits → Valen despliega → `/salud` → una llamada real a
   `/movimientos/{id}`, `id_mov_vinculado`), con cualquier diferencia respecto de este doc.
 - Las columnas nuevas del Sheet (`anula`, `vinculo` o la que hayas elegido) y en qué libros.
 - La métrica antes y después de 6.7.
+
+---
+
+## Anotado por la implementación (25/09, Code)
+
+Diferencias y precisiones respecto de los contratos de arriba. El detalle completo está en
+`docs/handoff-fachado-core.md` §2.
+
+- **6.1** `informal` se escribe `VERDADERO` (antes era «sí»; los dos se leen como informal).
+- **6.2** Columna **`vinculo`** en MOVIMIENTOS. Las dos filas son `tipo = TRASPASO` y el
+  importe lleva el signo: **negativo en la cuenta de origen, positivo en la de destino**.
+  Además de los 422 pedidos: una cuenta de tipo `externa` («Pagado por el comitente») y dos
+  cuentas en monedas distintas (un cambio de moneda no está definido en el contexto).
+- **6.3** Columna **`anula`** en MOVIMIENTOS de los dos libros. `AnularOut` suma
+  `id_mov_anulacion_vinculado` y `anula_vinculado` (el otro contraasiento de un traspaso).
+  La idempotencia usa una clave propia, **`<wamid>#anula`** (y `#anulab`): así el mismo
+  wamid del «corregir M-000012» puede confirmar después la fila correcta con `<wamid>#0`
+  sin que se tome por un reintento. `descripcion` del contraasiento: «Anulación de
+  M-000012 · <motivo>». 422 si se pide anular un contraasiento o la línea del cierre
+  semanal. `GET /movimientos` da 503 para un `P-` si el libro personal no está configurado.
+- **6.4** `respuestas` se aplican sobre `contexto_previo`, que es **una ficha**: el `ficha`
+  de cada respuesta es informativo. Con `intencion` consulta u otro,
+  `requiere_confirmacion` es false. Las respuestas a `duplicado` («Es otro» / «Es el mismo»)
+  y a `clasificacion` quedan en `extras` para las rondas siguientes.
+- **6.5** La pregunta es `campo = "inactivo"`, `motivo = "inactivo"`; la respuesta va con
+  el mismo `campo`. `ConfirmarOut` suma `contratista_reactivado`.
+- **6.6** `id_mov` viene siempre. En un certificado es descriptivo («Moreno etapa 1 ·
+  certificado 5»): los certificados no tienen `id_mov` y no se corrigen con «corregir».
+- **6.7** Métrica igual antes y después (92 %), mensaje por mensaje.

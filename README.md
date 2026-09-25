@@ -19,6 +19,8 @@ cp .env.example .env    # completar
 | `GET /salud` | sin auth |
 | `POST /interpretar` | texto + adjuntos → `{fichas, preguntas, requiere_confirmacion, diagnostico}`. Nunca escribe nada |
 | `POST /confirmar` | ficha confirmada → fila en MOVIMIENTOS (del estudio o personal) o en CERTIFICADOS, comprobante a su carpeta, alias. Idempotente por `msg_id` |
+| `GET /movimientos/{id_mov}` | una fila del libro, quién la anuló y la vinculada |
+| `POST /anular` | el contraasiento de una fila confirmada (§5.19); un traspaso se anula entero |
 | `POST /cierre-semanal` | la línea semanal de gastos personales en el libro del estudio. Idempotente |
 | `POST /consultar` | pagos a un contratista, gasto por obra, certificaciones: números + texto para WhatsApp |
 | `POST /maestros/recargar` | fuerza la relectura del Sheet |
@@ -27,7 +29,8 @@ Todos menos `/salud` piden `X-API-Key: $MOTOR_API_KEY`. El contrato completo est
 `docs/handoff-fachado-core.md` §2.
 
 Antes del primer `/confirmar` contra un Sheet nuevo: `python scripts/preparar_sheet.py`
-(agrega las columnas y las hojas USUARIOS, ETAPAS y CERTIFICADOS; es idempotente).
+(agrega las columnas y las hojas USUARIOS, ETAPAS y CERTIFICADOS; es idempotente). Para el
+libro personal: `python scripts/preparar_sheet.py --personal <id>`.
 
 ## Cómo interpreta
 
