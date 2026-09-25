@@ -20,6 +20,7 @@ class LibroMemoria:
         self.alias = [list(a) for a in alias]
         self.certificados: list[list] = [list(ENCABEZADO_CERTIFICADOS)]
         self.demora = demora
+        self.escrituras = 0  # llamadas de escritura a MOVIMIENTOS: un traspaso tiene que ser una
 
     def sembrar(self, **campos) -> None:
         """Una fila ya existente en el libro, cargada antes de la prueba."""
@@ -30,8 +31,13 @@ class LibroMemoria:
         return [list(f) for f in self.filas]
 
     def escribir_fila(self, numero, valores):
+        self.escribir_filas(numero, [valores])
+
+    def escribir_filas(self, numero, filas):
         time.sleep(self.demora)
-        _escribir(self.filas, numero, valores)
+        self.escrituras += 1
+        for i, valores in enumerate(filas):
+            _escribir(self.filas, numero + i, valores)
 
     def leer_alias(self):
         return [list(a) for a in self.alias]

@@ -49,7 +49,8 @@ async def _correr() -> int:
     from app.saldos import saldo_estudio
 
     snapshot = json.loads((RAIZ / "maestros_snapshot.json").read_text(encoding="utf-8"))
-    encabezado = snapshot["MOVIMIENTOS"][0]
+    # Como queda el Sheet después de scripts/preparar_sheet.py (tanda 6: vinculo y anula).
+    encabezado = snapshot["MOVIMIENTOS"][0] + [c for c in ("vinculo", "anula") if c not in snapshot["MOVIMIENTOS"][0]]
     m = maestros.cargar(forzar=True)
     titular = next(u for u in m.usuarios if u.rol == "titular")  # de USUARIOS, no hardcodeado
 
@@ -232,7 +233,16 @@ async def _correr() -> int:
             ("obra inexistente → 422", 422, "obra", {}, ficha(obra="Obra Fantasma")),
             ("EGRESO sin tipo_gasto → 422", 422, "tipo_gasto", {}, ficha(tipo_gasto=None)),
             ("cuenta inexistente → 422", 422, "cuenta", {}, ficha(cuenta="Caja Chica")),
-            ("TRASPASO todavía no → 422", 422, "tipo", {}, ficha(tipo="TRASPASO")),
+            ("TRASPASO a la misma cuenta → 422", 422, "cuenta_destino", {},
+             ficha(tipo="TRASPASO", cuenta_origen="Banco", cuenta_destino="Banco")),
+            ("TRASPASO sin cuenta de origen → 422", 422, "cuenta_origen", {},
+             ficha(tipo="TRASPASO", cuenta_origen=None, cuenta_destino="Efectivo")),
+            ("TRASPASO desde una cuenta inactiva → 422", 422, "cuenta_origen", {},
+             ficha(tipo="TRASPASO", cuenta_origen="caja_obra", cuenta_destino="Efectivo")),
+            ("TRASPASO desde «Pagado por el comitente» → 422", 422, "cuenta_origen", {},
+             ficha(tipo="TRASPASO", cuenta_origen="Pagado por el comitente", cuenta_destino="Efectivo")),
+            ("TRASPASO entre monedas → 422", 422, "cuenta_destino", {},
+             ficha(tipo="TRASPASO", cuenta_origen="Banco", cuenta_destino="Banco USD")),
             ("USD sin tipo de cambio → 422", 422, "tc", {}, ficha(moneda="USD", tc=None)),
             ("PASANTE sin contratista → 422", 422, "contratista", {}, ficha(tipo="PASANTE", contratista=None)),
             ("la caja de otra obra → 422", 422, "cuenta", {}, ficha(cuenta="Caja obra Moreno")),
@@ -302,6 +312,58 @@ async def _correr() -> int:
         check("no mueve el saldo del estudio", saldo_estudio(libro.movimientos(), m)["total"] == antes_saldo)
         check("suma a lo pagado por el comitente en la obra", cuerpo["obra"]["pagado_por_el_comitente"] == 300000, cuerpo["obra"])
         check("no aparece en lo que concilia", not any(mv["id_mov"] == fila["id_mov"] for mv in para_conciliacion(libro.movimientos())))
+
+        # ── Tanda 6.2 · TRASPASO ──────────────────────────────────────────────
+        print("\n6.2 · Un traspaso: dos filas vinculadas en una sola escritura (§5.18)")
+
+        def ficha_traspaso(**campos):
+            base = {"tipo": "TRASPASO", "fecha": "2026-09-22", "importe": 80000, "moneda": "ARS",
+                    "cuenta_origen": "Efectivo", "cuenta_destino": "Caja obra Lennon", "comprobante_url": None}
+            base.update(campos)
+            return {"campos": base, "extras": {}}
+
+        libro, _ = preparar()
+        antes, escrituras = len(libro.filas), libro.escrituras
+        saldo_antes = saldo_estudio(libro.movimientos(), m)
+        r = await confirmar("wamid.TR1", ficha_traspaso())
+        cuerpo = r.json()
+        salida_f, entrada_f = libro.movimientos()[-2:]
+        check("200: dos filas en UNA escritura", r.status_code == 200 and len(libro.filas) == antes + 2
+              and libro.escrituras == escrituras + 1, (r.status_code, cuerpo))
+        check("id_mov e id_mov_vinculado consecutivos (M-000010 y M-000011)",
+              (cuerpo["id_mov"], cuerpo["id_mov_vinculado"]) == ("M-000010", "M-000011"), cuerpo)
+        check("vinculadas entre sí, con msg_id <wamid>#0 y <wamid>#0b",
+              salida_f["vinculo"] == "M-000011" and entrada_f["vinculo"] == "M-000010"
+              and (salida_f["msg_id"], entrada_f["msg_id"]) == ("wamid.TR1#0", "wamid.TR1#0b"), (salida_f, entrada_f))
+        check("salida negativa de Efectivo, entrada positiva en la caja de Lennon, mismo importe",
+              (salida_f["cuenta"], salida_f["importe"], entrada_f["cuenta"], entrada_f["importe"])
+              == ("Efectivo", -80000, "Caja obra Lennon", 80000) and salida_f["tipo"] == entrada_f["tipo"] == "TRASPASO",
+              (salida_f, entrada_f))
+        check("la fila de la caja lleva la obra; la de Efectivo, ninguna",
+              entrada_f["obra"] == "Lennon" and salida_f["obra"] == "", (salida_f["obra"], entrada_f["obra"]))
+        saldo_despues = saldo_estudio(libro.movimientos(), m)
+        check("el efectivo del estudio baja 80.000 (la caja de obra no suma al estudio)",
+              round(saldo_antes["por_cuenta"]["Efectivo"] - saldo_despues["por_cuenta"]["Efectivo"], 2) == 80000, saldo_despues)
+        check("la caja de Lennon tiene 80.000 por rendir", cuerpo["obra"]["caja_obra"]["por_rendir"] == 80000, cuerpo["obra"])
+        r2 = (await confirmar("wamid.TR1", ficha_traspaso(importe=1))).json()
+        check("idempotente: el reintento devuelve el par, sin escribir",
+              r2["ya_existia"] and (r2["id_mov"], r2["id_mov_vinculado"]) == ("M-000010", "M-000011")
+              and len(libro.filas) == antes + 2, r2)
+        libro, _ = preparar()
+        antes_total = saldo_estudio(libro.movimientos(), m)["total"]
+        await confirmar("wamid.TR2", ficha_traspaso(cuenta_origen="Banco", cuenta_destino="Efectivo", importe=50000))
+        despues = saldo_estudio(libro.movimientos(), m)
+        check("Banco → Efectivo: el total del estudio no cambia y cada cuenta se mueve",
+              despues["total"] == antes_total and despues["por_cuenta"]["Banco"] == -50000
+              and despues["por_cuenta"]["Efectivo"] == 50000, despues)
+        banco = next(mv for mv in libro.movimientos() if mv["msg_id"] == "wamid.TR2#0")
+        check("la fila del banco concilia sola (PENDIENTE); la del efectivo no",
+              banco["concilia"] == "VERDADERO" and libro.movimientos()[-1]["concilia"] == "FALSO", banco)
+        sin_vinculo = LibroMemoria([c for c in encabezado if c != "vinculo"])
+        app.dependency_overrides[obtener_libro] = lambda: sin_vinculo
+        r = await confirmar("wamid.TR3", ficha_traspaso())
+        check("sin la columna «vinculo» en el Sheet: 500 y no escribe nada",
+              r.status_code == 500 and len(sin_vinculo.filas) == 1, (r.status_code, r.json()))
 
         # ── Tanda 5 · CERTIFICADOS ────────────────────────────────────────────
         print("\nTanda 5 · el certificado va a CERTIFICADOS, no a MOVIMIENTOS (§5.11)")

@@ -23,6 +23,11 @@ class Libro(Protocol):
         """Escribe la fila `numero` completa (1 es el encabezado)."""
         ...
 
+    def escribir_filas(self, numero: int, filas: list[list]) -> None:
+        """Varias filas seguidas desde `numero`, en una sola escritura: las dos filas de un
+        traspaso (§5.18) quedan las dos o ninguna."""
+        ...
+
     def leer_alias(self) -> list[list]:
         ...
 
@@ -47,8 +52,11 @@ class LibroSheets:
         return sheets.leer_rango(self.sheet_id, _RANGO_MOVIMIENTOS)
 
     def escribir_fila(self, numero: int, valores: list) -> None:
-        ultima = sheets.columna_a_letra(len(valores))
-        sheets.escribir_rango(self.sheet_id, f"MOVIMIENTOS!A{numero}:{ultima}{numero}", [valores])
+        self.escribir_filas(numero, [valores])
+
+    def escribir_filas(self, numero: int, filas: list[list]) -> None:
+        ultima = sheets.columna_a_letra(max(len(f) for f in filas))
+        sheets.escribir_rango(self.sheet_id, f"MOVIMIENTOS!A{numero}:{ultima}{numero + len(filas) - 1}", filas)
 
     def leer_alias(self) -> list[list]:
         return sheets.leer_rango(self.sheet_id, "ALIAS!A:C", formato="FORMATTED_VALUE")

@@ -79,9 +79,6 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
         return ErrorConfirmar(422, campo, detalle or f"Falta «{campo}»")
 
     tipo = str(c.get("tipo") or "").upper()
-    if tipo == "TRASPASO":
-        raise falta("tipo", "Un TRASPASO todavía no se puede confirmar: MOVIMIENTOS tiene una sola "
-                            "columna `cuenta` y un traspaso necesita origen y destino")
     if tipo == "PASANTE":
         # §5.17: la cuenta la fija el motor, venga lo que venga en la ficha.
         c = {**c, "cuenta": maestros.CUENTA_PAGADO_POR_COMITENTE}
@@ -241,8 +238,11 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
     if usuario is None:
         raise ErrorConfirmar(403, "telefono", "Ese teléfono no está en USUARIOS: no escribe en el libro")
 
-    if str(req.ficha.campos.get("tipo") or "").upper() == "CERTIFICADO":
+    tipo = str(req.ficha.campos.get("tipo") or "").upper()
+    if tipo == "CERTIFICADO":
         return await confirmar_certificado(req, libro, archivador, m, usuario)
+    if tipo == "TRASPASO":
+        return await confirmar_traspaso(req, libro, archivador, m, usuario)
 
     fila, advertencias = armar_fila(req, m, usuario)
     clave = fila["msg_id"]
@@ -335,6 +335,110 @@ async def _mover_comprobante(archivador: Archivador, url: str | None, carpetas: 
         advertencias.append(f"Quedó escrito pero el comprobante no se movió ({type(e).__name__}): "
                             f"sigue en la carpeta de captura")
     return url
+
+
+# ─── Traspasos (§5.18) ─────────────────────────────────────────────────────────
+
+SUFIJO_VINCULADA = "b"  # msg_id de la segunda fila de un par: `<wamid>#<i>b`
+
+
+def armar_traspaso(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, dict]:
+    """Las dos filas de un traspaso, sin id_mov todavía: salida de la cuenta de origen
+    (importe negativo) y entrada en la de destino (positivo). 422 ante el primer problema."""
+    c = req.ficha.campos
+
+    def falta(campo: str, detalle: str = "") -> ErrorConfirmar:
+        return ErrorConfirmar(422, campo, detalle or f"Falta «{campo}»")
+
+    for campo in ("fecha", "importe", "cuenta_origen", "cuenta_destino"):
+        if _vacio(c.get(campo)):
+            raise falta(campo)
+    try:
+        fecha = date.fromisoformat(str(c["fecha"])[:10]).isoformat()
+    except ValueError:
+        raise falta("fecha", f"Fecha «{c['fecha']}» inválida: se espera AAAA-MM-DD")
+    importe = numero(c["importe"])
+    if importe <= 0:
+        raise falta("importe", f"Importe «{c['importe']}» inválido")
+
+    cuentas = {}
+    for campo in ("cuenta_origen", "cuenta_destino"):
+        cuenta = m.cuenta(c[campo])
+        if cuenta is None:
+            estado = "está inactiva" if m.cuenta(c[campo], incluir_inactivas=True) else "no está en CUENTAS"
+            raise falta(campo, f"La cuenta «{c[campo]}» {estado}")
+        if cuenta.tipo == "externa":
+            raise falta(campo, f"«{cuenta.nombre}» no es una cuenta que tenga plata: no puede ser parte de un traspaso")
+        cuentas[campo] = cuenta
+    co, cd = cuentas["cuenta_origen"], cuentas["cuenta_destino"]
+    if co.nombre == cd.nombre:
+        raise falta("cuenta_destino", f"Origen y destino son la misma cuenta ({co.nombre})")
+    if co.moneda != cd.moneda:
+        raise falta("cuenta_destino", f"{co.nombre} está en {co.moneda} y {cd.nombre} en {cd.moneda}: un traspaso "
+                                      f"entre monedas no está definido en el contexto")
+    tc = 1 if co.moneda == "ARS" else numero(c.get("tc"))
+    if tc <= 0:
+        raise falta("tc", f"Un traspaso en {co.moneda} necesita el tipo de cambio")
+
+    clave = clave_idempotencia(req.msg_id, req.ficha_indice)
+    comunes = {campo: ("" if _vacio(c.get(campo)) else c[campo]) for campo in ("comprobante_url", "ref_comprobante")}
+    comunes.update({
+        "fecha": fecha, "tipo": "TRASPASO", "moneda": co.moneda, "tc": tc, "origen": "WHATSAPP", "id_banco": "",
+        "tipo_gasto": "", "informal": "", "cargado_por": usuario.nombre, "ts": _ahora_local(), "certificado": "",
+        "descripcion": str(c.get("descripcion") or f"Traspaso {co.nombre} → {cd.nombre}"),
+    })
+
+    def fila(cuenta, signo: int, msg_id: str) -> dict:
+        # Cada fila lleva la obra de su cuenta si es una caja de obra (§5.8); si no, ninguna.
+        obra = m.obra_de_caja(cuenta.nombre)
+        return {**comunes, "cuenta": cuenta.nombre, "importe": signo * importe,
+                "importe_ars": round(signo * importe * tc, 2), "obra": obra.nombre if obra else "",
+                "comitente": obra.comitente if obra else "",
+                "concilia": "VERDADERO" if cuenta.concilia_contra_banco else "FALSO",
+                "estado_conc": "PENDIENTE" if cuenta.concilia_contra_banco else "SOLO_CAJA", "msg_id": msg_id}
+
+    return fila(co, -1, clave), fila(cd, 1, clave + SUFIJO_VINCULADA)
+
+
+async def confirmar_traspaso(req: ConfirmarIn, libro: Libro, archivador: Archivador, m: Maestros,
+                             usuario: Usuario) -> ConfirmarOut:
+    """Dos filas vinculadas en **una sola escritura** (§5.18): o quedan las dos o ninguna.
+    Cada una lleva en `vinculo` el id_mov de la otra. Van siempre al libro del estudio."""
+    salida, entrada = armar_traspaso(req, m, usuario)
+    advertencias: list[str] = []
+
+    async with _lock:
+        encabezado, filas, movs = await asyncio.to_thread(_leer_libro, libro, "estudio")
+        if "vinculo" not in encabezado:
+            raise ErrorConfirmar(500, "MOVIMIENTOS", "Falta la columna «vinculo» en MOVIMIENTOS. Correr scripts/preparar_sheet.py")
+        # La idempotencia reconoce el par completo: la clave de la primera fila alcanza.
+        previo = next(((n, mov) for n, mov in enumerate(movs, start=2) if mov.get("msg_id") == salida["msg_id"]), None)
+        if previo:
+            numero_fila, salida = previo
+            entrada = next((mov for mov in movs if mov.get("msg_id") == salida["msg_id"] + SUFIJO_VINCULADA), {})
+            ya_existia = True
+        else:
+            salida["id_mov"] = _siguiente_id(movs, "M")
+            entrada["id_mov"] = _siguiente_id(movs + [salida], "M")
+            salida["vinculo"], entrada["vinculo"] = entrada["id_mov"], salida["id_mov"]
+            numero_fila = len(filas) + 1
+            await asyncio.to_thread(libro.escribir_filas, numero_fila,
+                                    [[f.get(col, "") for col in encabezado] for f in (salida, entrada)])
+            movs += [salida, entrada]
+            ya_existia = False
+
+    comprobante_url = await _mover_comprobante(
+        archivador, salida.get("comprobante_url") or None, archivo.carpetas({**salida, "obra": salida.get("obra") or entrada.get("obra")}),
+        archivo.nombre_base(salida["id_mov"], {**salida, "importe": abs(numero(salida.get("importe")))}),
+        advertencias, salida["id_mov"])
+    obra = salida.get("obra") or entrada.get("obra")
+    saldo = None
+    if obra:
+        saldo, avisos = saldo_obra(movs, obra, m)
+        advertencias += avisos
+    return ConfirmarOut(id_mov=salida["id_mov"], id_mov_vinculado=entrada.get("id_mov") or None, fila=numero_fila,
+                        comprobante_url=comprobante_url, obra=saldo, ya_existia=ya_existia, libro="estudio",
+                        cargado_por=str(salida.get("cargado_por") or usuario.nombre), advertencias=advertencias)
 
 
 # ─── Certificados (§5.11) ──────────────────────────────────────────────────────

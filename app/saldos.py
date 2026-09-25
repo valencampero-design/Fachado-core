@@ -9,6 +9,7 @@ Dos reglas que no se pueden romper (§5.8 y §5.9):
   se informa aparte. Si se restara, Lennon aparecería con −$22 millones, como si el estudio
   estuviera financiando la obra, y es falso.
 """
+from app.filtros import sin_anulados
 from app.maestros import Maestros, normalizar, numero
 from app.models import CajaObra, SaldoObra
 
@@ -28,13 +29,19 @@ def _signo(mov: dict) -> int:
 
 
 def saldo_estudio(movs: list[dict], m: Maestros) -> dict:
-    """Saldo por cuenta del estudio y total. Nunca incluye `caja_obra` ni `externa`."""
+    """Saldo por cuenta del estudio y total. Nunca incluye `caja_obra` ni `externa`.
+    Un TRASPASO (§5.18) lleva el signo en el importe: negativo en la cuenta de la que sale,
+    positivo en la que entra. Entre dos cuentas del estudio, el total no cambia."""
     por_cuenta = {c.nombre: c.saldo_apertura for c in m.cuentas_del_estudio()}
     claves = {normalizar(n): n for n in por_cuenta}
-    for mov in movs:
+    for mov in sin_anulados(movs):
         nombre = claves.get(normalizar(mov.get("cuenta")))
-        if nombre and mov.get("tipo") in TIPOS_QUE_MUEVEN_SALDO:
+        if not nombre:
+            continue
+        if mov.get("tipo") in TIPOS_QUE_MUEVEN_SALDO:
             por_cuenta[nombre] += _signo(mov) * numero(mov.get("importe_ars"))
+        elif mov.get("tipo") == "TRASPASO":
+            por_cuenta[nombre] += numero(mov.get("importe_ars"))
     return {"por_cuenta": por_cuenta, "total": round(sum(por_cuenta.values()), 2)}
 
 
@@ -45,7 +52,7 @@ def saldo_obra(movs: list[dict], obra: str, m: Maestros) -> tuple[SaldoObra, lis
     hay_caja = False
     advertencias: list[str] = []
     n_obra = normalizar(obra)
-    for mov in movs:
+    for mov in sin_anulados(movs):
         if normalizar(mov.get("obra")) != n_obra:
             continue
         importe = numero(mov.get("importe_ars"))
@@ -53,6 +60,17 @@ def saldo_obra(movs: list[dict], obra: str, m: Maestros) -> tuple[SaldoObra, lis
             # §5.17: un depósito «en negro» va a «Pagado por el comitente»: suma como un pago
             # directo del comitente (§5.9) y no mueve el saldo de la obra ni el del estudio.
             pagado_comitente += importe
+            continue
+        if mov.get("tipo") == "TRASPASO":
+            # §5.18: solo cuenta la fila de la caja de obra. Reponerla es plata que entra a la
+            # caja; sacar de ella, plata que sale. El traspaso no agrega ninguna regla nueva.
+            cuenta = m.cuenta(mov.get("cuenta"), incluir_inactivas=True)
+            if cuenta is not None and cuenta.tipo == "caja_obra":
+                hay_caja = True
+                if importe >= 0:
+                    caja_in += importe
+                else:
+                    caja_out -= importe
             continue
         if mov.get("tipo") not in TIPOS_QUE_MUEVEN_SALDO:
             continue

@@ -16,7 +16,8 @@ from datetime import date, timedelta, timezone
 from app import certificados, clasificador, comprobante, duplicados, llm, maestros, resolver
 from app.config import Settings, settings
 from app.maestros import Maestros, Usuario, normalizar, numero
-from app.models import (CAMPOS_FICHA_CERTIFICADO, COLUMNAS_MOVIMIENTOS, Conflicto, Ficha, InterpretarIn,
+from app.models import (CAMPOS_FICHA_CERTIFICADO, CAMPOS_FICHA_TRASPASO, COLUMNAS_MOVIMIENTOS, Conflicto, Ficha,
+                        InterpretarIn,
                         InterpretarOut, PosibleDuplicado, Pregunta)
 from app.resolver import Resolucion, Segmento
 from app.saldos import como_dicts
@@ -80,7 +81,13 @@ def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> 
         # Un comprobante por movimiento si coinciden en cantidad; si no, el primero aplica a todos
         # (el cobro de un certificado que sale el mismo día como pago).
         comp = comprobantes[i] if len(comprobantes) == len(segmentos) else (comprobantes[0] if comprobantes else None)
-        armar = _armar_certificado if _es_certificado(seg, comp, semilla if i == 0 else None) else _armar
+        previa = semilla if i == 0 else None
+        if _es_certificado(seg, comp, previa):
+            armar = _armar_certificado
+        elif _es_traspaso(seg, previa):
+            armar = _armar_traspaso
+        else:
+            armar = _armar
         ficha, pregs = armar(seg, comp, req, m, s, diag, semilla if i == 0 else None)
         for p in pregs:
             p.ficha = i
@@ -710,3 +717,203 @@ def _armar_certificado(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: 
     ficha = Ficha(campos=campos, origen_campo=origen, faltantes=faltantes, conflictos=conflictos,
                   confianza=round(max(0.0, min(1.0, factor)), 2), regla="§5.11", extras=extras)
     return ficha, preguntas
+
+
+# ─── Traspasos (§5.18) ─────────────────────────────────────────────────────────
+
+ARTICULOS = {"la", "el", "los", "las", "lo", "mi", "su"}
+HACIA_ORIGEN = {"de", "desde", "del", "con"}      # «del banco», «con efectivo»: de ahí sale
+HACIA_DESTINO = {"a", "al", "hacia", "para", "en"}  # «al banco», «a la caja»: ahí entra
+
+
+def _es_traspaso(seg: Segmento, semilla: dict | None) -> bool:
+    if seg.tipo_mov:
+        return seg.tipo_mov == "TRASPASO"
+    return bool(semilla and semilla["campos"].get("tipo") == "TRASPASO")
+
+
+def _previa(palabras: list[str], i: int) -> int:
+    """El índice de la palabra anterior a `i` que no es un artículo (−1 si no hay)."""
+    j = i - 1
+    while j >= 0 and palabras[j] in ARTICULOS:
+        j -= 1
+    return j
+
+
+def _cuentas_del_texto(texto: str, m: Maestros, advertencias: list[str]) -> list[tuple[str, str | None]]:
+    """(cuenta, rol) de lo que nombra el texto, en orden. El rol sale de la preposición de
+    adelante: «del banco» → origen, «al banco» → destino. Una obra es su caja si lleva la C
+    (`LennonC`) o si dice «caja de Lennon» / «caja de obra Lennon» (§5.8)."""
+    palabras, hallazgos = resolver.escanear(texto, m)
+    salida: list[tuple[str, str | None]] = []
+    for h in hallazgos:
+        r = h.resolucion
+        j = _previa(palabras, h.inicio)
+        if r.categoria == "cuenta":
+            cuenta = m.cuenta(r.valor)
+        elif r.categoria == "obra":
+            # «la caja de obra Moreno»: se camina hacia atrás hasta «caja».
+            k = h.inicio - 1
+            while k >= 0 and palabras[k] in ({"de", "del", "obra"} | ARTICULOS):
+                k -= 1
+            dice_caja = k >= 0 and palabras[k] == "caja"
+            if not (r.caja or dice_caja):
+                continue  # una obra sin caja no es una cuenta
+            if dice_caja:
+                j = _previa(palabras, k)
+            cuenta = m.caja_de_obra(r.valor)
+            if cuenta is None:
+                advertencias.append(f"{r.valor} no tiene caja de obra en CUENTAS: no se inventa la cuenta")
+                continue
+        else:
+            continue
+        if cuenta is None or cuenta.tipo == "externa":
+            continue
+        previa = palabras[j] if j >= 0 else ""
+        rol = "origen" if previa in HACIA_ORIGEN else "destino" if previa in HACIA_DESTINO else None
+        if all(c != cuenta.nombre for c, _ in salida):
+            salida.append((cuenta.nombre, rol))
+    return salida
+
+
+def _unica(m: Maestros, tipo: str) -> str | None:
+    """La única cuenta activa en pesos de ese tipo, o None si hay varias o ninguna."""
+    candidatas = [c.nombre for c in m.cuentas if c.activa and c.tipo == tipo and c.moneda == "ARS"]
+    return candidatas[0] if len(candidatas) == 1 else None
+
+
+def _armar_traspaso(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, diag: dict,
+                    semilla: dict | None) -> tuple[Ficha, list[Pregunta]]:
+    """Una ficha TRASPASO con cuenta de origen y de destino (§5.18). /confirmar la escribe
+    como dos filas vinculadas. No pasa por la cascada: un traspaso no es de obra ni personal."""
+    campos: dict = {c: None for c in CAMPOS_FICHA_TRASPASO}
+    origen: dict[str, str] = {}
+    extras: dict = {}
+    advertencias: list[str] = []
+    conflictos: list[Conflicto] = []
+    preguntas: list[Pregunta] = []
+
+    def poner(campo: str, valor, org: str) -> None:
+        if valor not in (None, ""):
+            campos[campo] = valor
+            origen[campo] = org
+
+    poner("tipo", "TRASPASO", "texto" if seg.tipo_mov else "contexto_previo")
+    if seg.importe is not None:
+        poner("importe", seg.importe, "texto")
+    poner("moneda", seg.moneda, "texto")
+    if seg.fechas:
+        poner("fecha", seg.fechas[0].valor.isoformat(), "texto")
+
+    # ── Las cuentas ────────────────────────────────────────────────────────────
+    nombradas = _cuentas_del_texto(seg.texto, m, advertencias)
+    cuenta_origen = next((c for c, rol in nombradas if rol == "origen"), None)
+    cuenta_destino = next((c for c, rol in nombradas if rol == "destino" and c != cuenta_origen), None)
+    sueltas = [c for c, _ in nombradas if c not in (cuenta_origen, cuenta_destino)]
+    if seg.traspaso in ("extraccion", "reposicion"):
+        # Lo que dice la frase: una extracción entra en efectivo (o en una caja de obra) y sale
+        # del banco; una reposición entra en la caja que se repone.
+        for c in list(sueltas):
+            tipo = m.cuenta(c).tipo
+            if cuenta_destino is None and (tipo == "caja_obra" or (tipo == "efectivo" and seg.traspaso == "extraccion")):
+                cuenta_destino = c
+            elif cuenta_origen is None:
+                cuenta_origen = c
+            else:
+                continue
+            sueltas.remove(c)
+        if seg.traspaso == "extraccion":
+            # «retiro de efectivo»: el «de» no dice origen, el efectivo es el destino.
+            if cuenta_origen and m.cuenta(cuenta_origen).tipo == "efectivo" and cuenta_destino is None:
+                cuenta_origen, cuenta_destino = None, cuenta_origen
+            cuenta_origen = cuenta_origen or _unica(m, "banco")
+            cuenta_destino = cuenta_destino or _unica(m, "efectivo")
+    elif len(sueltas) == 1 and (cuenta_origen is None) != (cuenta_destino is None):
+        if cuenta_origen is None:
+            cuenta_origen = sueltas.pop()
+        else:
+            cuenta_destino = sueltas.pop()
+    poner("cuenta_origen", cuenta_origen, "texto")
+    poner("cuenta_destino", cuenta_destino, "texto")
+    if sueltas:
+        extras["cuentas_mencionadas"] = [c for c, _ in nombradas]
+
+    # ── Comprobante: manda en importe y fecha ──────────────────────────────────
+    if comp is not None:
+        extras["comprobante"] = {k: v for k, v in comp.dict().items() if v not in (None, "", {}) and k != "fuente"}
+        for campo, valor_comp, fmt in (("importe", comp.importe, _fmt_importe), ("fecha", comp.fecha, str)):
+            if valor_comp in (None, ""):
+                continue
+            if campos[campo] is not None and campos[campo] != valor_comp:
+                conflictos.append(Conflicto(campo=campo, valor_texto=campos[campo], valor_comprobante=valor_comp,
+                                            detalle=f"El texto dice {fmt(campos[campo])} y el comprobante {fmt(valor_comp)}"))
+                preguntas.append(Pregunta(campo=campo, texto=f"¿Cuál es {'el importe' if campo == 'importe' else 'la fecha'}?",
+                                          opciones=[fmt(campos[campo]), fmt(valor_comp)], motivo="conflicto"))
+                campos[campo] = None
+                origen.pop(campo, None)
+            else:
+                poner(campo, valor_comp, "comprobante")
+        poner("ref_comprobante", duplicados.SEPARADOR_REFS.join(comp.referencias()), "comprobante")
+
+    if semilla:
+        for campo, valor in semilla["campos"].items():
+            if campo in campos and campos[campo] in (None, "") and not any(c.campo == campo for c in conflictos):
+                poner(campo, valor, "contexto_previo")
+        for clave, valor in semilla["extras"].items():
+            extras.setdefault(clave, valor)
+        mencionadas = extras.get("cuentas_mencionadas") or []
+        if len(mencionadas) == 2 and (campos["cuenta_origen"] is None) != (campos["cuenta_destino"] is None):
+            # «traspaso Banco/Efectivo»: contestada una, la otra es la que queda.
+            conocida = campos["cuenta_origen"] or campos["cuenta_destino"]
+            otra = next((c for c in mencionadas if c != conocida), None)
+            poner("cuenta_destino" if campos["cuenta_destino"] is None else "cuenta_origen", otra, "inferido")
+
+    # ── Derivados ──────────────────────────────────────────────────────────────
+    co, cd = m.cuenta(campos["cuenta_origen"]), m.cuenta(campos["cuenta_destino"])
+    if co and cd and co.nombre == cd.nombre:
+        advertencias.append(f"Origen y destino son la misma cuenta ({co.nombre})")
+        campos["cuenta_destino"] = None
+        origen.pop("cuenta_destino", None)
+        cd = None
+    if co and cd and co.moneda != cd.moneda:
+        advertencias.append(f"{co.nombre} está en {co.moneda} y {cd.nombre} en {cd.moneda}: un traspaso entre monedas "
+                            f"no está definido en el contexto")
+    moneda = campos["moneda"] or (co.moneda if co else cd.moneda if cd else "ARS")
+    poner("moneda", moneda, origen.get("moneda", "inferido"))
+    if moneda == "ARS":
+        poner("tc", 1, "inferido")
+        if campos["importe"] is not None:
+            poner("importe_ars", campos["importe"], "inferido")
+    cajas = [c for c in (co, cd) if c and c.tipo == "caja_obra"]
+    if cajas:
+        obra = m.obra_de_caja(cajas[0].nombre)
+        poner("obra", obra.nombre if obra else None, "maestro")
+    fecha_msg = _fecha_local(req, s)
+    if not campos["fecha"] and fecha_msg and not any(c.campo == "fecha" for c in conflictos):
+        poner("fecha", fecha_msg.isoformat(), "fecha_mensaje")
+    if req.adjuntos:
+        poner("comprobante_url", req.adjuntos[0].url, "comprobante")
+    if not campos["descripcion"] and co and cd:
+        poner("descripcion", f"Traspaso {co.nombre} → {cd.nombre}", "inferido")
+
+    # ── Preguntas ──────────────────────────────────────────────────────────────
+    opciones = [c.nombre for c in m.cuentas if c.activa and c.tipo != "externa"]
+    mencionadas = extras.get("cuentas_mencionadas")
+    if not campos["cuenta_origen"]:
+        preguntas.append(Pregunta(campo="cuenta_origen", texto="¿De qué cuenta sale la plata?",
+                                  opciones=[c for c in (mencionadas or opciones) if c != campos["cuenta_destino"]][:MAX_OPCIONES]))
+    if not campos["cuenta_destino"] and not mencionadas:
+        preguntas.append(Pregunta(campo="cuenta_destino", texto="¿A qué cuenta entra?",
+                                  opciones=[c for c in opciones if c != campos["cuenta_origen"]][:MAX_OPCIONES]))
+    if campos["importe"] is None and not req.adjuntos and not any(c.campo == "importe" for c in conflictos):
+        preguntas.append(Pregunta(campo="importe", texto="¿Cuál es el importe?"))
+
+    if advertencias:
+        extras["advertencias"] = advertencias
+    requeridos = ["fecha", "importe", "cuenta_origen", "cuenta_destino"]
+    faltantes = [c for c in requeridos if campos[c] in (None, "")]
+    factor = 0.8 ** len(preguntas) * 0.7 ** len(conflictos)
+    diag["resoluciones"].append([{"token": seg.texto, "categoria": "traspaso", "valor": seg.traspaso, "metodo": "frase"}])
+    return Ficha(campos=campos, origen_campo=origen, faltantes=faltantes, conflictos=conflictos,
+                 confianza=round(max(0.0, min(1.0, factor)), 2), regla="T: traspaso entre cuentas (§5.18)",
+                 extras=extras), preguntas

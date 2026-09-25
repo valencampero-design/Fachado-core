@@ -54,6 +54,11 @@ RE_CERTIFICADO = re.compile(r"^cert(?:ificado)?\b\s*(.*)$")
 RE_DOS_MOVIMIENTOS = re.compile(r"\s+e\s+(?=(?:imputar|ingresar|registrar|cargar)\w*\b)", re.I)
 RE_CORRECCION = re.compile(r"^\s*correcci[oó]n\s*!*\s*:?\s*", re.I)
 RE_ALIAS = re.compile(r"^\s*([^=/]+?)\s*=\s*([^=/]+?)\s*$")
+# §5.18: las frases de un traspaso, sobre el texto normalizado (sin tildes). Qué cuenta es el
+# origen y cuál el destino lo decide interpretar.
+RE_EXTRACCION = re.compile(r"\bextraccion\w*|\bcajero\b|\bsaque\b.*\befectivo\b|\bretir\w*\s+(?:de\s+)?(?:efectivo|cajero)\b")
+RE_REPOSICION = re.compile(r"\brepus\w*|\brepon\w*|\breposicion\w*")
+RE_PASE = re.compile(r"\bpase\b.*\b(?:a|al|hacia)\s+(?:la\s+|el\s+)?(?:caja|banco|efectivo|mercado pago|chequera)\b")
 
 
 @dataclass
@@ -94,6 +99,7 @@ class Segmento:
     etapa: str | None = None   # «etapa 1» escrito aparte
     caja: bool = False         # la palabra «caja»
     honorarios: bool = False   # «hon», «honorarios»
+    traspaso: str | None = None  # extraccion | reposicion | pase | explicito (§5.18)
 
     def de(self, categoria: str) -> list[Resolucion]:
         return [r for r in self.resueltos if r.categoria == categoria]
@@ -212,6 +218,15 @@ def parsear(texto: str, hoy: date | None = None) -> list[Segmento]:
         if re.search(r"retir\w*\s+(?:de\s+)?(?:efectivo|cajero)", parte, re.I):
             seg.tipo_mov = "TRASPASO"
             tokens = [t for t in tokens if normalizar(t) not in ("retiro", "retiro de efectivo", "retiro efectivo")]
+        # §5.18: «saqué efectivo», «extracción», «repuse la caja de LennonC», «pasé a la caja».
+        plano = normalizar(parte)
+        for clase, patron in (("extraccion", RE_EXTRACCION), ("reposicion", RE_REPOSICION), ("pase", RE_PASE)):
+            if patron.search(plano):
+                seg.tipo_mov, seg.traspaso = "TRASPASO", clase
+                break
+        else:
+            if seg.tipo_mov == "TRASPASO":
+                seg.traspaso = "explicito"
         seg.tokens = tokens
         segmentos.append(seg)
     return segmentos
@@ -372,6 +387,36 @@ def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
             return [Resolucion(cat, valor, "difuso", token, mejor)]
         return [Resolucion("ambiguo", "", "difuso", token, mejor, opciones=[f"{c}: {v}" for c, v in empatados])]
     return []
+
+
+@dataclass
+class Hallazgo:
+    """Una entidad encontrada dentro de una frase, con las palabras que ocupa."""
+    inicio: int
+    fin: int  # exclusivo
+    resolucion: Resolucion
+
+
+def escanear(texto: str, m: Maestros, max_palabras: int = 4) -> tuple[list[str], list[Hallazgo]]:
+    """Entidades dentro de una frase sin «/» («repuse la caja de LennonC con efectivo»,
+    «¿cuántos pagos a Felipe J por Lennon?»): ventanas de hasta `max_palabras` palabras
+    contra el diccionario, las más largas primero. Solo coincidencias firmes —alias, exacto,
+    una palabra que identifica a uno solo— y los ambiguos, para preguntar; nada difuso ni LLM.
+    Devuelve las palabras normalizadas y los hallazgos en el orden del texto."""
+    palabras = normalizar(texto).split()
+    usadas: set[int] = set()
+    hallazgos: list[Hallazgo] = []
+    for k in range(max_palabras, 0, -1):
+        for i in range(len(palabras) - k + 1):
+            if usadas & set(range(i, i + k)):
+                continue
+            firmes = [r for r in resolver_token(" ".join(palabras[i:i + k]), m)
+                      if (r.categoria == "ambiguo" and r.metodo != "difuso")
+                      or (r.categoria in ("obra", "contratista", "cuenta") and r.metodo in ("alias", "exacto", "palabra"))]
+            if firmes:
+                hallazgos += [Hallazgo(i, i + k, r) for r in firmes]
+                usadas |= set(range(i, i + k))
+    return palabras, sorted(hallazgos, key=lambda h: h.inicio)
 
 
 def candidatos(token: str, m: Maestros, categoria: str, limite: int = 3) -> list[str]:

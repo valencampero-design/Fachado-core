@@ -318,6 +318,32 @@ def main() -> int:
     r, f = leer_con("Certificado 5 extras Moreno $3.200.000", estudio=estudio)
     check("«5 extras» es otra serie: no es el mismo", f.posible_duplicado is None, f.posible_duplicado)
 
+    # ── Tanda 6.2 · traspasos ─────────────────────────────────────────────────
+    print("\nTanda 6.2 · traspasos: origen y destino (§5.18)")
+    for texto, esperado in [
+        ("saqué efectivo $50.000", ("Banco", "Efectivo")),
+        ("Extracción 100.000", ("Banco", "Efectivo")),
+        ("retiro de efectivo 30.000", ("Banco", "Efectivo")),
+        ("repuse la caja de LennonC con efectivo 80.000", ("Efectivo", "Caja obra Lennon")),
+        ("pasé de la caja de obra Moreno al banco 1.000.000", ("Caja obra Moreno", "Banco")),
+    ]:
+        r, f, c = leer(texto)
+        check(f"«{texto}» → {esperado[0]} → {esperado[1]}",
+              c["tipo"] == "TRASPASO" and (c["cuenta_origen"], c["cuenta_destino"]) == esperado and not r.preguntas,
+              (c.get("cuenta_origen"), c.get("cuenta_destino"), [p.campo for p in r.preguntas]))
+    r, f, c = leer("repuse la caja de LennonC $80.000")
+    check("«repuse la caja de LennonC»: destino la caja (la C es la caja, §5.8), pregunta de dónde sale",
+          c["cuenta_destino"] == "Caja obra Lennon" and c["obra"] == "Lennon" and campos_de(r, "cuenta_origen")
+          and not campos_de(r, "obra", "contratista", "rubro"), (c, [p.campo for p in r.preguntas]))
+    r, f, c = leer("pasé a la caja 20.000")
+    check("«pasé a la caja»: «la caja» sola no se adivina, pregunta las dos cuentas",
+          set(campos_de(r, "cuenta_origen", "cuenta_destino")) == {"cuenta_origen", "cuenta_destino"}, [p.campo for p in r.preguntas])
+    r, f, c = leer("traspaso Banco/Efectivo $5.000")
+    check("«traspaso Banco/Efectivo»: nombra las dos sin dirección, pregunta de cuál sale con esas dos",
+          any(p.campo == "cuenta_origen" and set(p.opciones) == {"Banco", "Efectivo"} for p in r.preguntas), r.preguntas)
+    r, f, c = leer("Barba/LennonC")
+    check("un pago con la caja chica sigue siendo un EGRESO, no un traspaso", c["tipo"] == "EGRESO", c["tipo"])
+
     print(f"\n{'TODO OK' if not fallas else str(len(fallas)) + ' FALLAS'}")
     return 1 if fallas else 0
 

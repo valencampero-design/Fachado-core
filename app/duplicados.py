@@ -15,7 +15,7 @@ Eco Aislación, confirmados como dos pagos por el arquitecto).
 """
 from datetime import date
 
-from app.filtros import es_cierre_semanal
+from app.filtros import es_cierre_semanal, sin_anulados
 from app.maestros import normalizar, numero
 from app.models import PosibleDuplicado
 
@@ -42,22 +42,28 @@ def buscar(campos: dict, libros: dict[str, list[dict]]) -> PosibleDuplicado | No
     importe = numero(campos.get("importe")) if campos.get("importe") not in (None, "") else None
     fecha = _fecha(campos.get("fecha"))
     contratista, obra = normalizar(campos.get("contratista")), normalizar(campos.get("obra"))
+    # §5.18: un traspaso solo se compara con traspasos, por cuenta; un gasto nunca con la fila
+    # de un traspaso (reponer la caja de Lennon no es pagarle a nadie en Lennon).
+    es_traspaso = campos.get("tipo") == "TRASPASO"
+    cuentas = {normalizar(campos.get("cuenta_origen")), normalizar(campos.get("cuenta_destino"))} - {""}
 
     candidatos: list[tuple[int, int, PosibleDuplicado]] = []
     for libro, movs in libros.items():
-        for mov in movs:
-            if not mov.get("id_mov") or es_cierre_semanal(mov):
+        for mov in sin_anulados(movs):
+            if not mov.get("id_mov") or es_cierre_semanal(mov) or (mov.get("tipo") == "TRASPASO") != es_traspaso:
                 continue
             fuerte = bool(refs & referencias(mov.get("ref_comprobante")))
             probable = False
             if not fuerte and importe is not None and fecha:
                 f_mov = _fecha(mov.get("fecha"))
+                parecido = normalizar(mov.get("cuenta")) in cuentas if es_traspaso else (
+                    (contratista and normalizar(mov.get("contratista")) == contratista)
+                    or (obra and normalizar(mov.get("obra")) == obra))
                 probable = (
                     f_mov is not None
-                    and abs(numero(mov.get("importe")) - importe) < 0.01
+                    and abs(abs(numero(mov.get("importe"))) - importe) < 0.01
                     and abs((f_mov - fecha).days) <= DIAS_DE_TOLERANCIA
-                    and ((contratista and normalizar(mov.get("contratista")) == contratista)
-                         or (obra and normalizar(mov.get("obra")) == obra))
+                    and bool(parecido)
                 )
             if not (fuerte or probable):
                 continue

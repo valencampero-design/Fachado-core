@@ -65,27 +65,17 @@ def entidades(texto: str, m: Maestros) -> tuple[str | None, str | None, list[Pre
     de tres, dos y una palabra contra el diccionario. Solo coincidencias firmes (alias, exacto,
     una palabra que identifica a uno solo); nada difuso ni LLM: una consulta equivocada es peor
     que una repregunta."""
-    palabras = normalizar(texto).split()
-    usadas: set[int] = set()
     obra = contratista = None
     preguntas: list[Pregunta] = []
-    for k in (3, 2, 1):
-        for i in range(len(palabras) - k + 1):
-            if usadas & set(range(i, i + k)):
-                continue
-            for r in resolver.resolver_token(" ".join(palabras[i:i + k]), m):
-                if r.categoria == "ambiguo" and r.metodo != "difuso":
-                    preguntas.append(Pregunta(campo="contratista", texto=f"¿«{r.token}» es…?", motivo="apodo_ambiguo",
-                                              opciones=[o.split(": ", 1)[1] for o in r.opciones]))
-                elif r.metodo not in ("alias", "exacto", "palabra"):
-                    continue
-                elif r.categoria == "obra" and obra is None:
-                    obra = r.valor
-                elif r.categoria == "contratista" and contratista is None:
-                    contratista = r.valor
-                else:
-                    continue
-                usadas |= set(range(i, i + k))
+    for h in resolver.escanear(texto, m)[1]:
+        r = h.resolucion
+        if r.categoria == "ambiguo":
+            preguntas.append(Pregunta(campo="contratista", texto=f"¿«{r.token}» es…?", motivo="apodo_ambiguo",
+                                      opciones=[o.split(": ", 1)[1] for o in r.opciones]))
+        elif r.categoria == "obra" and obra is None:
+            obra = r.valor
+        elif r.categoria == "contratista" and contratista is None:
+            contratista = r.valor
     return obra, contratista, preguntas
 
 

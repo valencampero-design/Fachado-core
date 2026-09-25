@@ -23,6 +23,10 @@ COLUMNAS_CERTIFICADOS: list[str] = [
     "obra", "etapa", "numero", "fecha", "saldo_a_cobrar", "fuente", "msg_id", "cargado_por", "comprobante_url",
 ]
 # Lo que describe una ficha de tipo CERTIFICADO (`campos["tipo"] == "CERTIFICADO"`).
+# §5.18: lo que describe una ficha de tipo TRASPASO. /confirmar la escribe como dos filas de
+# MOVIMIENTOS vinculadas (columna `vinculo`), una por cuenta.
+CAMPOS_FICHA_TRASPASO: list[str] = ["tipo", "fecha", "importe", "moneda", "tc", "importe_ars", "cuenta_origen",
+                                    "cuenta_destino", "obra", "descripcion", "comprobante_url", "ref_comprobante"]
 CAMPOS_FICHA_CERTIFICADO: list[str] = ["tipo", "obra", "etapa", "numero", "fecha", "saldo_a_cobrar", "fuente",
                                        "comprobante_url"]
 
@@ -153,6 +157,8 @@ class EstadoCertificado(BaseModel):
 class ConfirmarOut(BaseModel):
     id_mov: str  # en un certificado, «Moreno etapa 1 · certificado 5»
     fila: int
+    # §5.18: en un traspaso, la segunda fila (la entrada en la cuenta de destino).
+    id_mov_vinculado: str | None = None
     comprobante_url: str | None = None
     obra: SaldoObra | None = None
     # Al confirmar un certificado, o un cobro que nombra uno: cuánto queda por cobrar.

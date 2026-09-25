@@ -4,6 +4,7 @@ las veces que haga falta y solo agrega lo que falta. No toca datos.
     python scripts/preparar_sheet.py
     python scripts/preparar_sheet.py --aplicar
     python scripts/preparar_sheet.py --titular <telefono> --titular-nombre "<nombre>" --aplicar
+    python scripts/preparar_sheet.py --personal <id de «FACHADO — Personal»> --aplicar
 
 Sin `--aplicar` es un simulacro. Qué hace:
 
@@ -24,7 +25,9 @@ from app.sheets import columna_a_letra as letra  # noqa: E402
 
 # Columnas que tienen que existir, en el orden en que se agregan al final si faltan.
 COLUMNAS = {
-    "MOVIMIENTOS": ["msg_id", "certificado", "etapa", "informal", "ref_comprobante"],
+    # `vinculo`: la otra fila de un traspaso (§5.18). `anula`: la fila que anula un
+    # contraasiento (§5.19). Las dos, también en el libro personal (--personal).
+    "MOVIMIENTOS": ["msg_id", "certificado", "etapa", "informal", "ref_comprobante", "vinculo", "anula"],
     "USUARIOS": ["telefono", "nombre", "rol", "activo", "ve_personal", "auto_confirmar"],
     "CUENTAS": ["estado"],
     "CERTIFICADOS": COLUMNAS_CERTIFICADOS,
@@ -45,15 +48,20 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--titular", help="teléfono del titular, solo si hay que crear USUARIOS")
     ap.add_argument("--titular-nombre")
+    ap.add_argument("--personal", metavar="SHEET_ID",
+                    help="preparar «FACHADO — Personal» en vez del Master: solo las columnas de MOVIMIENTOS")
     ap.add_argument("--aplicar", action="store_true")
     args = ap.parse_args()
 
-    sid = settings().sheet_id
+    # El libro personal tiene la misma MOVIMIENTOS que el Master y ningún maestro (§5.14).
+    sid = args.personal or settings().sheet_id
+    hojas_nuevas = {} if args.personal else HOJAS_NUEVAS
+    columnas_por_hoja = {"MOVIMIENTOS": COLUMNAS["MOVIMIENTOS"]} if args.personal else COLUMNAS
     hojas = sheets.estructura(sid)
     acciones: list[tuple[str, callable]] = []
 
     # 1. Hojas que faltan
-    for hoja, encabezado in HOJAS_NUEVAS.items():
+    for hoja, encabezado in hojas_nuevas.items():
         if hoja in hojas:
             continue
         filas = [encabezado]
@@ -69,7 +77,7 @@ def main() -> None:
                              sid, f"{hoja}!A1:{ultima}{len(filas)}", filas)))
 
     # 2. Columnas que faltan en las hojas que ya existen
-    for hoja, columnas in COLUMNAS.items():
+    for hoja, columnas in columnas_por_hoja.items():
         if hoja not in hojas:
             continue  # la crea el paso 1 con todas sus columnas
         leido = sheets.leer_rango(sid, f"{hoja}!1:1", formato="FORMATTED_VALUE")

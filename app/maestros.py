@@ -196,6 +196,10 @@ class Maestros:
         c = self.cuenta(f"Caja obra {obra}") if obra else None
         return c if c and c.tipo == "caja_obra" else None
 
+    def obra_de_caja(self, cuenta: str | None) -> Obra | None:
+        """La inversa: de qué obra es una caja de obra. None si la cuenta no es una caja."""
+        return next((o for o in self.obras if (c := self.caja_de_obra(o.nombre)) and normalizar(c.nombre) == normalizar(cuenta)), None)
+
     def cuentas_del_estudio(self) -> list[Cuenta]:
         """Las que suman al saldo de caja del estudio. Cualquier cálculo de saldo sale de
         acá: las cajas de obra y lo que paga el comitente quedan afuera (§5.8)."""
