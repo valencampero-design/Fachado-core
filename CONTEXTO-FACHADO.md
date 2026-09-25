@@ -8,7 +8,7 @@ que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico 
 - `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
   clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.3 · 24 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.5 · 25 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -87,6 +87,8 @@ en un doc, nunca en un commit.
 | **`concilia`** | Verdadero solo si `cuenta = Banco`. Evita reclamar en el extracto un pago en efectivo |
 | **`PASANTE`** | Depósito neutro: el comitente deposita y sale el mismo día al proveedor |
 | **Captura** | El modo actual: el bot archiva todo sin interpretarlo. Es también el fallback permanente |
+| **Etapa** | Subdivisión de una obra que se certifica. `Lennon1` = etapa 1 de Lennon (§5.15) |
+| **Informal** | Movimiento «en negro», como los depósitos. Fuera del IVA y de la conciliación (§5.17) |
 | **Pasarela** | Mercado Libre, tarjeta débito comercios, transferencia e-bank. Dicen *por dónde salió la plata*, no a quién se le pagó |
 
 ---
@@ -104,6 +106,8 @@ tablero se derivan por fórmula. **Nadie copia un número de un lado a otro.**
 - **El saldo no se guarda, se calcula.**
 - **Nada se borra de los maestros.** El que deja de trabajar pasa a `inactivo`.
 - **El libro guarda hechos, no asignaciones.** El prorrateo de indirectos es una vista.
+- **Excepción deliberada: lo personal vive en un libro aparte** (§5.14). El libro del estudio
+  recibe una sola línea semanal que lo resume.
 
 ### 5.2 · Reparto de autoridad
 
@@ -202,6 +206,16 @@ Mercado Pago. **Las cajas de obra NO suman.** Es plata de terceros en su poder: 
 no patrimonio. Mezclarlas infla el saldo con plata que no es suya, que es exactamente el
 error que el sistema viene a evitar.
 
+**Cualquier obra puede tener caja chica** *(definido 24/09)*. Hoy pasa en Lennon, pero
+aparece por necesidad en cualquiera. Se marca en el mensaje con una **`C` pegada al nombre
+de la obra**: `Barba/LennonC`, o con etapa, `Barba/Lennon1C` (§5.15). Sin la `C`, el pago no
+sale de la caja de obra.
+
+**Moreno cobra dos cosas distintas** *(definido 24/09)*: **honorarios de proyecto**, que son
+del estudio, y **certificaciones de obra**, que le paga el comitente al arquitecto para que
+él pague a la gente. Las certificaciones son plata de la obra: van a **`Caja obra Moreno`**,
+no a la caja del estudio.
+
 ### 5.9 · El comitente que paga directo
 
 En Lennon el comitente paga directo a los contratistas desde sus propias cuentas. Se
@@ -225,16 +239,34 @@ que resuelve el modelo de ingresos por honorarios, que hacía falta igual.
 Nota fiscal: Miguel Soto y Alexis Matamala son el mismo proveedor para el estudio, pero
 **dos contribuyentes para AFIP**. En el crédito fiscal van separados.
 
-### 5.11 · Certificados
+### 5.11 · Certificados: lo que falta cobrar
 
-El movimiento de cobro **registra a qué certificado y a qué obra corresponde** —es un campo,
-y va desde ahora. El **cruce** entre certificados emitidos y cobrados, con su estado de
-cobranza, queda para la etapa siguiente.
+*Actualizado el 24/09: el cruce entra ahora, ya no queda para la etapa siguiente.*
+
+El arquitecto manda al bot **cada certificado que emite**, como PDF o como un simple
+mensaje. De cada uno solo interesan **cuatro datos: obra, etapa, número y el saldo a cobrar
+de la presente certificación**, con su fecha. Nada más del documento.
+
+**Llega como PDF o como texto, y las dos vías valen igual.** El texto no tiene formato
+obligatorio. En el PDF —lo genera él desde Excel— **el único monto que importa es el punto 7
+de la primera tabla, «Saldo a cancelar en la presente certificación»**. Número, fecha, obra y
+etapa se toman solo para identificarlo.
+
+Cada certificado es una **cuenta por cobrar**. Cada cobro que registra el certificado lo
+cancela. La diferencia contesta la pregunta que él hace: **«¿el comitente me pagó todo lo
+que certifiqué?»**, por obra y por etapa.
 
 ### 5.12 · Nada se escribe sin confirmación humana
 
 El bot propone, un usuario confirma con un botón. La ficha muestra **de dónde salió cada
 dato** —del comprobante, del texto, del maestro— porque es lo que hace que confíe.
+
+**Período de prueba** *(definido 24/09)*: mientras dure, **el bot pide confirmación
+siempre**. Después, cuando un movimiento está completamente claro, se escribe sin volver a
+preguntar. «Completamente claro» es una regla, no una sensación: importe, fecha y
+destinatario del comprobante, obra y contratista del maestro, sin preguntas, sin conflictos
+y sin sospecha de duplicado. El fin del período lo habilita A&C por usuario, cuando la
+métrica de ese usuario lo justifique.
 
 ### 5.13 · El bot tiene más de un usuario
 
@@ -250,10 +282,71 @@ administración va a pasar por él, a través del bot.** Hasta acá todo el dise
   teléfono = un perfil.
 - **El corpus es 100 % del arquitecto.** Cómo escribe Petrus no se sabe: la métrica del
   parser se mide por usuario.
-- **Sin definir** —y no se implementa hasta que esté escrito acá—: qué puede confirmar
-  Petrus solo y qué necesita aprobación del arquitecto; si Petrus ve y carga el circuito
-  personal del arquitecto; y si Petrus va a manejar efectivo. Están en el registro de
-  preguntas (`P-19` a `P-22`).
+- **Petrus tiene las mismas atribuciones que el arquitecto** *(definido 24/09)*: confirma
+  solo, sin aprobación; maneja efectivo, así que vuelve a estar activo en `TERCEROS`; y ve y
+  carga lo personal del arquitecto. Si Petrus escribe «Retiro», es personal **del
+  arquitecto**.
+- **Pero el acceso a lo personal es por persona, no por rol de colaborador.** El día que
+  Petrus tenga un reemplazo, ese reemplazo **no** tiene que ver lo personal. Por eso lo
+  personal se separa ahora (§5.14), aunque Petrus lo vea: separarlo después, con datos
+  adentro, es mucho más caro. `USUARIOS` lleva una columna `ve_personal`.
+- **Si Gabriel y Petrus cargan el mismo movimiento, el sistema lo tiene que detectar**
+  (§5.16).
+
+### 5.14 · Lo personal vive en un libro aparte
+
+*Definido el 24/09.*
+
+- Los movimientos con `tipo_gasto = personal` se escriben en un **segundo archivo**,
+  «FACHADO — Personal», con la misma estructura de `MOVIMIENTOS`. Tiene su **propio
+  tablero**. Solo lo ven los usuarios con `ve_personal = sí`.
+- Para cerrar la caja del estudio, **una vez por semana** se escribe en el libro del estudio
+  **una línea «Gastos personales · semana N» por cuenta** (Banco, Efectivo…) que resume todo
+  lo personal de esa semana. El estudio ve cuánto salió, no en qué.
+- Esa línea **no concilia contra el banco**: el banco se cruza contra las filas del libro
+  personal, una por una. Si concilia la línea resumen, se cuenta dos veces.
+- Consecuencia a tener en cuenta: el saldo del estudio **va hasta una semana atrasado** en
+  lo personal, hasta que se escribe la línea semanal.
+- Los maestros (obras, contratistas, rubros, alias) son **uno solo** y viven en el archivo
+  del estudio. El libro personal no tiene maestros propios.
+
+### 5.15 · Etapas de obra
+
+*Definido el 24/09.*
+
+Una obra puede dividirse en **etapas**, que son las que se certifican. Se indican con un
+número pegado al nombre de la obra: **`Lennon1`** es la etapa 1 de Lennon.
+
+- Las etapas de cada obra viven en una hoja **`ETAPAS`** del maestro. **Una obra sin filas
+  en `ETAPAS` no tiene etapas** y el bot nunca las pregunta.
+- **Si la obra tiene etapas y el mensaje no dice cuál, el bot repregunta** con botones.
+- La sintaxis completa del token de obra es **`<obra>[<etapa>][C]`**: `Lennon`, `Lennon1`,
+  `LennonC`, `Lennon1C`. La `C` es la caja chica (§5.8).
+
+*Supuesto a confirmar:* etapa y certificado son cosas distintas —una etapa puede tener
+varios certificados—. Por eso son dos campos.
+
+### 5.16 · El mismo movimiento cargado dos veces
+
+*Definido el 24/09.* Con dos usuarios, el mismo pago puede llegar por Gabriel y por Petrus.
+Antes de proponer la ficha, el sistema busca en el libro un movimiento que coincida por
+**referencia del comprobante** (número de operación, número de cheque o el archivo mismo) o,
+si no hay referencia, por **importe, fecha cercana y contratista u obra**. Si encuentra uno,
+**no lo descarta solo**: avisa quién y cuándo lo cargó, y pregunta si es el mismo.
+
+Esto es distinto de la idempotencia por `msg_id`, que evita que un mismo mensaje se escriba
+dos veces. Acá son dos mensajes distintos que describen el mismo hecho.
+
+### 5.17 · Los depósitos «en negro»
+
+*Definido el 24/09.* Cuando el arquitecto dice **«depósito»**, habla de un pago informal
+hecho a la cuenta de otra persona: indirectamente es plata que entra para él y, a la vez,
+un gasto con el que canceló algo.
+
+*Supuesto a confirmar:* se registra como **`PASANTE`**: una sola fila que suma a lo
+adelantado y a lo pagado de la obra, no toca la caja del estudio, y va marcada
+**`informal`**. Los movimientos informales quedan **fuera de la posición de IVA y fuera de la
+conciliación bancaria**.
 
 ---
 
@@ -278,7 +371,8 @@ administración va a pasar por él, a través del bot.** Hasta acá todo el dise
 
 **Las cuatro obras propias —Gonzalo, Hua Huan, Grigera Galpón y Tres Cerros— son
 inversiones**, no consumo. El costo se sigue como **capital inmovilizado** y el resultado se
-mide contra la venta. No van al circuito personal.
+mide contra la venta. No van al circuito personal, y *—supuesto a confirmar—* se quedan en
+el libro del estudio, no en el libro personal (§5.14).
 
 **Las de «proyecto y dirección» no llevan cuenta corriente de costos**: el estudio no mueve
 plata ahí, solo cobra honorarios.
@@ -318,27 +412,40 @@ Orellana.
 | Marcos Carpintero | Marcos Ezequiel Lenton |
 | Barba | Barbagelata |
 | Ecoaislaciones | Eco Aislación SRL |
-| Andina | **Ferretería** Andina. La pinturería es otro comercio y él lo aclara |
+| Andina · Ferr Andina | **Ferretería Andina** |
+| Pint Andina · Pinturería Andina | **Pinturería Andina** — otro comercio. Él lo aclara cuando es la pinturería |
 | Municipalidad | Destinatario válido. Rubro **siempre** `Impuestos y tasas › Municipales` |
 
 **Silla Cuádruple no es un proveedor**: es parte de la obra Cerro Bayo.
+
+**«Austral» es también el nombre de su constructora** (Constructora Austral): así firma los
+certificados. En el maestro, Austral es la obra de indirectos del estudio. **Dentro de un
+certificado, «Austral» es el emisor, nunca la obra.**
 
 ---
 
 ## 8. Estado y pendientes
 
-**Semana 3 de 8.** Captura operando desde el 3/9 (101 mensajes). Motor fase 1 terminado,
-leyendo el Sheet en vivo: contratista **100 %** sin preguntar, obra **84 %**, **92 %**
-contando los duales que preguntan a propósito. Falta `/confirmar`, `/consultar`,
-conciliación, deploy, y conectar el gateway.
+**Semana 4 de 8.** El motor está en producción: interpreta (**92 %** del corpus sin preguntar
+de más), lee comprobantes y escribe en el libro con `/confirmar`. La app de Google está
+publicada. Falta conectar el gateway, `/consultar`, el libro personal, certificados y
+etapas, el tablero y la conciliación.
+
+**Supuestos a confirmar con el arquitecto** —el diseño los toma como válidos hasta que diga
+otra cosa—: etapa y certificado son cosas distintas (§5.15; el certificado de ejemplo es el
+Nº 1 de una etapa 2, lo que lo refuerza); el «depósito» es un pasante
+informal (§5.17); las cuatro obras propias se quedan en el libro del estudio, no en el
+personal (§6); los certificados los paga el comitente (§5.11).
+
+**Ideas para una etapa futura, a presupuestar aparte:** cuentas por pagar a proveedores por
+obra, un reporte para pasarle al comitente con lo pendiente de pagar, y que el comprobante
+del pago lo cancele. Contesta «¿qué tengo pendiente de pagar en la obra X?».
 
 Las preguntas abiertas viven en **`fachado-registro-de-preguntas.md`** del proyecto, con
 código estable (`P-01`, `P-02`…). No duplicar esa lista acá.
 
 Deudas técnicas que atraviesan los dos repos:
 
-- **Publicar la app OAuth en Producción.** Diferido a pedido del cliente. Mientras siga en
-  «Prueba», el refresh token de Drive caduca cada siete días y los adjuntos dejan de leerse.
 - **El adjunto a veces llega 8 a 18 segundos ANTES que el texto** que lo etiqueta. La
   ventana de agrupamiento del gateway tiene que mirar para los dos lados.
 - **Manda cosas repetidas** con un segundo de diferencia. Detectar duplicados antes de
@@ -356,5 +463,7 @@ La verdad técnica de cada repo vive en su `CLAUDE.md` y sus handoffs, y sube al
   falta y pedí que se actualice el contexto.
 - Si algo de este archivo contradice el código, **gana este archivo**, salvo que el código
   sea más nuevo y la diferencia esté anotada como decisión.
+- **Si el maestro contradice este archivo, se corrige el maestro.** Nada se borra: lo que
+  deja de corresponder pasa a `inactivo`.
 - Cuando cambie, se sube la versión de la cabecera y se copia a los dos repos el mismo día.
   Dos copias con fechas distintas es peor que no tener ninguna.
