@@ -16,16 +16,15 @@
 
 | | |
 |---|---|
-| ✅ Motor en producción | `https://web-production-6c935.up.railway.app` · `/salud`, `/interpretar` y `/confirmar` desplegados. **Las tandas 1 a 5 están commiteadas y sin pushear**: producción corre la versión anterior |
+| ✅ Motor en producción | Servicio `web` del proyecto Railway `bountiful-trust`, con dos dominios que son el mismo servicio: `web-production-6c935.up.railway.app` (el que usan la documentación y el cron) y `web-production-70e97.up.railway.app`. Las tandas 1 a 5 están desplegadas desde el 25/09 |
+| ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
+| ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
 | ✅ Lee y escribe el Sheet | Con la service account del gateway, compartida como Editor |
 | ✅ Lee los comprobantes | Token de Drive en Railway, app OAuth publicada |
 | ✅ Métrica del corpus | 92 % contando las preguntas de diseño, igual antes y después de las cinco tandas (§4) |
 | ✅ Maestro alineado al contexto v1.5 | Cajas de obra, Petrus con teléfono y activo, Pinturería Andina, cobros de Moreno en su caja (§8) |
 | ✅ Hojas nuevas en el Master | `ETAPAS` (vacía: las carga el arquitecto) y `CERTIFICADOS` (vacía) |
-| ⏳ Pushear y desplegar | Después de revisar los cinco commits |
-| ⏳ «FACHADO — Personal» | El archivo no existe todavía: hasta que se cree y se cargue `FACHADO_PERSONAL_SHEET_ID`, lo personal da 503 en `/confirmar` (§5) |
-| ⏳ Cron del cierre semanal | Un servicio aparte en Railway (§5) |
 | ⏳ Conectar el gateway | Lo que necesita, en §6 |
 | ⏳ Conciliación, IVA | No empezados (§7) |
 
@@ -402,10 +401,8 @@ manda mensajes repetidos** con un segundo de diferencia.
 
 **Operativo**
 
-- [ ] Revisar los cinco commits del 25/09, pushear y verificar el deploy.
-- [ ] Crear «FACHADO — Personal», compartirlo con la service account y cargar
-      `FACHADO_PERSONAL_SHEET_ID` (§5).
-- [ ] Crear el servicio cron del cierre semanal (§5).
+- [ ] Confirmar que el primer cierre semanal corrió el lunes 28/09 (logs del servicio
+      `cierre-semanal` en Railway).
 - [ ] Cargar las etapas en `ETAPAS` (hoy vacía: ninguna obra tiene etapas y el bot no las
       pregunta).
 - [ ] **La primera fila real**, con un movimiento verdadero, mirándola en el Sheet.
