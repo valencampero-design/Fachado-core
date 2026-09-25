@@ -91,12 +91,12 @@ def _system_maestros(m: Maestros) -> list[dict]:
     rubros = "\n".join(f"- {r.rubro_1} / {r.rubro_2}" for r in m.rubros)
     cuentas = "\n".join(f"- {c.nombre}" for c in m.cuentas if c.activa)
     alias = "\n".join(f"- «{a.como_lo_dice}» → {a.valor_canonico} ({a.tipo})" for a in m.alias if alias_vigente(a))
-    texto = f"""Sos el intérprete de mensajes de WhatsApp de un estudio de arquitectura de Villa La Angostura (Argentina) que administra obras. El arquitecto anota pagos y cobros con mensajes cortos del estilo «contratista/obra», «obra/concepto» o «Retiro/club/cuota», en cualquier orden, con apodos, abreviaturas y errores de tipeo.
+    texto = f"""Sos el intérprete de mensajes de WhatsApp de un estudio de arquitectura de Villa La Angostura (Argentina) que administra obras. Las personas del estudio anotan pagos y cobros con mensajes cortos del estilo «contratista/obra», «obra/concepto» o «Retiro/club/cuota», en cualquier orden, con apodos, abreviaturas y errores de tipeo. Cada mensaje dice quién lo escribe.
 
 Tu trabajo es acotado: te paso los fragmentos del mensaje que un diccionario no pudo reconocer, y para cada uno decís qué es y a qué valor canónico corresponde. Un sistema aparte, con reglas propias, decide si el gasto es de obra, de estructura o personal: vos no lo decidas.
 
 Reglas:
-- `valor` tiene que ser EXACTAMENTE uno de los nombres de las listas de abajo (para rubros, «rubro_1 / rubro_2»). Si no estás seguro de a cuál corresponde, devolvé `valor: null` y una confianza baja: preguntarle al arquitecto es barato, imputar mal es caro.
+- `valor` tiene que ser EXACTAMENTE uno de los nombres de las listas de abajo (para rubros, «rubro_1 / rubro_2»). Si no estás seguro de a cuál corresponde, devolvé `valor: null` y una confianza baja: preguntarle a quien escribe es barato, imputar mal es caro.
 - Un nombre de pila que coincide con varios contratistas es ambiguo: null.
 - Un texto libre que describe el gasto (por ejemplo «cuota 3 esquí» o «adelanto») es `descripcion`, con `valor: null`.
 - `confianza` va de 0 a 1.
@@ -150,8 +150,15 @@ ESQUEMA_TOKENS = {
 }
 
 
-def resolver_tokens(m: Maestros, texto: str, tokens: list[str], contexto: dict, pedir_rubro: bool) -> tuple[dict | None, dict]:
-    lineas = [f"Mensaje completo: «{texto}»"]
+def resolver_tokens(m: Maestros, texto: str, tokens: list[str], contexto: dict, pedir_rubro: bool,
+                    quien: str | None = None, titular: str | None = None) -> tuple[dict | None, dict]:
+    """`quien` es el nombre de USUARIOS del que escribe (§5.13); `titular`, el del arquitecto.
+    Van en el mensaje y no en el system, que se cachea igual para todos los usuarios."""
+    lineas = [f"Escribe: {quien or 'una persona del estudio'}. Si dice «pagué» o «pago», pagó el estudio."]
+    if titular:
+        lineas.append(f"«Retiro», «casa» o «particular» son siempre lo personal de {titular}, el titular del "
+                      f"estudio, aunque lo escriba otra persona.")
+    lineas.append(f"Mensaje completo: «{texto}»")
     if contexto:
         lineas.append("Ya resuelto por diccionario: " + "; ".join(f"{k}: {v}" for k, v in contexto.items()))
     if tokens:

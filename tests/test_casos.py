@@ -477,6 +477,30 @@ def main() -> int:
           r2.fichas[0].campos["contratista"] is None and campos_de(r2, "contratista")
           and not any(p.motivo == "inactivo" for p in r2.preguntas), (r2.fichas[0].campos["contratista"], r2.preguntas))
 
+    # ── Tanda 6.7 · el LLM sabe quién escribe ─────────────────────────────────
+    from app import llm
+
+    print("\nTanda 6.7 · el prompt nombra a quien escribe (§5.13)")
+    petrus = next((u for u in m.usuarios if u.rol != "titular" and u.activo), None)
+    capturado: dict = {}
+
+    def llamar_falso(system, content, schema, max_tokens=4000):
+        capturado["system"], capturado["content"] = system[0]["text"], content
+        return {"tokens": [], "rubro_sugerido": None}, {}
+
+    disponible_real, llamar_real = llm.disponible, llm._llamar
+    llm.disponible, llm._llamar = (lambda: True), llamar_falso
+    try:
+        interpretar(InterpretarIn(texto="Pepito Gomez/Lennon", telefono=petrus.telefono, fecha_mensaje="2026-09-25T12:00:00Z"))
+    finally:
+        llm.disponible, llm._llamar = disponible_real, llamar_real
+    check(f"si escribe {petrus.nombre}, el mensaje al LLM lo nombra (de USUARIOS) y dice que «pagué» es el estudio",
+          f"Escribe: {petrus.nombre}." in capturado.get("content", "") and "pagó el estudio" in capturado["content"],
+          capturado.get("content"))
+    check(f"«Retiro» sigue siendo lo personal del titular ({titular.nombre})",
+          f"lo personal de {titular.nombre}" in capturado["content"], capturado["content"])
+    check("el system (cacheado, igual para todos) ya no dice «el arquitecto»", "arquitecto" not in capturado["system"].split("OBRAS")[0])
+
     print(f"\n{'TODO OK' if not fallas else str(len(fallas)) + ' FALLAS'}")
     return 1 if fallas else 0
 

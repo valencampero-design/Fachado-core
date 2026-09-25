@@ -344,7 +344,11 @@ def _resolver_con_llm(seg: Segmento, req: InterpretarIn, m: Maestros, diag: dict
         return [], None
 
     contexto = {r.categoria: r.valor for r in seg.resueltos if r.categoria in ("obra", "contratista", "rubro", "cuenta")}
-    datos, uso = llm.resolver_tokens(m, req.texto, seg.sin_resolver, contexto, pedir_rubro)
+    # §5.13: el LLM sabe quién escribe (de USUARIOS, nunca un teléfono en el código).
+    quien = m.usuario(req.telefono)
+    titular = next((u for u in m.usuarios if u.rol == "titular"), None)
+    datos, uso = llm.resolver_tokens(m, req.texto or seg.texto, seg.sin_resolver, contexto, pedir_rubro,
+                                     quien=quien.nombre if quien else None, titular=titular.nombre if titular else None)
     diag["llm_llamadas"] += 1
     diag["llm_uso"].append(uso)
     if not datos:
