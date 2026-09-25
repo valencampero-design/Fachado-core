@@ -19,7 +19,7 @@ RAIZ = Path(__file__).resolve().parent
 
 # Filas reales del libro al 24/09, para que los saldos se prueben contra datos verdaderos.
 LENNON = [4032391.7, 3675000, 300000, 103050, 7000000, 7000000]   # pagado por el comitente
-MORENO = [2600000, 566596, 2079000]                               # certificados en efectivo
+MORENO = [2600000, 566596, 2079000]                               # certificaciones: plata de la obra (§5.8)
 
 
 class LibroMemoria:
@@ -34,7 +34,7 @@ class LibroMemoria:
             self._sembrar(n, "2026-09-02", "EGRESO", importe, "Lennon", "Pagado por el comitente")
         for importe in MORENO:
             n += 1
-            self._sembrar(n, "2026-02-08", "INGRESO", importe, "Moreno", "Efectivo")
+            self._sembrar(n, "2026-02-08", "INGRESO", importe, "Moreno", "Caja obra Moreno")
 
     def _sembrar(self, n, fecha, tipo, importe, obra, cuenta):
         fila = {"id_mov": f"M-{n:06d}", "fecha": fecha, "tipo": tipo, "importe": importe, "moneda": "ARS",
@@ -254,13 +254,15 @@ async def _correr() -> int:
         # ── Certificado ───────────────────────────────────────────────────────
         print("\nEl certificado no se pierde al confirmar (§5.11)")
         libro, _ = preparar()
-        f = ficha(tipo="INGRESO", obra="Moreno", contratista=None, cuenta="Efectivo", tipo_gasto="obra",
+        f = ficha(tipo="INGRESO", obra="Moreno", contratista=None, cuenta="Caja obra Moreno", tipo_gasto="obra",
                   importe=2600000, comprobante_url=None, descripcion="Certificado 4")
         f["extras"] = {"certificado": "4"}
         cuerpo = (await confirmar("wamid.CERT", f)).json()
         fila = libro.movimientos()[-1]
         check("columna certificado = 4", fila.get("certificado") == "4", fila.get("certificado"))
-        check("el cobro suma al adelantado de Moreno", abs(cuerpo["obra"]["adelantado"] - (sum(MORENO) + 2600000)) < 0.01,
+        caja = cuerpo["obra"]["caja_obra"] or {}
+        check("el cobro entra a la caja de Moreno, no al estudio (§5.8)",
+              abs(caja.get("ingresado", 0) - (sum(MORENO) + 2600000)) < 0.01 and cuerpo["obra"]["adelantado"] == 0,
               cuerpo["obra"])
 
     app.dependency_overrides.clear()

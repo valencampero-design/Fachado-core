@@ -217,8 +217,9 @@ def resolver_token(token: str, m: Maestros) -> list[Resolucion]:
                     if n in (normalizar(o.nombre), normalizar(o.codigo))]
         exactos += [Resolucion("contratista", c.nombre, "exacto", token) for c in m.contratistas
                     if n == normalizar(c.nombre)]
-    cuentas = [c for c in m.cuentas if n == normalizar(c.nombre)] or \
-              [c for c in m.cuentas if len(n) >= 4 and normalizar(c.nombre).startswith(n)]
+    activas = [c for c in m.cuentas if c.activa]
+    cuentas = [c for c in activas if n == normalizar(c.nombre)] or \
+              [c for c in activas if len(n) >= 4 and normalizar(c.nombre).startswith(n)]
     if len(cuentas) == 1:
         exactos.append(Resolucion("cuenta", cuentas[0].nombre, "exacto", token))
     rubros = [r for r in m.rubros if n == normalizar(r.rubro_2)]

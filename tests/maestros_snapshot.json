@@ -1,7 +1,7 @@
 {
   "_meta": {
     "fuente": "1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A",
-    "tomado": "2026-09-24",
+    "tomado": "2026-09-25",
     "nota": "Copia literal de las hojas maestras. Se regenera con scripts/snapshot_maestros.py."
   },
   "OBRAS": [
@@ -185,7 +185,7 @@
     ],
     [
       "Maderera Misiones",
-      "30-11111111-1",
+      "",
       "Materiales",
       "Maderas",
       "activo",
@@ -537,7 +537,7 @@
       "activo"
     ],
     [
-      "Pint Andina",
+      "Pinturería Andina",
       "",
       "Materiales",
       "Pinturería",
@@ -1158,7 +1158,8 @@
       "moneda",
       "concilia_contra_banco",
       "saldo_apertura",
-      "notas"
+      "notas",
+      "estado"
     ],
     [
       "Banco",
@@ -1166,7 +1167,8 @@
       "ARS",
       "SÍ",
       "0,00",
-      "Una sola cuenta. Caja de ahorro y cuenta corriente son tramos del mismo banco"
+      "Una sola cuenta. Caja de ahorro y cuenta corriente son tramos del mismo banco",
+      "activa"
     ],
     [
       "Banco USD",
@@ -1174,7 +1176,8 @@
       "USD",
       "SÍ",
       "0,00",
-      "Tramo en dólares de la misma cuenta"
+      "Tramo en dólares de la misma cuenta",
+      "activa"
     ],
     [
       "Efectivo",
@@ -1182,7 +1185,8 @@
       "ARS",
       "no",
       "0,00",
-      "Caja del estudio. Sacar plata del cajero es un TRASPASO, no un gasto"
+      "Caja del estudio. Sacar plata del cajero es un TRASPASO, no un gasto",
+      "activa"
     ],
     [
       "Chequera",
@@ -1190,14 +1194,17 @@
       "ARS",
       "no",
       "0,00",
-      "Cheques emitidos y todavía no debitados"
+      "Cheques emitidos y todavía no debitados",
+      "activa"
     ],
     [
       "Mercado Pago",
       "billetera",
       "ARS",
       "no",
-      "0,00"
+      "0,00",
+      "",
+      "activa"
     ],
     [
       "Pagado por el comitente",
@@ -1205,13 +1212,80 @@
       "ARS",
       "no",
       "0,00",
-      "No es plata del estudio. Impacta la cuenta corriente de la obra y NO la caja. Es el caso de Lennon"
+      "No es plata del estudio. Impacta la cuenta corriente de la obra y NO la caja. Es el caso de Lennon",
+      "activa"
     ],
     [
       "caja_obra",
       "Externa",
       "ARS",
-      "no"
+      "no",
+      "",
+      "Mal cargada: una caja de obra va una fila por obra. Inactiva desde 25/09",
+      "inactiva"
+    ],
+    [
+      "Caja obra Lennon",
+      "caja_obra",
+      "ARS",
+      "no",
+      "0,00",
+      "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
+      "activa"
+    ],
+    [
+      "Caja obra Moreno",
+      "caja_obra",
+      "ARS",
+      "no",
+      "0,00",
+      "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
+      "activa"
+    ],
+    [
+      "Caja obra Cerro Bayo",
+      "caja_obra",
+      "ARS",
+      "no",
+      "0,00",
+      "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
+      "activa"
+    ],
+    [
+      "Caja obra Lumaia",
+      "caja_obra",
+      "ARS",
+      "no",
+      "0,00",
+      "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
+      "activa"
+    ],
+    [
+      "Caja obra Muelle de piedra",
+      "caja_obra",
+      "ARS",
+      "no",
+      "0,00",
+      "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
+      "activa"
+    ],
+    [
+      "Caja obra Tonga",
+      "caja_obra",
+      "ARS",
+      "no",
+      "0,00",
+      "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
+      "activa"
+    ],
+    [
+      "Caja obra Moquehue",
+      "caja_obra",
+      "ARS",
+      "no",
+      "0,00",
+      "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
+      "activa"
     ]
   ],
   "ALIAS": [
@@ -1424,6 +1498,16 @@
       "silla cuádruple",
       "Cerro Bayo",
       "obra"
+    ],
+    [
+      "pint andina",
+      "Pinturería Andina",
+      "contratista"
+    ],
+    [
+      "ferr andina",
+      "Ferretería Andina",
+      "contratista"
     ]
   ],
   "USUARIOS": [
@@ -1431,19 +1515,25 @@
       "telefono",
       "nombre",
       "rol",
-      "activo"
+      "activo",
+      "ve_personal",
+      "auto_confirmar"
     ],
     [
       "5492944341132",
       "Gabriel Fachado",
       "titular",
-      "sí"
+      "sí",
+      "sí",
+      "no"
     ],
     [
-      "",
+      "5492944574499",
       "Petrus",
       "colaborador",
-      "sí"
+      "sí",
+      "sí",
+      "no"
     ]
   ],
   "MOVIMIENTOS": [
@@ -1475,7 +1565,10 @@
       "ts",
       "tipo_gasto",
       "msg_id",
-      "certificado"
+      "certificado",
+      "etapa",
+      "informal",
+      "ref_comprobante"
     ]
   ]
 }

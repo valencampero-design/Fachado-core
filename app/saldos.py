@@ -49,7 +49,7 @@ def saldo_obra(movs: list[dict], obra: str, m: Maestros) -> tuple[SaldoObra, lis
         if normalizar(mov.get("obra")) != n_obra or mov.get("tipo") not in TIPOS_QUE_MUEVEN_SALDO:
             continue
         importe = numero(mov.get("importe_ars"))
-        cuenta = m.cuenta(mov.get("cuenta"))
+        cuenta = m.cuenta(mov.get("cuenta"), incluir_inactivas=True)
         if cuenta is None:
             advertencias.append(f"{mov.get('id_mov')}: la cuenta «{mov.get('cuenta')}» no está en CUENTAS; "
                                 f"no entra en el saldo de {obra}")

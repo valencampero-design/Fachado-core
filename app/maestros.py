@@ -105,6 +105,7 @@ class Cuenta:
     moneda: str
     concilia_contra_banco: bool
     saldo_apertura: float = 0.0
+    activa: bool = True  # nada se borra de los maestros: lo que no corresponde pasa a inactiva
 
     @property
     def suma_al_saldo_del_estudio(self) -> bool:
@@ -123,12 +124,17 @@ class Alias:
 @dataclass
 class Usuario:
     """Quien le escribe al bot (CONTEXTO-FACHADO.md §5.13). Un teléfono que no está en
-    USUARIOS nunca escribe en el libro. El `rol` se lee y queda disponible, pero todavía no
-    decide nada: los permisos por rol están sin definir."""
+    USUARIOS nunca escribe en el libro.
+
+    El acceso a lo personal es **por persona**, no por rol: lo decide `ve_personal`, y el `rol`
+    no restringe nada (Petrus tiene las mismas atribuciones que el arquitecto).
+    `auto_confirmar` decide el período de prueba (§5.12): mientras sea no, todo se confirma."""
     telefono: str  # solo dígitos, como llega de WhatsApp
     nombre: str
     rol: str       # titular | colaborador
     activo: bool
+    ve_personal: bool = False
+    auto_confirmar: bool = False
 
 
 @dataclass
@@ -159,9 +165,17 @@ class Maestros:
         n1, n2 = normalizar(rubro_1), normalizar(rubro_2)
         return next((r for r in self.rubros if normalizar(r.rubro_1) == n1 and normalizar(r.rubro_2) == n2), None)
 
-    def cuenta(self, nombre: str | None) -> Cuenta | None:
+    def cuenta(self, nombre: str | None, incluir_inactivas: bool = False) -> Cuenta | None:
+        """Solo cuentas activas, salvo para leer el pasado: los saldos sí tienen que ver los
+        movimientos de una cuenta que después se inactivó."""
         n = normalizar(nombre)
-        return next((c for c in self.cuentas if normalizar(c.nombre) == n), None)
+        return next((c for c in self.cuentas
+                     if normalizar(c.nombre) == n and (c.activa or incluir_inactivas)), None)
+
+    def caja_de_obra(self, obra: str | None) -> Cuenta | None:
+        """La «Caja obra <obra>» activa, si la obra tiene (§5.8). Si no, None: nunca se inventa."""
+        c = self.cuenta(f"Caja obra {obra}") if obra else None
+        return c if c and c.tipo == "caja_obra" else None
 
     def cuentas_del_estudio(self) -> list[Cuenta]:
         """Las que suman al saldo de caja del estudio. Cualquier cálculo de saldo sale de
@@ -241,9 +255,12 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
 
     cuentas = [Cuenta(r.get("cuenta", ""), normalizar(r.get("tipo")).replace(" ", "_"), r.get("moneda", "ARS"),
                       normalizar(r.get("concilia_contra_banco")) in ("si", "true", "verdadero"),
-                      numero(r.get("saldo_apertura")))
+                      numero(r.get("saldo_apertura")),
+                      normalizar(r.get("estado")) not in ("inactiva", "inactivo", "cerrada"))
                for r in _registros(crudo.get("CUENTAS", [])) if r.get("cuenta")]
     for c in cuentas:
+        if not c.activa:
+            continue
         if c.tipo not in TIPOS_CUENTA:
             advertencias.append(f"CUENTAS: «{c.nombre}» tiene tipo «{c.tipo}», que no existe "
                                 f"({', '.join(sorted(TIPOS_CUENTA))}). No suma al saldo del estudio")
@@ -285,10 +302,13 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
             advertencias.append(f"USUARIOS: «{nombre}» no tiene teléfono: no puede confirmar nada")
         elif any(u.telefono == telefono for u in usuarios):
             advertencias.append(f"USUARIOS: el teléfono de «{nombre}» está repetido")
-        usuarios.append(Usuario(telefono, nombre, normalizar(r.get("rol")),
-                                normalizar(r.get("activo")) in ("si", "true", "verdadero", "1", "x")))
+        si = ("si", "true", "verdadero", "1", "x")
+        usuarios.append(Usuario(telefono, nombre, normalizar(r.get("rol")), normalizar(r.get("activo")) in si,
+                                normalizar(r.get("ve_personal")) in si, normalizar(r.get("auto_confirmar")) in si))
     if not usuarios:
         advertencias.append("USUARIOS: la hoja está vacía o no existe: nadie puede confirmar")
+    for hoja in crudo.get("_hojas_faltantes", []):
+        advertencias.append(f"{hoja}: la hoja no existe en el Sheet. Correr scripts/preparar_sheet.py")
 
     return Maestros(obras, contratistas, rubros, cuentas, alias, usuarios, advertencias=advertencias)
 
@@ -307,7 +327,12 @@ def _leer_crudo() -> dict[str, list[list[str]]]:
     if not s.sheet_id:
         raise RuntimeError("Falta FACHADO_SHEET_ID (o MAESTROS_SNAPSHOT para correr offline)")
     from app import sheets
-    return sheets.leer_hojas(s.sheet_id, [f"{h}!A:Z" for h in HOJAS])
+    # Solo las hojas que existen: una hoja nueva que todavía no se creó (ETAPAS, por ejemplo)
+    # no puede tirar abajo la lectura de todos los maestros.
+    existentes = sheets.estructura(s.sheet_id)
+    crudo = sheets.leer_hojas(s.sheet_id, [f"{h}!A:Z" for h in HOJAS if h in existentes])
+    crudo["_hojas_faltantes"] = [h for h in HOJAS if h not in existentes]
+    return crudo
 
 
 def invalidar() -> None:
