@@ -344,6 +344,113 @@ def main() -> int:
     r, f, c = leer("Barba/LennonC")
     check("un pago con la caja chica sigue siendo un EGRESO, no un traspaso", c["tipo"] == "EGRESO", c["tipo"])
 
+    # ── Tanda 6.4 · intención, respuestas, texto compartido ───────────────────
+    from app.models import Respuesta
+
+    def responder(r_previa, *pares, ficha=0, **kw):
+        previa = r_previa.fichas[ficha].model_dump()
+        return interpretar(InterpretarIn(fecha_mensaje="2026-09-25T12:00:00Z", telefono=titular.telefono, contexto_previo=previa,
+                                         respuestas=[Respuesta(ficha=ficha, campo=cp, valor=v) for cp, v in pares]), **kw)
+
+    print("\nTanda 6.4 · intencion: movimiento, consulta u otro (§5.12)")
+    for texto, esperada in [
+        ("¿Cuánto le pagué a Felipe J?", "consulta"),
+        ("¿Cuántos pagos se le hicieron a Marcelo por la obra Moreno?", "consulta"),
+        ("¿El comitente pagó todas las certificaciones?", "consulta"),
+        ("después te paso el ticket", "otro"),
+        ("gracias", "otro"),
+        ("Pago Moreno", "movimiento"),
+        ("Luis", "movimiento"),               # una palabra suelta puede ser un contratista nuevo: ante la duda
+        ("Felipe J/Lennon", "movimiento"),
+    ]:
+        r = interpretar(InterpretarIn(texto=texto, fecha_mensaje="2026-09-25T12:00:00Z"))
+        check(f"«{texto}» → {esperada}", r.intencion == esperada and (esperada == "movimiento" or (not r.fichas and not r.preguntas)),
+              (r.intencion, len(r.fichas), [p.campo for p in r.preguntas]))
+    foto = Adjunto(url="https://drive.google.com/file/d/FOTOOBRAxxxxxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="IMG_2031.jpg")
+    r, f = None, None
+    r = interpretar(InterpretarIn(texto="", adjuntos=[foto]), lector=lector_con())
+    check("una foto sin texto y sin nada de un comprobante (una foto de obra) → otro", r.intencion == "otro" and not r.fichas, r.intencion)
+
+    def no_leido(adj):
+        d = comprobante.DatosComprobante(url=adj.url, nombre_archivo=adj.nombre or "")
+        d.error = "adjunto_no_leido"
+        return d
+    r = interpretar(InterpretarIn(texto="", adjuntos=[foto]), lector=no_leido)
+    check("… pero si no se pudo leer, no se sabe: movimiento", r.intencion == "movimiento" and r.fichas, r.intencion)
+
+    print("\nTanda 6.4 · comprobante solo, sin texto")
+    transf = Adjunto(url="https://drive.google.com/file/d/TRANSFSOLAxxxxxxxxxxxxxxxxx/view", mime="application/pdf",
+                     nombre="comprobante.pdf")
+    r, f = leer_con("", adjuntos=[transf], lector=lector_con(importe=300000, fecha="2026-09-02", cuit="20-40613900-0"))
+    check("importe, fecha y contratista (por CUIT) del comprobante; pregunta la obra",
+          r.intencion == "movimiento" and (f.campos["importe"], f.campos["fecha"], f.campos["contratista"])
+          == (300000, "2026-09-02", "Felipe Andrés Scherer")
+          and f.origen_campo["importe"] == "comprobante" and campos_de(r, "obra"), (f.campos, [p.campo for p in r.preguntas]))
+
+    print("\nTanda 6.4 · respuestas: el valor se aplica y la cascada vuelve a correr")
+    r0 = interpretar(InterpretarIn(texto="Marce/Moreno", fecha_mensaje="2026-09-25T12:00:00Z"))
+    r1 = responder(r0, ("contratista", "Marcelo Maragaño"))
+    c1 = r1.fichas[0].campos
+    check("«Marce/Moreno» + contratista = Marcelo Maragaño → sin preguntar el apodo, rubro inferido, obra",
+          c1["contratista"] == "Marcelo Maragaño" and c1["tipo_gasto"] == "obra" and c1["rubro_2"]
+          and not campos_de(r1, "contratista"), (c1, [p.campo for p in r1.preguntas]))
+    r0 = interpretar(InterpretarIn(texto="Felipe J", fecha_mensaje="2026-09-25T12:00:00Z"))
+    r1 = responder(r0, ("obra", "Lennon"))
+    check("sin obra + obra = Lennon → tipo_gasto obra, comitente del maestro, sin preguntas",
+          (r1.fichas[0].campos["obra"], r1.fichas[0].campos["tipo_gasto"], r1.fichas[0].campos["comitente"])
+          == ("Lennon", "obra", "Lucas Mariano Lennon") and not campos_de(r1, "obra"), r1.fichas[0].campos)
+    r2 = responder(r1, ("obra", "Sur"))
+    check("cambiar la obra a un inmueble personal (Sur) cambia tipo_gasto a personal: corre la cascada",
+          r2.fichas[0].campos["tipo_gasto"] == "personal", (r2.fichas[0].campos["tipo_gasto"], r2.fichas[0].regla))
+    r3 = responder(r0, ("obra", "lenon"))
+    check("texto libre en vez de una opción: se resuelve con el diccionario («lenon» → Lennon)",
+          r3.fichas[0].campos["obra"] == "Lennon", r3.fichas[0].campos["obra"])
+    r0 = interpretar(InterpretarIn(texto="Austral/Sofi", fecha_mensaje="2026-09-25T12:00:00Z"))
+    check("dual con obra: pregunta clasificación", campos_de(r0, "clasificacion"), [p.campo for p in r0.preguntas])
+    rp, ro = responder(r0, ("clasificacion", "Personal")), responder(r0, ("clasificacion", "Obra"))
+    check("… «Personal» → personal; «Obra» → el tipo de Austral (estructura)",
+          rp.fichas[0].campos["tipo_gasto"] == "personal" and ro.fichas[0].campos["tipo_gasto"] == "estructura"
+          and not campos_de(ro, "clasificacion"), (rp.fichas[0].campos["tipo_gasto"], ro.fichas[0].campos["tipo_gasto"]))
+    ro2 = responder(ro, ("importe", "$120.000"))
+    check("… y la respuesta queda para la ronda siguiente (no vuelve a preguntar clasificación)",
+          not campos_de(ro2, "clasificacion") and ro2.fichas[0].campos["importe"] == 120000, [p.campo for p in ro2.preguntas])
+    r0, f0 = leer_con("Ecoaislaciones/Lennon $999", adjuntos=[cheque_510], lector=lector_con(importe=4032391.7, fecha="2026-08-27"))
+    r1 = responder(r0, ("importe", "$4.032.391,70"))
+    f1 = r1.fichas[0]
+    check("conflicto de importe + respuesta → se usa, y la fecha sigue siendo «del comprobante»",
+          f1.campos["importe"] == 4032391.7 and not campos_de(r1, "importe") and f1.origen_campo.get("fecha") == "comprobante",
+          (f1.campos["importe"], f1.origen_campo))
+    estudio = libro(transferencia_eco)
+    r0, f0 = leer_con("Ecoaislaciones/Lennon", estudio=estudio, adjuntos=[cheque_510],
+                      lector=lector_con(importe=4032391.7, fecha="2026-08-27"))
+    r1 = responder(r0, ("duplicado", "Es otro"), libros={"estudio": estudio, "personal": None})
+    check("duplicado + «Es otro» → no vuelve a preguntar", campos_de(r0, "duplicado") and not campos_de(r1, "duplicado"),
+          [p.campo for p in r1.preguntas])
+    r0 = interpretar(InterpretarIn(texto="traspaso Banco/Efectivo $5.000", fecha_mensaje="2026-09-25T12:00:00Z"))
+    r1 = responder(r0, ("cuenta_origen", "Efectivo"))
+    check("traspaso con dos cuentas sin dirección + origen = Efectivo → destino Banco",
+          (r1.fichas[0].campos["cuenta_origen"], r1.fichas[0].campos["cuenta_destino"]) == ("Efectivo", "Banco")
+          and not r1.preguntas, (r1.fichas[0].campos, r1.preguntas))
+    with con_etapas(("Lennon", "1"), ("Lennon", "2")):
+        r0 = interpretar(InterpretarIn(texto="Barba/Lennon", fecha_mensaje="2026-09-25T12:00:00Z"))
+        r1 = responder(r0, ("etapa", "2"))
+        check("etapa: pregunta y respuesta", campos_de(r0, "etapa") and r1.fichas[0].campos["etapa"] == "2"
+              and not campos_de(r1, "etapa"), r1.fichas[0].campos["etapa"])
+
+    print("\nTanda 6.4 · texto_compartido: N comprobantes, un texto")
+    r, f = leer_con("Felipe J/Lennon $500.000", adjuntos=[transf], lector=lector_con(importe=300000, fecha="2026-09-02"))
+    check("con N = 1, importe del texto contra el del comprobante es conflicto", any(k.campo == "importe" for k in f.conflictos))
+    r = interpretar(InterpretarIn(texto="Felipe J/Lennon $500.000", fecha_mensaje="2026-09-25T12:00:00Z", adjuntos=[transf],
+                                  texto_compartido=2), lector=lector_con(importe=300000, fecha="2026-09-02"))
+    f = r.fichas[0]
+    check("con N = 2, importe y fecha del comprobante, sin conflicto; obra y contratista del texto",
+          (f.campos["importe"], f.campos["fecha"], f.campos["obra"], f.campos["contratista"])
+          == (300000, "2026-09-02", "Lennon", "Felipe Andrés Scherer") and not f.conflictos, (f.campos, f.conflictos))
+    r = interpretar(InterpretarIn(texto="Felipe J/Lennon $500.000", fecha_mensaje="2026-09-25T12:00:00Z", adjuntos=[transf],
+                                  texto_compartido=2), lector=lector_con(fecha="2026-09-02"))
+    check("… y si ese comprobante no trae importe, pregunta (no usa el del texto)",
+          r.fichas[0].campos["importe"] is None and campos_de(r, "importe"), (r.fichas[0].campos["importe"], r.preguntas))
+
     print(f"\n{'TODO OK' if not fallas else str(len(fallas)) + ' FALLAS'}")
     return 1 if fallas else 0
 

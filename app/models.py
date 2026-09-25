@@ -46,12 +46,26 @@ class Adjunto(BaseModel):
     sha256: str | None = None
 
 
+class Respuesta(BaseModel):
+    """La respuesta a una pregunta de la ficha (tanda 6.4). `valor` es una de las `opciones`
+    que ofreció el motor, o texto libre si el usuario escribió otra cosa."""
+    ficha: int = 0
+    campo: str
+    valor: str
+
+
 class InterpretarIn(BaseModel):
     telefono: str | None = None
     texto: str = ""
     adjuntos: list[Adjunto] = Field(default_factory=list)
     fecha_mensaje: datetime | None = None
     contexto_previo: dict[str, Any] | None = None  # la ficha anterior (mismo formato que Ficha)
+    # Se aplican sobre `contexto_previo`: el motor pone cada valor, vuelve a correr la cascada
+    # y devuelve la ficha con las preguntas que sigan faltando.
+    respuestas: list[Respuesta] = Field(default_factory=list)
+    # N comprobantes con un solo texto (§5.12): el gateway llama una vez por comprobante con
+    # el mismo texto y N. Con N > 1, importe y fecha salen del comprobante, no del texto.
+    texto_compartido: int = Field(1, ge=1)
 
 
 class Conflicto(BaseModel):
@@ -64,7 +78,7 @@ class Conflicto(BaseModel):
 # Por qué se pregunta. `apodo_ambiguo` y `dual` son preguntas de diseño —el maestro dice
 # que hay que preguntar—, no fallas del parser: el gateway puede mostrarlas distinto y la
 # métrica del corpus las cuenta aparte.
-MotivoPregunta = Literal["apodo_ambiguo", "dual", "conflicto", "falta_dato", "posible_duplicado"]
+MotivoPregunta = Literal["apodo_ambiguo", "dual", "conflicto", "falta_dato", "posible_duplicado", "inactivo"]
 
 
 class Pregunta(BaseModel):
@@ -218,6 +232,10 @@ class ConsultarOut(BaseModel):
 
 
 class InterpretarOut(BaseModel):
+    # movimiento: hay fichas. consulta: el gateway llama a /consultar con el mismo texto.
+    # otro: charla, una foto de obra; fichas y preguntas vacías, y el gateway responde el acuse
+    # corto (§5.12). Ante la duda, movimiento.
+    intencion: Literal["movimiento", "consulta", "otro"] = "movimiento"
     fichas: list[Ficha]
     preguntas: list[Pregunta] = Field(default_factory=list)
     requiere_confirmacion: bool = True  # true si alguna ficha lo requiere

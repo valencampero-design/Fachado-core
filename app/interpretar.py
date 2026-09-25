@@ -10,10 +10,12 @@ Reparto de autoridad cuando hay adjunto:
   - si texto y comprobante se contradicen en importe o fecha, no se elige: van los dos
     valores a `conflictos` y se pregunta.
 """
+import copy
 import logging
+import re
 from datetime import date, timedelta, timezone
 
-from app import certificados, clasificador, comprobante, duplicados, llm, maestros, resolver
+from app import certificados, clasificador, comprobante, consultas, duplicados, llm, maestros, resolver
 from app.config import Settings, settings
 from app.maestros import Maestros, Usuario, normalizar, numero
 from app.models import (CAMPOS_FICHA_CERTIFICADO, CAMPOS_FICHA_TRASPASO, COLUMNAS_MOVIMIENTOS, Conflicto, Ficha,
@@ -43,19 +45,149 @@ def _fecha_local(req: InterpretarIn, s: Settings) -> date | None:
     return f.astimezone(timezone(timedelta(hours=s.utc_offset_horas))).date()
 
 
-def _semilla(contexto: dict | None) -> dict | None:
+def _semilla(contexto: dict | None, respuestas: bool = False) -> dict | None:
     """De la ficha anterior se hereda lo que dijo el usuario o el comprobante; lo derivado
-    (comitente, rubro inferido) se recalcula con lo nuevo."""
+    (comitente, rubro inferido) se recalcula con lo nuevo. Con `respuestas`, cada campo
+    conserva su origen (sigue siendo «del comprobante»); en una corrección, es contexto_previo."""
     if not contexto:
         return None
     campos = contexto.get("campos") or {}
     origen = contexto.get("origen_campo") or {}
+    extras = contexto.get("extras") or {}
     return {
         "campos": {k: v for k, v in campos.items()
                    if v not in (None, "") and origen.get(k) not in ("inferido", "maestro", "fecha_mensaje")},
-        "clasificacion": contexto.get("clasificacion"),
-        "extras": contexto.get("extras") or {},
+        "origen": origen if respuestas else {},
+        "clasificacion": contexto.get("clasificacion") or extras.get("clasificacion_respondida"),
+        "extras": extras,
     }
+
+
+def _origen_semilla(semilla: dict, campo: str) -> str:
+    return semilla["origen"].get(campo) or "contexto_previo"
+
+
+# ─── Intención (tanda 6.4, §5.12) ──────────────────────────────────────────────
+
+# Acuses sueltos: no son un movimiento aunque tengan menos de tres palabras.
+ACUSES = {"ok", "oka", "okey", "dale", "gracias", "muchas gracias", "listo", "si", "no", "bueno", "perfecto",
+          "genial", "joya", "barbaro", "hola", "buen dia", "buenas", "buenas tardes", "buenas noches", "de nada"}
+RE_PREGUNTA = re.compile(r"[?¿]|^(?:cuant[oa]s?|que|cual(?:es)?|como|donde|quien|cuando|decime|pasame|mostrame)\b")
+
+
+def _hay_senales(texto: str, segmentos: list[Segmento]) -> bool:
+    """Algo que solo tiene sentido en un movimiento: la barra del formato `algo/algo`, un
+    importe, una fecha, una palabra de tipo o cualquier cosa que el diccionario reconozca."""
+    return "/" in texto or any(
+        seg.importe is not None or seg.fechas or seg.tipo_mov or seg.resueltos or seg.alias_propuesto
+        or seg.honorarios or seg.caja or seg.etapa or seg.es_correccion for seg in segmentos)
+
+
+def _intencion(req: InterpretarIn, texto: str, segmentos: list[Segmento], comprobantes: list) -> str:
+    """movimiento | consulta | otro. **Ante la duda, movimiento**: es peor perder un pago que
+    hacer una pregunta de más."""
+    if req.contexto_previo or req.respuestas:
+        return "movimiento"
+    if comprobantes:
+        # Un adjunto leído sin nada de un comprobante —ni importe, ni fecha, ni CUIT— es una
+        # foto de obra. Si no se pudo leer, no se sabe: movimiento.
+        leido = [c for c in comprobantes if c.error is None]
+        datos = any(c.importe is not None or c.fecha or c.cuit or c.certificado or c.numero_cheque or c.id_operacion
+                    for c in comprobantes)
+        if datos or len(leido) < len(comprobantes) or _hay_senales(texto, segmentos):
+            return "movimiento"
+        return "otro"
+    plano = normalizar(texto)
+    if not plano:
+        return "otro"
+    if "/" not in texto and RE_PREGUNTA.search(texto.strip().lower() if "?" in texto or "¿" in texto else plano) \
+            and consultas.inferir_consulta(texto) and not any(seg.importe is not None for seg in segmentos):
+        return "consulta"
+    if _hay_senales(texto, segmentos):
+        return "movimiento"
+    # Sin nada reconocible: charla si es un acuse o una frase; una o dos palabras sueltas
+    # pueden ser un contratista nuevo, y eso es movimiento.
+    return "otro" if plano in ACUSES or len(plano.split()) >= 3 else "movimiento"
+
+
+# ─── Respuestas a las preguntas (tanda 6.4) ────────────────────────────────────
+
+def _fecha_de(valor: str) -> str | None:
+    try:
+        return date.fromisoformat(valor.strip()[:10]).isoformat()
+    except ValueError:
+        pass
+    mt = resolver.RE_FECHA.search(valor)
+    f = resolver._parsear_fecha(*mt.groups()) if mt else None
+    return f.valor.isoformat() if f else None
+
+
+def _aplicar_respuestas(contexto: dict, respuestas: list, m: Maestros, diag: dict) -> tuple[dict, list[str]]:
+    """Pone cada respuesta en la ficha anterior, de forma determinística. Lo que no es una
+    opción del maestro vuelve como texto libre, para resolverlo con el diccionario como
+    cualquier mensaje. La cascada la vuelve a correr `_armar`: cambiar la obra puede cambiar
+    `tipo_gasto`."""
+    ficha = copy.deepcopy(contexto)
+    campos = ficha.setdefault("campos", {})
+    origen = ficha.setdefault("origen_campo", {})
+    extras = ficha.setdefault("extras", {})
+    libre: list[str] = []
+
+    def fijar(campo: str, valor) -> None:
+        campos[campo] = valor
+        origen[campo] = "texto"
+
+    for r in respuestas:
+        campo, valor = r.campo, r.valor.strip()
+        n = normalizar(valor)
+        if campo == "obra":
+            o = m.obra(valor)
+            if o:
+                if normalizar(campos.get("obra")) != normalizar(o.nombre):
+                    campos["etapa"] = None  # otra obra: la etapa de la anterior ya no vale
+                fijar("obra", o.nombre)
+            else:
+                libre.append(valor)
+        elif campo == "contratista":
+            c = m.contratista(valor)
+            fijar("contratista", c.nombre) if c else libre.append(valor)
+        elif campo == "rubro":
+            rubros = [x for x in m.rubros if normalizar(x.rubro_2) == n]
+            if not rubros and " / " in valor:
+                rubros = [x for x in [m.rubro(*valor.split(" / ", 1))] if x]
+            if rubros:
+                fijar("rubro_1", rubros[0].rubro_1)
+                fijar("rubro_2", rubros[0].rubro_2)
+            else:
+                libre.append(valor)
+        elif campo in ("cuenta", "cuenta_origen", "cuenta_destino"):
+            c = m.cuenta(valor)
+            fijar(campo, c.nombre) if c else libre.append(valor)
+        elif campo == "clasificacion":
+            extras["clasificacion_respondida"] = "personal" if n == "personal" else "obra"
+        elif campo in ("importe", "saldo_a_cobrar"):
+            importe = numero(valor)
+            if importe > 0:
+                fijar(campo, importe)
+            else:
+                diag["advertencias"].append(f"«{valor}» no es un importe")
+        elif campo == "fecha":
+            f = _fecha_de(valor)
+            fijar("fecha", f) if f else libre.append(valor)
+        elif campo == "concepto":
+            libre.append("honorarios" if n.startswith("hon") else "certificado")
+        elif campo == "duplicado":
+            extras["no_es_duplicado" if n == "es otro" else "es_el_mismo"] = True
+        elif campo == "inactivo":
+            if n == "reactivar":
+                extras["reactivar"] = True
+            else:  # «Es otro»: el contratista inactivo no era; se vuelve a preguntar
+                campos["contratista"] = None
+                origen.pop("contratista", None)
+                extras["contratista_descartado"] = extras.get("inactivo_propuesto")
+        else:  # etapa, numero y cualquier otro campo de la ficha: el valor tal cual
+            fijar(campo, valor)
+    return ficha, libre
 
 
 def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> InterpretarOut:
@@ -66,7 +198,14 @@ def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> 
     diag: dict = {"llm_llamadas": 0, "llm_uso": [], "resoluciones": [], "advertencias": []}
     usuario = m.usuario(req.telefono)
 
-    segmentos = resolver.parsear(req.texto, _fecha_local(req, s))
+    contexto, texto = req.contexto_previo, req.texto
+    if req.respuestas and contexto:
+        contexto, libre = _aplicar_respuestas(contexto, req.respuestas, m, diag)
+        texto = " / ".join(filter(None, [texto, *libre]))
+    elif req.respuestas:
+        diag["advertencias"].append("Llegaron respuestas sin contexto_previo: no hay ficha a la cual aplicarlas")
+
+    segmentos = resolver.parsear(texto, _fecha_local(req, s))
     for seg in segmentos:
         resolver.resolver_segmento(seg, m)
 
@@ -74,7 +213,12 @@ def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> 
     diag["comprobantes"] = [c.dict() for c in comprobantes]
     diag["llm_llamadas"] += sum(1 for c in comprobantes if c.uso_llm)
 
-    semilla = _semilla(req.contexto_previo)
+    intencion = _intencion(req, texto, segmentos, comprobantes)
+    if intencion != "movimiento":
+        diag["uso_llm"] = diag["llm_llamadas"] > 0
+        return InterpretarOut(intencion=intencion, fichas=[], preguntas=[], requiere_confirmacion=False, diagnostico=diag)
+
+    semilla = _semilla(contexto, respuestas=bool(req.respuestas))
     fichas: list[Ficha] = []
     preguntas: list[Pregunta] = []
     for i, seg in enumerate(segmentos):
@@ -124,7 +268,10 @@ def _marcar_duplicados(fichas: list[Ficha], preguntas: list[Pregunta], libros: d
             diag["advertencias"].append(f"No se pudo buscar duplicados en el libro {nombre} ({type(e).__name__})")
     for i, ficha in enumerate(fichas):
         dup = duplicados.buscar(ficha.campos, movs) if ficha.campos.get("tipo") != "CERTIFICADO" else None
-        if dup:
+        if dup and ficha.extras.get("es_el_mismo"):
+            ficha.posible_duplicado = dup  # el usuario ya dijo que es el mismo: no se pregunta de nuevo
+            continue
+        if dup and not ficha.extras.get("no_es_duplicado"):
             ficha.posible_duplicado = dup
             preguntas.append(Pregunta(
                 campo="duplicado", motivo="posible_duplicado", ficha=i, opciones=["Es el mismo", "Es otro"],
@@ -309,13 +456,20 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
                                      "valor_canonico": seg.primero("contratista").valor, "tipo": "contratista"}
 
     # ── 2. Lo que dice el comprobante ──────────────────────────────────────────
+    compartido = req.texto_compartido > 1
     if comp is not None:
         extras["comprobante"] = {k: v for k, v in comp.dict().items() if v not in (None, "", {}) and k != "fuente"}
         for campo, valor_comp, fmt in (("importe", comp.importe, _fmt_importe), ("fecha", comp.fecha, str)):
+            valor_texto = campos[campo]
+            if compartido and campo == "importe" and valor_texto is not None and valor_texto != valor_comp:
+                # Un texto para N comprobantes: su importe es el total o el de otro comprobante.
+                advertencias.append(f"El texto dice {fmt(valor_texto)}, pero es un texto para {req.texto_compartido} "
+                                    f"comprobantes: el importe sale de este comprobante")
+                campos["importe"] = None
+                origen.pop("importe", None)
             if valor_comp in (None, ""):
                 continue
-            valor_texto = campos[campo]
-            if valor_texto is not None and valor_texto != valor_comp:
+            if valor_texto is not None and valor_texto != valor_comp and not compartido:
                 conflictos.append(Conflicto(campo=campo, valor_texto=valor_texto, valor_comprobante=valor_comp,
                                             detalle=f"El texto dice {fmt(valor_texto)} y el comprobante {fmt(valor_comp)}"))
                 campos[campo] = None
@@ -354,7 +508,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     if semilla:
         for campo, valor in semilla["campos"].items():
             if campo in campos and campos[campo] in (None, ""):
-                poner(campo, valor, "contexto_previo")
+                poner(campo, valor, _origen_semilla(semilla, campo))
         for clave, valor in semilla["extras"].items():
             extras.setdefault(clave, valor)
         if semilla.get("clasificacion") == "personal" and not (seg.primero("obra") or seg.primero("contratista")):
@@ -384,6 +538,14 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
 
     # ── 5. Cascada de clasificación (código, no LLM) ──────────────────────────
     res = clasificador.clasificar(m, tipo, obra, contratista, rubro, marcador_personal)
+    if semilla and semilla.get("clasificacion") == "obra" and res.preguntar == "clasificacion":
+        # El usuario contestó «Obra» (no personal) a la pregunta de un dual (R2): sigue la
+        # cascada como si no fuera dual. Con obra, manda su tipo (R4): Austral es estructura.
+        res = clasificador.Resultado(
+            clasificador.CLASIFICACION_POR_TIPO_OBRA.get(obra.tipo) if obra else "obra",
+            f"R2: «{contratista.nombre}» es dual y el usuario dijo obra", preguntar=None if obra else "obra")
+    if semilla and semilla.get("clasificacion"):
+        extras["clasificacion_respondida"] = semilla["clasificacion"]
 
     if tipo in ("EGRESO", "PASANTE"):
         poner("item", (comp.razon_social if comp else None) or campos["contratista"],
@@ -519,7 +681,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             opciones = [rubro_llm.valor.split(" / ")[1]] + [o for o in opciones if o != rubro_llm.valor.split(" / ")[1]]
         preguntas.append(Pregunta(campo="rubro", texto="¿Qué rubro?", opciones=opciones[:MAX_OPCIONES]))
 
-    if campos["importe"] is None and not tiene_adjunto and not any(c.campo == "importe" for c in conflictos):
+    if campos["importe"] is None and (not tiene_adjunto or compartido) and not any(c.campo == "importe" for c in conflictos):
         preguntas.append(Pregunta(campo="importe", texto="¿Cuál es el importe?"))
 
     # Tokens que no se pudieron ubicar y no generaron pregunta: van a la descripción.
@@ -623,7 +785,7 @@ def _armar_certificado(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: 
             valor_texto = campos[campo]
             igual = (certificados.clave_numero(valor_texto) == certificados.clave_numero(valor_pdf)) if campo == "numero" \
                 else valor_texto == valor_pdf
-            if valor_texto is not None and not igual:
+            if valor_texto is not None and not igual and req.texto_compartido == 1:
                 conflictos.append(Conflicto(campo=campo, valor_texto=valor_texto, valor_comprobante=valor_pdf,
                                             detalle=f"El texto dice {fmt(valor_texto)} y el certificado {fmt(valor_pdf)}"))
                 campos[campo] = None
@@ -662,7 +824,7 @@ def _armar_certificado(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: 
     if semilla:
         for campo, valor in semilla["campos"].items():
             if campo in campos and campos[campo] in (None, "") and not any(c.campo == campo for c in conflictos):
-                poner(campo, valor, "contexto_previo")
+                poner(campo, valor, _origen_semilla(semilla, campo))
         for clave, valor in semilla["extras"].items():
             extras.setdefault(clave, valor)
         if not etapa and campos["etapa"]:
@@ -844,7 +1006,7 @@ def _armar_traspaso(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Set
         for campo, valor_comp, fmt in (("importe", comp.importe, _fmt_importe), ("fecha", comp.fecha, str)):
             if valor_comp in (None, ""):
                 continue
-            if campos[campo] is not None and campos[campo] != valor_comp:
+            if campos[campo] is not None and campos[campo] != valor_comp and req.texto_compartido == 1:
                 conflictos.append(Conflicto(campo=campo, valor_texto=campos[campo], valor_comprobante=valor_comp,
                                             detalle=f"El texto dice {fmt(campos[campo])} y el comprobante {fmt(valor_comp)}"))
                 preguntas.append(Pregunta(campo=campo, texto=f"¿Cuál es {'el importe' if campo == 'importe' else 'la fecha'}?",
@@ -858,7 +1020,7 @@ def _armar_traspaso(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Set
     if semilla:
         for campo, valor in semilla["campos"].items():
             if campo in campos and campos[campo] in (None, "") and not any(c.campo == campo for c in conflictos):
-                poner(campo, valor, "contexto_previo")
+                poner(campo, valor, _origen_semilla(semilla, campo))
         for clave, valor in semilla["extras"].items():
             extras.setdefault(clave, valor)
         mencionadas = extras.get("cuentas_mencionadas") or []
