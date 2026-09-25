@@ -8,7 +8,7 @@ que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico 
 - `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
   clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.5 · 25 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.6 · 25 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -169,6 +169,12 @@ conciliación cruza por **fecha e importe** los comprobantes recibidos contra la
 Mercado Libre del extracto, y **todo lo que no cruza queda como gasto personal sin
 clasificar**. La ausencia de comprobante es, en este caso, información.
 
+**Contratistas inactivos** *(definido 25/09)*: en la carga diaria **no se proponen por
+parecido** (ni difuso, ni palabra única, ni LLM). Solo aparecen si el usuario escribe el
+nombre exacto, un alias exacto o el CUIT, y en ese caso el bot pregunta «X está inactivo,
+¿lo reactivo?» antes de usarlo. En la migración de históricos sí se reconocen. Mercado Libre
+queda inactivo en `CONTRATISTAS` justamente por esto: su lugar es `medio_pago`.
+
 ### 5.7 · Una sola cuenta bancaria
 
 Con tramos en pesos y en dólares. Caja de ahorro y cuenta corriente son una división
@@ -268,6 +274,34 @@ destinatario del comprobante, obra y contratista del maestro, sin preguntas, sin
 y sin sospecha de duplicado. El fin del período lo habilita A&C por usuario, cuando la
 métrica de ese usuario lo justifique.
 
+**Cómo se arma un movimiento a partir de varios mensajes** *(definido 25/09)*. El arquitecto
+manda el texto y los comprobantes por separado, y a veces varios comprobantes seguidos:
+
+- **El texto cierra el grupo.** Un texto (o un audio transcripto, o el epígrafe de una
+  foto) se aplica **a todos los comprobantes sueltos que llegaron antes** y todavía no
+  tienen texto.
+- **Un comprobante sin texto espera 90 segundos.** Cada comprobante nuevo reinicia la
+  espera. Si llega el texto, cierra el grupo; si no llega, el bot **lee cada comprobante
+  solo** —importe, fecha, CUIT— y pregunta únicamente lo que falta («¿De qué obra?»).
+- **Varios comprobantes con un texto son varios movimientos**: una ficha por comprobante,
+  cada una con su importe y su fecha, y la obra y el contratista del texto. Se confirman
+  **juntas con un solo «sí»**. Cada una concilia con su propio pago del banco.
+- **Un texto solo, sin comprobantes pendientes, se interpreta en el momento.** Si mientras
+  esa ficha espera confirmación llega un comprobante, el bot pregunta si es de esa ficha.
+- **El mismo texto repetido** a pocos segundos se toma una sola vez (queda capturado igual).
+- **Una ficha sin confirmar nunca se escribe sola ni se descarta sola.** Si el usuario
+  sigue mandando otra cosa, la ficha queda pendiente y el bot se lo recuerda; «pendientes»
+  las lista.
+
+**Lo que no es un movimiento** *(definido 25/09)*: charla, «después te paso el ticket», una
+foto de obra, un audio sin importe. Se guarda en la captura como todo lo demás y el bot
+responde con un **acuse corto** («Recibido, no encontré un movimiento»), para que el usuario
+sepa que llegó. No pregunta «¿esto es un gasto?».
+
+**La captura sigue siempre.** Todo mensaje se archiva crudo antes de interpretarse, aunque el
+motor esté funcionando. Si el motor está caído o responde con error, el usuario igual recibe
+su acuse y el mensaje queda para revisar: nunca se pierde.
+
 ### 5.13 · El bot tiene más de un usuario
 
 *Definido el 24/09.* **Petrus se reincorpora como colaborador del estudio y gran parte de la
@@ -292,6 +326,11 @@ administración va a pasar por él, a través del bot.** Hasta acá todo el dise
   adentro, es mucho más caro. `USUARIOS` lleva una columna `ve_personal`.
 - **Si Gabriel y Petrus cargan el mismo movimiento, el sistema lo tiene que detectar**
   (§5.16).
+- **Arranque escalonado** *(definido 25/09)*: el bot conectado al motor arranca **solo con
+  Gabriel**. Petrus se suma después de la primera semana de carga real; ahí se habilita el
+  segundo teléfono y se prueban los duplicados entre usuarios.
+- **El LLM sabe quién escribe.** El prompt nombra a la persona (de `USUARIOS`), no a «el
+  arquitecto»: si Petrus escribe «pagué», pagó el estudio.
 
 ### 5.14 · Lo personal vive en un libro aparte
 
@@ -343,10 +382,36 @@ dos veces. Acá son dos mensajes distintos que describen el mismo hecho.
 hecho a la cuenta de otra persona: indirectamente es plata que entra para él y, a la vez,
 un gasto con el que canceló algo.
 
-*Supuesto a confirmar:* se registra como **`PASANTE`**: una sola fila que suma a lo
-adelantado y a lo pagado de la obra, no toca la caja del estudio, y va marcada
-**`informal`**. Los movimientos informales quedan **fuera de la posición de IVA y fuera de la
-conciliación bancaria**.
+Se registra como **`PASANTE`** *(definido 25/09; sigue en la lista de supuestos a
+confirmar con el arquitecto)*: **una sola fila** con `cuenta = Pagado por el comitente`, que
+suma a la cuenta corriente del contratista en la obra igual que un pago directo del
+comitente (§5.9). **No toca el saldo del estudio** y va marcada **`informal`**. Los
+movimientos informales quedan **fuera de la posición de IVA y fuera de la conciliación
+bancaria**. `Pagado por el comitente` es una cuenta de tipo externa: existe para que la fila
+tenga cuenta, pero no suma al saldo del estudio ni concilia.
+
+### 5.18 · Traspasos entre cuentas
+
+*Definido 25/09.* Sacar efectivo del banco, reponer la caja chica de una obra, pasar plata de
+la caja de obra al banco: **dos filas vinculadas** que salen del mismo mensaje, una salida de
+la cuenta de origen y una entrada en la de destino, con el mismo importe y la misma
+referencia. Entre cuentas del estudio el total no cambia, y **cada cuenta concilia sola**.
+Cuando una de las dos es una caja de obra, cada fila cae en su cuenta y el saldo de cada una
+se lee con las reglas de §5.8: el traspaso no agrega ninguna regla nueva.
+
+### 5.19 · Corregir algo ya confirmado
+
+*Definido 25/09.* El libro no se edita nunca. Si un movimiento confirmado estaba mal —otra
+obra, otro importe, otro contratista— **el bot lo corrige con un contraasiento**: escribe una
+fila que anula la original (mismo importe con signo contrario, marcada `anula = <id_mov>`) y
+después la fila correcta, que se confirma como cualquier otra. Queda el rastro de qué se
+cargó, quién lo corrigió y cuándo.
+
+- El usuario lo pide **respondiendo al acuse** del movimiento o escribiendo «corregir
+  M-000012». El acuse de cada confirmación muestra el `id_mov` para eso.
+- **Solo lo puede corregir quien tenga acceso a ese libro**: lo personal, solo con
+  `ve_personal`.
+- La conciliación ignora el par original + contraasiento y concilia la fila correcta.
 
 ---
 
@@ -426,10 +491,11 @@ certificado, «Austral» es el emisor, nunca la obra.**
 
 ## 8. Estado y pendientes
 
-**Semana 4 de 8.** El motor está en producción: interpreta (**92 %** del corpus sin preguntar
-de más), lee comprobantes y escribe en el libro con `/confirmar`. La app de Google está
-publicada. Falta conectar el gateway, `/consultar`, el libro personal, certificados y
-etapas, el tablero y la conciliación.
+**Semana 4 de 8.** El motor está en producción con libro personal, cierre semanal, etapas,
+caja chica, duplicados, certificados y `/consultar` (**92 %** del corpus sin preguntar de
+más). **Próximo paso (decidido 25/09): conectar el gateway al motor y arrancar la carga real
+con Gabriel**, con confirmación de todo y la captura como red. Después: tablero, conciliación
+y marcha blanca.
 
 **Supuestos a confirmar con el arquitecto** —el diseño los toma como válidos hasta que diga
 otra cosa—: etapa y certificado son cosas distintas (§5.15; el certificado de ejemplo es el
@@ -446,10 +512,9 @@ código estable (`P-01`, `P-02`…). No duplicar esa lista acá.
 
 Deudas técnicas que atraviesan los dos repos:
 
-- **El adjunto a veces llega 8 a 18 segundos ANTES que el texto** que lo etiqueta. La
-  ventana de agrupamiento del gateway tiene que mirar para los dos lados.
-- **Manda cosas repetidas** con un segundo de diferencia. Detectar duplicados antes de
-  escribir.
+- **El adjunto a veces llega 8 a 18 segundos ANTES que el texto** que lo etiqueta: resuelto
+  por la regla de agrupamiento de §5.12 (el texto cierra el grupo, 90 s de espera).
+- **Manda cosas repetidas** con un segundo de diferencia: §5.12, se toma una sola vez.
 
 ---
 
