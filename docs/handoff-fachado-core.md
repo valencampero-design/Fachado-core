@@ -27,7 +27,7 @@
 | ✅ Métrica del corpus | 92 % contando las preguntas de diseño, igual antes y después de las tandas 1 a 6 (§4) |
 | ✅ Maestro alineado al contexto v1.5 | Cajas de obra, Petrus con teléfono y activo, Pinturería Andina, cobros de Moreno en su caja (§8) |
 | ✅ Hojas nuevas en el Master | `ETAPAS` (vacía: las carga el arquitecto) y `CERTIFICADOS` (vacía) |
-| ⏳ Conectar el gateway | Lo que necesita, en §6 |
+| ⏳ Conectar el gateway | El modo obras está desplegado en el gateway con `FACHADO_MOTOR_ACTIVO=0` (ya usa `ficha` de `GET /movimientos`). Se enciende en la reunión del martes 29/09 con el runbook de `chatbot-contable/docs/handoff-fachado.md` §6 |
 | ⏳ Conciliación, IVA | No empezados (§7) |
 
 ## 1. Qué es este repo
@@ -428,7 +428,7 @@ Railway, al lado del gateway, desde GitHub. `nixpacks.toml` fija Python 3.11 y a
 | `FACHADO_PERSONAL_SHEET_ID` | «FACHADO — Personal» (§5.14): `1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`, **cargada en Railway desde el 25/09**. Si se vaciara, lo personal da 503 y nunca cae en el libro del estudio |
 | `GOOGLE_CREDENTIALS_JSON` | Service account del gateway, para **leer y escribir los Sheets** |
 | `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` | OAuth de usuario, para **bajar y mover los adjuntos** |
-| `DRIVE_CARPETA_COMPROBANTES_ID` | Carpeta raíz «comprobantes». Si queda vacía, el motor la crea la primera vez y devuelve el id en una advertencia |
+| `DRIVE_CARPETA_COMPROBANTES_ID` | Carpeta raíz «comprobantes», **cargada el 27/09**. Si se vaciara, el motor la busca o la crea la primera vez y devuelve el id en una advertencia. Para obtener el id sin esperar un `/confirmar`: `python -c "from app import sheets; print(sheets.carpeta_drive('comprobantes', None))"` (tiene que correr con las credenciales OAuth del motor) |
 | `ANTHROPIC_API_KEY` | |
 | `LLM_MODELO` · `LLM_EFFORT` | Default `claude-opus-5` y `low` |
 | `MAESTROS_TTL_SEGUNDOS` · `LEER_ADJUNTOS` · `UTC_OFFSET_HORAS` | Default 300 · true · -3 |
@@ -550,12 +550,16 @@ manda mensajes repetidos** con un segundo de diferencia.
 
 - [ ] Confirmar que el primer cierre semanal corrió el lunes 28/09 (logs del servicio
       `cierre-semanal` en Railway).
-- [ ] Cargar las etapas en `ETAPAS` (hoy vacía: ninguna obra tiene etapas y el bot no las
-      pregunta).
+- [ ] **Encender el gateway**: el runbook de `chatbot-contable/docs/handoff-fachado.md` §6, en
+      la reunión del martes 29/09 (ensayo primero, después la primera fila real).
 - [ ] **La primera fila real**, con un movimiento verdadero, mirándola en el Sheet.
-- [ ] La primera vez que un `/confirmar` mueva un comprobante, el motor crea la carpeta
-      «comprobantes» y devuelve su id en una advertencia: cargarlo en
-      `DRIVE_CARPETA_COMPROBANTES_ID` en Railway.
+- [ ] **Etapas** (queda para después de la reunión del 29/09): preguntarle a Gabriel qué obras
+      tienen etapas y cargarlas en `ETAPAS` (`obra · etapa · descripcion · estado`). Hoy está
+      vacía: ninguna obra tiene etapas y el bot no las pregunta.
+- [x] ~~`DRIVE_CARPETA_COMPROBANTES_ID`~~ — fijada el 27/09 (la carpeta «comprobantes» la creó
+      la misma app OAuth del motor).
+- [x] ~~Claves y réplicas~~ — verificado el 27/09: `MOTOR_API_KEY` igual a
+      `FACHADO_MOTOR_API_KEY` del gateway, y una sola réplica de `web`.
 - [ ] Correr `python -m tests.test_corpus --sheet --adjuntos`: la métrica con los
       comprobantes reales.
 - [ ] Correr en Python 3.11 (local hay 3.14; Railway ya está fijado en 3.11).
