@@ -68,8 +68,11 @@ def main() -> int:
     terceros = [o.nombre for o in m.obras if o.tipo == "obra_terceros" and o.estado == "activa"]
     check("cada obra de terceros activa tiene su caja de obra", all(m.caja_de_obra(o) for o in terceros),
           [o for o in terceros if not m.caja_de_obra(o)])
-    check("las obras propias no tienen caja: el comitente es él mismo",
-          not any(m.caja_de_obra(o.nombre) for o in m.obras if o.tipo == "obra_propia"))
+    # §5.8 v1.7: cualquier obra puede tener caja chica (Gonzalo tiene desde el 30/09). Lo que
+    # no puede haber es una caja de una obra que no existe.
+    cajas = [c.nombre for c in m.cuentas if c.tipo == "caja_obra" and c.activa]
+    check("cada caja de obra es de una obra que existe", all(m.obra_de_caja(c) for c in cajas),
+          [c for c in cajas if not m.obra_de_caja(c)])
     check("una cuenta inactiva no se puede usar", all(m.cuenta(c.nombre) is None for c in m.cuentas if not c.activa))
 
     print("\n§5.13 · Usuarios")

@@ -1,7 +1,7 @@
 {
   "_meta": {
     "fuente": "1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A",
-    "tomado": "2026-09-25",
+    "tomado": "2026-09-30",
     "nota": "Copia literal de las hojas maestras. Se regenera con scripts/snapshot_maestros.py."
   },
   "OBRAS": [
@@ -159,8 +159,8 @@
       "Belelli",
       "Belelli",
       "personal",
-      "",
-      "",
+      "todo",
+      "El arquitecto",
       "activa",
       "",
       "Inmueble personal. Recibe las facturas de Edesur y Metrogas"
@@ -179,12 +179,11 @@
       "Gessel",
       "Gessel",
       "personal",
-      "",
-      "",
+      "todo",
+      "El arquitecto",
       "activa",
       "",
-      "Inmueble personal. Se sumó el 29/09 (reunión 5)",
-      ""
+      "Remodelación de departamento"
     ]
   ],
   "CONTRATISTAS": [
@@ -1302,6 +1301,15 @@
       "0,00",
       "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
       "activa"
+    ],
+    [
+      "Caja obra Gonzalo",
+      "caja_obra",
+      "ARS",
+      "no",
+      "0,00",
+      "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
+      "activa"
     ]
   ],
   "ALIAS": [
@@ -1523,6 +1531,11 @@
     [
       "ferr andina",
       "Ferretería Andina",
+      "contratista"
+    ],
+    [
+      "Metrogas",
+      "Metro Gas",
       "contratista"
     ],
     [

@@ -86,8 +86,8 @@ def main() -> int:
     check("mayúsculas y minúsculas dan igual", c["obra"] == "Lennon" and c["cuenta"] == "Caja obra Lennon", c)
     r, f, c = leer("Barba/Lennon/caja")
     check("la palabra suelta «caja» equivale a la C", c["cuenta"] == "Caja obra Lennon", c["cuenta"])
-    r, f, c = leer("Barba/GonzaloC")
-    check("C en una obra sin caja (obra propia): no inventa la cuenta, pregunta y avisa",
+    r, f, c = leer("Barba/Hua HuanC")
+    check("C en una obra sin caja (Hua Huan): no inventa la cuenta, pregunta y avisa",
           not c["cuenta"] and campos_de(r, "cuenta") and any("no tiene caja" in a for a in f.extras.get("advertencias", [])),
           (c["cuenta"], [p.texto for p in r.preguntas]))
     with con_etapas(("Lennon", "1"), ("Lennon", "2")):

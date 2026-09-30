@@ -228,17 +228,27 @@ la métrica, que mide obra, clasificación y contratista.
 
 ### Los 422 del 29/09 para reenviar
 
-**No los pude listar:** el Railway CLI de esta máquina está logueado con otra cuenta (la de
-Hensel), no con la del proyecto de Fachado, y no la cambié. Para sacarlos: en Railway,
-servicio del gateway (`chatbot-contable`) → **Deployments → View logs**, filtrar por
-`Falta` o por `422` desde el 29/09. Cada línea de `motor POST /confirmar` trae el `msg_id`;
-la obra y el importe están en el mensaje «No lo pude cargar: … (Obra $ importe)» que le
-llegó a Gabriel. Como `/confirmar` es idempotente por `msg_id` y esos no se escribieron, se
-pueden reenviar sin riesgo.
+La lista la reconstruyó la sesión del gateway cruzando `CAPTURA` contra `MOVIMIENTOS`: **8
+fichas no escritas en 7 confirmaciones**, con su `msg_id`. Está en la copia de este archivo en
+`chatbot-contable/docs/clientes/fachado/handoff-fix-arranque-2026-09-30.md` («422 del
+arranque»). Desde el motor no se pudieron leer los logs de Railway: el CLI de esta máquina
+está logueado con otra cuenta.
 
-| msg_id | Obra | Importe |
-|---|---|---|
-| *(completar desde los logs)* | | |
+Del lado del motor, dos notas sobre esa lista:
+
+- **Lennon también falló a las 18:59** («Lennon/luis»): coincide con que la regla «Lennon →
+  Pagado por el comitente» no existía. Sin «efectivo» en el mensaje, Lennon quedaba sin
+  cuenta igual que las otras obras. Queda corregido (`OBRAS.cuenta_habitual`).
+- **«Gesell/Nelson»**: Gabriel escribió «Gesell» y la obra es «Gessel». Verificado en
+  producción el 30/09: el motor lo resuelve a Gessel por parecido; no hace falta un alias.
+
+### Deploy verificado (30/09)
+
+Motor desplegado, las cuatro migraciones aplicadas en el Sheet real (y vueltas a correr: «Nada
+que hacer»). En producción: «Metro Gas/Grigera Galpón 11.750» → Banco (supuesto), sin
+faltantes; «Felipe J/Lennon $300.000» → Pagado por el comitente y etapa 1 (maestro); Moreno
+sin etapa → pregunta; «Moreno extras» → etapa extras; «Lennon2» → pregunta si se activa;
+«u$s 500» → Banco USD y pregunta el tipo de cambio.
 
 ### Lo que el motor necesita en el deploy (orden)
 
