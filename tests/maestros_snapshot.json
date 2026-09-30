@@ -174,6 +174,17 @@
       "cerrada",
       "",
       "Obra de referencia del relevamiento. No se borra: el histórico la referencia"
+    ],
+    [
+      "Gessel",
+      "Gessel",
+      "personal",
+      "",
+      "",
+      "activa",
+      "",
+      "Inmueble personal. Se sumó el 29/09 (reunión 5)",
+      ""
     ]
   ],
   "CONTRATISTAS": [
@@ -1513,6 +1524,11 @@
       "ferr andina",
       "Ferretería Andina",
       "contratista"
+    ],
+    [
+      "gessel",
+      "Gessel",
+      "obra"
     ]
   ],
   "USUARIOS": [

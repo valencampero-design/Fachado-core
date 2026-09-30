@@ -614,6 +614,13 @@ def main() -> int:
     r, f, c = leer("pasé $1.450.000 del banco al banco usd")
     check("«banco usd» es el nombre de la cuenta: el importe sigue en pesos", c["moneda"] == "ARS", c["moneda"])
 
+    # ── Fix del arranque · 4 maestro ──────────────────────────────────────────
+    print("\nFix del arranque · 4 Gessel y «belleli» (§6 v1.7)")
+    for texto, obra in (("Edesur/Gessel", "Gessel"), ("Edesur/gessel", "Gessel"), ("Metrogas/Belleli", "Belelli")):
+        r, f, c = leer(texto + " $10.000")
+        check(f"«{texto}» → {obra}, inmueble personal: circuito personal (R1)",
+              (c["obra"], c["tipo_gasto"]) == (obra, "personal"), (c["obra"], c["tipo_gasto"], f.regla))
+
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"ninguna ficha devolvió un faltante sin su pregunta ({len(rotas_invariante)} con problemas)",
           not rotas_invariante, rotas_invariante)
