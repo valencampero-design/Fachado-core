@@ -22,6 +22,7 @@ class LibroMemoria:
         self.demora = demora
         self.escrituras = 0  # llamadas de escritura a MOVIMIENTOS: un traspaso tiene que ser una
         self.reactivados: list[str] = []  # contratistas que /confirmar reactivó en el maestro
+        self.etapas_activadas: list[tuple[str, str]] = []  # etapas que /confirmar pasó a en curso
 
     def sembrar(self, **campos) -> None:
         """Una fila ya existente en el libro, cargada antes de la prueba."""
@@ -48,6 +49,10 @@ class LibroMemoria:
 
     def reactivar_contratista(self, nombre):
         self.reactivados.append(nombre)
+        return True
+
+    def activar_etapa(self, obra, etapa):
+        self.etapas_activadas.append((obra, etapa))
         return True
 
     def leer_certificados(self):

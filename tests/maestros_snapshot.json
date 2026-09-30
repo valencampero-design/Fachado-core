@@ -1547,6 +1547,42 @@
       "etapa",
       "descripcion",
       "estado"
+    ],
+    [
+      "Lennon",
+      "1",
+      "Etapa 1",
+      "en curso"
+    ],
+    [
+      "Lennon",
+      "2",
+      "Etapa 2",
+      "futura"
+    ],
+    [
+      "Lennon",
+      "3",
+      "Etapa 3",
+      "futura"
+    ],
+    [
+      "Moreno",
+      "1",
+      "Etapa 1",
+      "en curso"
+    ],
+    [
+      "Moreno",
+      "extras",
+      "Extras",
+      "en curso"
+    ],
+    [
+      "Moreno",
+      "2",
+      "Etapa 2",
+      "futura"
     ]
   ],
   "MOVIMIENTOS": [

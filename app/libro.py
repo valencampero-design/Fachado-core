@@ -44,6 +44,10 @@ class Libro(Protocol):
         no el libro: ahí sí se edita, y nada se borra."""
         ...
 
+    def activar_etapa(self, obra: str, etapa: str) -> bool:
+        """Pone `estado = en curso` en la fila de ETAPAS (§5.15). True si cambió algo."""
+        ...
+
     def escribir_certificado(self, numero: int, valores: list) -> None:
         ...
 
@@ -85,6 +89,21 @@ class LibroSheets:
             if len(fila) > col and normalizar(fila[col]) == normalizar(nombre) \
                     and normalizar(fila[est] if len(fila) > est else "") != "activo":
                 sheets.escribir_rango(self.sheet_id, f"CONTRATISTAS!{sheets.columna_a_letra(est + 1)}{n}", [["activo"]])
+                cambio = True
+        return cambio
+
+    def activar_etapa(self, obra: str, etapa: str) -> bool:
+        filas = sheets.leer_rango(self.sheet_id, "ETAPAS!A:Z", formato="FORMATTED_VALUE")
+        encabezado = [normalizar(x) for x in (filas[0] if filas else [])]
+        if not {"obra", "etapa", "estado"} <= set(encabezado):
+            raise ValueError("ETAPAS no tiene las columnas «obra», «etapa» y «estado»")
+        co, ce, cs = (encabezado.index(x) for x in ("obra", "etapa", "estado"))
+        cambio = False
+        for n, fila in enumerate(filas[1:], start=2):
+            celda = lambda i: fila[i] if len(fila) > i else ""  # noqa: E731
+            if normalizar(celda(co)) == normalizar(obra) and normalizar(celda(ce)) == normalizar(etapa) \
+                    and normalizar(celda(cs)) != "en curso":
+                sheets.escribir_rango(self.sheet_id, f"ETAPAS!{sheets.columna_a_letra(cs + 1)}{n}", [["en curso"]])
                 cambio = True
         return cambio
 

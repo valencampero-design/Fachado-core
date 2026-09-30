@@ -317,6 +317,8 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
         else:
             advertencias.append(f"{inactivo.nombre} está inactivo en CONTRATISTAS")
 
+    etapa_activada = await _activar_etapa(libro, m, fila.get("obra"), fila.get("etapa"), req.ficha.extras, advertencias)
+
     saldo = None
     if fila.get("obra"):
         saldo, avisos = saldo_obra(movs, fila["obra"], m)
@@ -339,8 +341,26 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
 
     return ConfirmarOut(id_mov=fila["id_mov"], fila=numero_fila, comprobante_url=comprobante_url, obra=saldo,
                         certificado=estado, alias_escrito=alias_escrito, contratista_reactivado=reactivado,
+                        etapa_activada=etapa_activada,
                         ya_existia=ya_existia, libro=destino,
                         cargado_por=str(fila.get("cargado_por") or usuario.nombre), advertencias=advertencias)
+
+
+async def _activar_etapa(libro: Libro, m: Maestros, obra: str | None, etapa: str | None, extras: dict,
+                         advertencias: list[str]) -> bool:
+    """§5.15 (v1.7): la etapa era futura o terminada y el usuario dijo que sí: pasa a «en
+    curso» en ETAPAS. Como el alias, si falla, lo escrito queda y vuelve una advertencia."""
+    e = m.etapa(obra, etapa) if obra and etapa else None
+    if e is None or e.en_curso or normalizar(extras.get("activar_etapa")) != e.etapa:
+        return False
+    try:
+        cambio = await asyncio.to_thread(libro.activar_etapa, e.obra, e.etapa)
+        maestros.invalidar()
+        return cambio
+    except Exception as ex:  # noqa: BLE001
+        logger.exception("No se pudo activar la etapa %s de %s", e.etapa, e.obra)
+        advertencias.append(f"Quedó escrito pero la etapa {e.etapa} de {e.obra} no pasó a en curso ({type(ex).__name__})")
+        return False
 
 
 async def _mover_comprobante(archivador: Archivador, url: str | None, carpetas: list[str], nombre: str,
@@ -561,6 +581,7 @@ async def confirmar_certificado(req: ConfirmarIn, libro: Libro, archivador: Arch
         logger.exception("No se pudo calcular lo cobrado del certificado")
         advertencias.append(f"No se pudo calcular lo cobrado ({type(e).__name__})")
 
+    etapa_activada = await _activar_etapa(libro, m, fila.get("obra"), fila.get("etapa"), req.ficha.extras, advertencias)
     return ConfirmarOut(id_mov=nombre_de_certificado(fila), fila=numero_fila, comprobante_url=comprobante_url,
-                        certificado=estado, ya_existia=ya_existia, libro="certificados",
+                        certificado=estado, ya_existia=ya_existia, libro="certificados", etapa_activada=etapa_activada,
                         cargado_por=str(fila.get("cargado_por") or usuario.nombre), advertencias=advertencias)

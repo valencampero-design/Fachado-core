@@ -82,6 +82,10 @@ async def _correr() -> int:
                 "comprobante_url": "https://drive.google.com/file/d/1sOnWv79ya4qgOAweTfEDReSgFbNaETrd/view",
                 "descripcion": "Transf. OFB", "origen": "WHATSAPP", "id_mov": None, "cargado_por": "bot"}
         base.update(campos)
+        # Lennon y Moreno tienen etapa 1 en curso en el snapshot (§5.15 v1.7): la ficha la trae,
+        # como la trae /interpretar. Un caso que quiera otra la pasa explícita.
+        if "etapa" not in campos:
+            base["etapa"] = "1" if base.get("obra") in ("Lennon", "Moreno") else None
         return {"campos": base, "extras": {}}
 
     transporte = httpx.ASGITransport(app=app)
@@ -247,7 +251,10 @@ async def _correr() -> int:
             ("USD sin tipo de cambio → 422", 422, "tc", {}, ficha(moneda="USD", tc=None)),
             ("PASANTE sin contratista → 422", 422, "contratista", {}, ficha(tipo="PASANTE", contratista=None)),
             ("la caja de otra obra → 422", 422, "cuenta", {}, ficha(cuenta="Caja obra Moreno")),
-            ("una etapa en una obra sin etapas → 422", 422, "etapa", {}, ficha(etapa="1")),
+            ("una etapa en una obra sin etapas → 422", 422, "etapa", {},
+             ficha(obra="Hua Huan", cuenta="Banco", etapa="1")),
+            ("una etapa futura sin «sí» → 422", 422, "etapa", {}, ficha(etapa="2")),
+            ("Moreno sin etapa (dos en curso) → 422", 422, "etapa", {}, ficha(obra="Moreno", cuenta="Banco", etapa=None)),
         ]
         for descripcion, status, campo, extra, f in casos:
             libro, _ = preparar()
@@ -356,6 +363,16 @@ async def _correr() -> int:
         check("sin reactivar: se escribe igual, no toca el maestro y avisa que está inactivo",
               not cuerpo["contratista_reactivado"] and not libro.reactivados
               and any("inactivo" in a for a in cuerpo["advertencias"]), cuerpo)
+
+        # ── Fix del arranque · 2 activar una etapa futura ─────────────────────
+        print("\nFix del arranque · «¿la paso a en curso?» → «Sí» (§5.15 v1.7)")
+        libro, _ = preparar()
+        f = ficha(etapa="2", comprobante_url=None)
+        f["extras"] = {"activar_etapa": "2"}
+        cuerpo = (await confirmar("wamid.ETAPA2", f)).json()
+        check("con extras.activar_etapa: escribe con etapa 2 y la pasa a en curso en ETAPAS",
+              cuerpo.get("etapa_activada") and libro.etapas_activadas == [("Lennon", "2")]
+              and libro.movimientos()[-1]["etapa"] == "2", (cuerpo, libro.etapas_activadas))
 
         # ── Tanda 6.2 · TRASPASO ──────────────────────────────────────────────
         print("\n6.2 · Un traspaso: dos filas vinculadas en una sola escritura (§5.18)")
@@ -553,7 +570,7 @@ async def _correr() -> int:
         print("\nTanda 5 · el certificado va a CERTIFICADOS, no a MOVIMIENTOS (§5.11)")
 
         def ficha_cert(**campos):
-            base = {"tipo": "CERTIFICADO", "obra": "Moreno", "etapa": None, "numero": "5", "fecha": "2026-09-20",
+            base = {"tipo": "CERTIFICADO", "obra": "Moreno", "etapa": "1", "numero": "5", "fecha": "2026-09-20",
                     "saldo_a_cobrar": 3200000, "fuente": "PDF",
                     "comprobante_url": "https://drive.google.com/file/d/1CERTxxxxxxxxxxxxxxxxxxxxxx/view"}
             base.update(campos)
@@ -567,7 +584,7 @@ async def _correr() -> int:
         check("200, libro = certificados, y MOVIMIENTOS no se toca",
               r.status_code == 200 and cuerpo["libro"] == "certificados" and len(libro.filas) == antes, (r.status_code, cuerpo))
         check("la fila: obra, etapa, número, fecha, saldo, fuente, msg_id, cargado_por, comprobante",
-              cert[:6] == ["Moreno", "", "5", "2026-09-20", 3200000, "PDF"] and cert[6] == "wamid.CERT5#0"
+              cert[:6] == ["Moreno", "1", "5", "2026-09-20", 3200000, "PDF"] and cert[6] == "wamid.CERT5#0"
               and cert[7] == titular.nombre and cert[8], cert)
         check("el PDF va a comprobantes/Moreno/certificados/",
               archivador.movidos and archivador.movidos[-1][1] == ["Moreno", "certificados"]
@@ -594,7 +611,7 @@ async def _correr() -> int:
             ("obra inexistente → 422", "obra", ficha_cert(obra="Lo Guercio")),
             ("sin número → 422", "numero", ficha_cert(numero="")),
             ("saldo cero → 422", "saldo_a_cobrar", ficha_cert(saldo_a_cobrar=0)),
-            ("una etapa en una obra sin etapas → 422", "etapa", ficha_cert(etapa="2")),
+            ("una etapa en una obra sin etapas → 422", "etapa", ficha_cert(obra="Moquehue", etapa="2")),
         ]
         for descripcion, campo, f in casos_cert:
             libro, _ = preparar()

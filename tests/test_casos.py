@@ -55,14 +55,15 @@ def main() -> int:
 
     @contextlib.contextmanager
     def con_etapas(*pares):
-        """Etapas cargadas solo mientras dura el caso: ETAPAS arranca vacía en el Sheet."""
-        agregadas = [Etapa(obra, etapa, "", "en curso") for obra, etapa in pares]
-        m.etapas.extend(agregadas)
+        """Mientras dura el caso, esas obras tienen exactamente estas etapas, todas en curso
+        (las del snapshot de esas obras se sacan y después vuelven)."""
+        obras = {obra for obra, _ in pares}
+        antes = list(m.etapas)
+        m.etapas[:] = [e for e in m.etapas if e.obra not in obras] + [Etapa(obra, etapa, "", "en curso") for obra, etapa in pares]
         try:
             yield
         finally:
-            for e in agregadas:
-                m.etapas.remove(e)
+            m.etapas[:] = antes
 
     def campos_de(r, *nombres):
         return [p.campo for p in r.preguntas if p.campo in nombres]
@@ -74,11 +75,12 @@ def main() -> int:
         check("Barba/Lennon1C → Lennon, etapa 1, Caja obra Lennon",
               c["obra"] == "Lennon" and c["etapa"] == "1" and c["cuenta"] == "Caja obra Lennon", c)
     r, f, c = leer("Barba/LennonC")
-    check("Barba/LennonC → Lennon, sin etapa, Caja obra Lennon",
-          c["obra"] == "Lennon" and not c["etapa"] and c["cuenta"] == "Caja obra Lennon", c)
-    r, f, c = leer("Barba/Lennon1")
-    check("Barba/Lennon1 con Lennon sin etapas → etapa vacía y advertencia",
-          c["obra"] == "Lennon" and not c["etapa"] and any("no tiene etapas" in a for a in f.extras.get("advertencias", [])),
+    check("Barba/LennonC → Lennon, Caja obra Lennon, y la etapa 1 del maestro (única en curso, v1.7)",
+          c["obra"] == "Lennon" and c["etapa"] == "1" and f.origen_campo.get("etapa") == "maestro"
+          and c["cuenta"] == "Caja obra Lennon", (c, f.origen_campo.get("etapa")))
+    r, f, c = leer("Barba/Hua Huan1")
+    check("una etapa en una obra sin etapas (Hua Huan) → etapa vacía y advertencia",
+          c["obra"] == "Hua Huan" and not c["etapa"] and any("no tiene etapas" in a for a in f.extras.get("advertencias", [])),
           (c["etapa"], f.extras.get("advertencias")))
     r, f, c = leer("barba/lennon1c")
     check("mayúsculas y minúsculas dan igual", c["obra"] == "Lennon" and c["cuenta"] == "Caja obra Lennon", c)
@@ -93,7 +95,7 @@ def main() -> int:
         preg = [p for p in r.preguntas if p.campo == "etapa"]
         check("obra con etapas y el mensaje no dice cuál: pregunta con una opción por etapa",
               preg and preg[0].opciones == ["1", "2"], [(p.campo, p.opciones) for p in r.preguntas])
-    r, f, c = leer("Barba/Lennon")
+    r, f, c = leer("Barba/Hua Huan")
     check("obra sin etapas: nunca pregunta la etapa", not campos_de(r, "etapa"), [p.campo for p in r.preguntas])
 
     print("\nTanda 2 · ingresos de obras administradas (§5.8)")
@@ -264,8 +266,10 @@ def main() -> int:
     r = interpretar(InterpretarIn(texto="Cert. 4 extras", fecha_mensaje="2026-09-25T12:00:00Z",
                                   contexto_previo=previo.model_dump()))
     c = r.fichas[0].campos
-    check("… pero como corrección de un cobro (corpus fila 77) sigue siendo el cobro, con el número corregido",
-          c["tipo"] == "INGRESO" and c["obra"] == "Moreno" and r.fichas[0].extras.get("certificado") == "4 extras", c)
+    check("… pero como corrección de un cobro (corpus fila 77) sigue siendo el cobro: certificado 4 de la etapa "
+          "extras (§5.11 v1.7)",
+          c["tipo"] == "INGRESO" and c["obra"] == "Moreno" and r.fichas[0].extras.get("certificado") == "4"
+          and c["etapa"] == "extras", (c, r.fichas[0].extras.get("certificado")))
     r, f, c = leer("Certificado 3 Austral $100.000")
     check("«Austral» en un certificado nunca es la obra de indirectos: pregunta la obra",
           not c["obra"] and campos_de(r, "obra"), (c["obra"], f.extras.get("advertencias")))
@@ -303,8 +307,9 @@ def main() -> int:
           f.extras["comprobante"].get("importe") is None and not r.diagnostico["uso_llm"], f.extras["comprobante"])
 
     r, f = leer_con("Moreno etapa 2", adjuntos=[adj_cert], lector=lector_pdf)
-    check("si el texto dice obra y etapa, manda el texto", (f.campos["obra"], f.campos["etapa"]) == ("Moreno", None)
-          and any("no tiene etapas" in a for a in f.extras.get("advertencias", [])), (f.campos, f.extras.get("advertencias")))
+    check("si el texto dice obra y etapa, manda el texto: Moreno etapa 2, y como es futura pregunta si la activa",
+          (f.campos["obra"], f.campos["etapa"]) == ("Moreno", "2") and campos_de(r, "activar_etapa"),
+          (f.campos, [p.campo for p in r.preguntas]))
     with con_etapas(("Moreno", "2"), ("Moreno", "3")):
         r, f = leer_con("Moreno2", adjuntos=[adj_cert], lector=lector_pdf)
         check("… con etapas cargadas: Moreno etapa 2, sin conflicto de etapa",
@@ -551,6 +556,43 @@ def main() -> int:
     check("la C de la caja sigue mandando", c["cuenta"] == "Caja obra Lennon", c["cuenta"])
     r, f, c = leer("Deposito Marcelo Maragaño/Moreno $300.000")
     check("un depósito no se toca: «Pagado por el comitente»", c["cuenta"] == "Pagado por el comitente", c["cuenta"])
+
+    # ── Fix del arranque · 2 etapas (§5.15 v1.7) ──────────────────────────────
+    print("\nFix del arranque · 2 etapas: Lennon 1 en curso; Moreno 1 y extras en curso")
+    r, f, c = leer("Barba/Lennon $10.000")
+    check("Lennon sin etapa → etapa 1 (la única en curso), origen maestro, sin preguntar",
+          c["etapa"] == "1" and f.origen_campo.get("etapa") == "maestro" and not campos_de(r, "etapa"), (c["etapa"], r.preguntas))
+    r, f, c = leer("Marcelo Maragaño/Moreno $10.000")
+    etapa_p = [p for p in r.preguntas if p.campo == "etapa"]
+    check("Moreno sin etapa → pregunta «¿Etapa 1 o extras?» con las dos en curso",
+          not c["etapa"] and etapa_p and etapa_p[0].opciones == ["1", "extras"], [(p.campo, p.opciones) for p in r.preguntas])
+    for texto in ("Marcelo Maragaño/Moreno extras $1", "Marcelo Maragaño/Morenoextras $1", "Marcelo Maragaño/Moreno ext $1",
+                  "Marcelo Maragaño/Moreno/extras $1"):
+        r, f, c = leer(texto)
+        check(f"«{texto.split('$')[0].strip()}» → etapa extras", c["etapa"] == "extras" and not campos_de(r, "etapa"), c["etapa"])
+    for texto in ("Marcelo Maragaño/MorenoC extras $1", "Marcelo Maragaño/Moreno extras C $1"):
+        r, f, c = leer(texto)
+        check(f"«{texto.split('$')[0].strip()}» → etapa extras y la caja de Moreno",
+              (c["etapa"], c["cuenta"]) == ("extras", "Caja obra Moreno"), (c["etapa"], c["cuenta"]))
+    r, f, c = leer("Barba/Lennon2 $10.000")
+    activar = [p for p in r.preguntas if p.campo == "activar_etapa"]
+    check("«Lennon2» (futura) → pregunta «La etapa 2 de Lennon figura como futura, ¿la paso a en curso?»",
+          c["etapa"] == "2" and activar and "futura" in activar[0].texto and activar[0].opciones == ["Sí", "No"],
+          [(p.campo, p.texto) for p in r.preguntas])
+    r_si = responder(r, ("activar_etapa", "Sí"))
+    check("… «Sí» → extras.activar_etapa = 2, sin más preguntas de etapa",
+          r_si.fichas[0].extras.get("activar_etapa") == "2" and r_si.fichas[0].campos["etapa"] == "2"
+          and not campos_de(r_si, "etapa", "activar_etapa"), (r_si.fichas[0].extras, r_si.preguntas))
+    r_no = responder(r, ("activar_etapa", "No"))
+    check("… «No» → vuelve a la etapa en curso (1)", r_no.fichas[0].campos["etapa"] == "1", r_no.fichas[0].campos["etapa"])
+    r, f, c = leer("Ingreso Moreno/cert 4 extras $500.000")
+    check("«cert 4 extras» → certificado 4 de la etapa extras (§5.11 v1.7)",
+          (f.extras.get("certificado"), c["etapa"]) == ("4", "extras"), (f.extras.get("certificado"), c["etapa"]))
+    r, f, c = leer("Ingreso Moreno/cert 4 $500.000")
+    check("«cert 4» en Moreno → pregunta la etapa (dos en curso)", campos_de(r, "etapa") and not c["etapa"], r.preguntas)
+    r, f, c = leer("Certificado 5 Moreno extras $3.200.000")
+    check("certificado por texto: «Certificado 5 Moreno extras» → etapa extras, número 5",
+          (c["tipo"], c["numero"], c["etapa"]) == ("CERTIFICADO", "5", "extras"), c)
 
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"ninguna ficha devolvió un faltante sin su pregunta ({len(rotas_invariante)} con problemas)",

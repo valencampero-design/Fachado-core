@@ -181,6 +181,7 @@ class ConfirmarOut(BaseModel):
     certificado: EstadoCertificado | None = None
     alias_escrito: bool = False
     contratista_reactivado: bool = False  # §5.6: la ficha traía extras.reactivar
+    etapa_activada: bool = False  # §5.15: la etapa era futura o terminada y el usuario dijo que sí
     ya_existia: bool = False  # el msg_id ya estaba: se devuelve la fila que había
     libro: Literal["estudio", "personal", "certificados"] = "estudio"  # §5.14: dónde quedó escrito
     cargado_por: str

@@ -278,6 +278,56 @@ def _obra_con_sufijo(n: str, token: str, m: Maestros) -> Resolucion | None:
     return None
 
 
+def _etapa_y_caja(obra: str, palabra: str, m: Maestros) -> tuple[str | None, bool]:
+    """«extras» → (extras, False); «extrasc» → (extras, True); «ext» → (extras, False) si es
+    inequívoco. La etapa tiene que existir en ETAPAS para esa obra."""
+    e = m.etapa_por_nombre(obra, palabra)
+    if e:
+        return e, False
+    if palabra.endswith("c") and len(palabra) > 1:
+        e = m.etapa_por_nombre(obra, palabra[:-1])
+        if e:
+            return e, True
+    return None, False
+
+
+def _obra_pegada(n: str, token: str, m: Maestros) -> Resolucion | None:
+    """«morenoextras», «morenoextrasc»: la obra con una etapa con nombre pegada."""
+    claves = [(normalizar(a.como_lo_dice), _canonico_obra(m, a.valor_canonico)) for a in m.alias if a.tipo == "obra"]
+    claves += [(normalizar(o.nombre), o.nombre) for o in m.obras] + [(normalizar(o.codigo), o.nombre) for o in m.obras]
+    for clave, obra in sorted(claves, key=lambda c: -len(c[0])):
+        if clave and n.startswith(clave) and len(n) > len(clave):
+            etapa, caja = _etapa_y_caja(obra, n[len(clave):].strip(), m)
+            if etapa:
+                return Resolucion("obra", obra, "exacto", token, etapa=etapa, caja=caja)
+    return None
+
+
+def _obra_con_etapa(n: str, token: str, m: Maestros) -> Resolucion | None:
+    """La etapa con nombre (§5.15 v1.7): `Moreno extras`, `Morenoextras`, `Moreno ext`,
+    `MorenoC extras`, `Moreno extras C`. La obra primero y, después, solo palabras que sean
+    una etapa de esa obra o la C: si sobra algo que no lo es, no es esto."""
+    palabras = n.split()
+    for k in range(len(palabras), 0, -1):
+        cabeza, resto = " ".join(palabras[:k]), palabras[k:]
+        r = _obra_exacta(cabeza, token, m) or _obra_con_sufijo(cabeza, token, m) or _obra_pegada(cabeza, token, m)
+        if r is None or not (resto or r.etapa or r.caja):
+            continue
+        etapa, caja = r.etapa, r.caja
+        for palabra in resto:
+            if palabra == "c":
+                caja = True
+                continue
+            nueva, con_c = _etapa_y_caja(r.valor, palabra, m) if not etapa else (None, False)
+            if not nueva:
+                break
+            etapa, caja = nueva, caja or con_c
+        else:
+            r.etapa, r.caja = etapa, caja
+            return r
+    return None
+
+
 def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> list[Resolucion]:
     """`incluir_inactivos` es para la migración de históricos (§5.6): en la carga diaria un
     contratista inactivo solo coincide por nombre exacto, alias exacto o CUIT, y ahí el bot
@@ -302,7 +352,8 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
                 if len(palabras) < k:
                     continue
                 cola = " ".join(palabras[-k:])
-                r = _obra_exacta(normalizar(cola), cola, m) or _obra_con_sufijo(normalizar(cola), cola, m)
+                r = _obra_exacta(normalizar(cola), cola, m) or _obra_con_sufijo(normalizar(cola), cola, m) \
+                    or _obra_con_etapa(normalizar(cola), cola, m)
                 if r:
                     obras.insert(0, r)
                     del palabras[-k:]
@@ -352,8 +403,8 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
     if salida:  # era solo un marcador personal
         return salida
 
-    # 1b. La obra con etapa y/o caja pegadas: `Lennon1C`.
-    r = _obra_con_sufijo(n, token, m)
+    # 1b. La obra con etapa y/o caja pegadas: `Lennon1C`, `Moreno extras`, `MorenoC extras`.
+    r = _obra_con_sufijo(n, token, m) or _obra_con_etapa(n, token, m)
     if r:
         return [r]
 

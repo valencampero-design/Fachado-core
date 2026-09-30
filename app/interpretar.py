@@ -64,6 +64,56 @@ def _cuenta_del_comprobante(comp, obra, moneda: str | None, m: Maestros):
     return None
 
 
+def _decidir_etapa(obra, pedida: str | None, ya: str | None, extras: dict, m: Maestros
+                   ) -> tuple[str | None, str | None, list[Pregunta], list[str]]:
+    """§5.15 (v1.7). Devuelve (etapa, origen, preguntas, advertencias).
+
+    - El mensaje nombra una etapa: si está en curso, se usa; si es futura o terminada, se usa
+      y se pregunta si se activa (salvo que el usuario ya dijo que sí); si no existe, se pregunta.
+    - No la nombra: una sola en curso → esa, con origen «maestro» (la ficha dice «etapa 1, en
+      curso»); dos o más en curso → se pregunta cuál; ninguna → la obra no la necesita.
+    """
+    if obra is None:
+        return None, None, [], []
+    todas, en_curso = m.etapas_de(obra.nombre), m.etapas_en_curso(obra.nombre)
+    if pedida:
+        if not todas:
+            return None, None, [], [f"{obra.nombre} no tiene etapas cargadas en ETAPAS: se ignora la etapa {pedida}"]
+        e = m.etapa(obra.nombre, m.etapa_por_nombre(obra.nombre, pedida) or pedida)
+        if e is None:
+            return None, None, [Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}?", opciones=en_curso)], \
+                [f"{obra.nombre} no tiene una etapa {pedida}"]
+        if e.en_curso or normalizar(extras.get("activar_etapa")) == e.etapa:
+            return e.etapa, "texto", [], []
+        extras["etapa_propuesta"] = e.etapa
+        return e.etapa, "texto", [Pregunta(
+            campo="activar_etapa", texto=f"La etapa {e.etapa} de {obra.nombre} figura como {e.estado}, ¿la paso a en curso?",
+            opciones=["Sí", "No"])], []
+    if ya:
+        return ya, None, [], []
+    if len(en_curso) == 1:
+        return en_curso[0], "maestro", [], []
+    if len(en_curso) > 1:
+        return None, None, [Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}? ({' o '.join(en_curso)})",
+                                     opciones=en_curso)], []
+    return None, None, [], []
+
+
+def _etapa_del_certificado(valor: str | None, obra, m: Maestros) -> tuple[str | None, str | None]:
+    """«4 extras» en Moreno → (número «4», etapa «extras») (§5.11 v1.7: los certificados son
+    correlativos dentro de cada etapa). Sin obra, o si ninguna palabra es una etapa con
+    nombre de la obra, el número queda como vino."""
+    if not valor or obra is None:
+        return valor, None
+    palabras = str(valor).split()
+    for i, p in enumerate(palabras):
+        e = m.etapa_por_nombre(obra.nombre, p) if not p.isdigit() else None
+        if e:
+            resto = " ".join(palabras[:i] + palabras[i + 1:])
+            return resto or None, e
+    return valor, None
+
+
 def _fmt_importe(v: float) -> str:
     return "$" + f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -210,6 +260,14 @@ def _aplicar_respuestas(contexto: dict, respuestas: list, m: Maestros, diag: dic
             libre.append("honorarios" if n.startswith("hon") else "certificado")
         elif campo == "duplicado":
             extras["no_es_duplicado" if n == "es otro" else "es_el_mismo"] = True
+        elif campo == "activar_etapa":
+            # §5.15: «La etapa 2 de Lennon figura como futura, ¿la paso a en curso?»
+            if n in ("si", "sí", "s", "dale", "ok"):
+                extras["activar_etapa"] = extras.get("etapa_propuesta") or campos.get("etapa")
+            else:
+                campos["etapa"] = None
+                origen.pop("etapa", None)
+                extras.pop("etapa_propuesta", None)
         elif campo == "inactivo":
             if n == "reactivar":
                 extras["reactivar"] = True
@@ -686,18 +744,26 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             preguntas.append(Pregunta(campo="concepto", texto=f"Este ingreso de {obra.nombre}, ¿es una certificación "
                                       f"de obra o son honorarios del estudio?", opciones=["Certificación", "Honorarios"]))
 
-    # ── Etapa (§5.15) ──────────────────────────────────────────────────────────
-    etapas_obra = m.etapas_de(obra.nombre) if obra else []
-    if obra and etapa_texto:
-        if not etapas_obra:
-            advertencias.append(f"{obra.nombre} no tiene etapas cargadas en ETAPAS: se ignora la etapa {etapa_texto}")
-        elif etapa_texto in etapas_obra:
-            poner("etapa", etapa_texto, "texto")
-        else:
-            advertencias.append(f"{obra.nombre} no tiene una etapa {etapa_texto}")
-            preguntas.append(Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}?", opciones=etapas_obra))
-    elif obra and etapas_obra and tipo != "TRASPASO" and not campos["etapa"]:
-        preguntas.append(Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}?", opciones=etapas_obra))
+    # ── Etapa (§5.15 v1.7) ─────────────────────────────────────────────────────
+    # «cert 4 extras»: extras es la etapa y 4 el número (§5.11). «Marcelo/Moreno/extras»: un
+    # tramo suelto que es una etapa con nombre de la obra.
+    if obra and extras.get("certificado"):
+        numero_cert, etapa_cert = _etapa_del_certificado(extras["certificado"], obra, m)
+        if etapa_cert:
+            extras["certificado"] = numero_cert or ""
+            etapa_texto = etapa_texto or etapa_cert
+    if obra and not etapa_texto:
+        for t in list(seg.sin_resolver):
+            if (e := m.etapa_por_nombre(obra.nombre, t)) and not t.isdigit():
+                etapa_texto = e
+                seg.sin_resolver.remove(t)
+                break
+    if tipo != "TRASPASO":
+        valor, org, pregs, avisos = _decidir_etapa(obra, etapa_texto, campos["etapa"], extras, m)
+        preguntas += pregs
+        advertencias += avisos
+        if org:
+            poner("etapa", valor, org)
 
     # ── Depósito «en negro» (§5.17) ────────────────────────────────────────────
     # Una sola fila en «Pagado por el comitente»: suma a la cuenta corriente del contratista
@@ -948,23 +1014,25 @@ def _armar_certificado(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: 
         if not etapa and campos["etapa"]:
             etapa, origen_etapa = campos["etapa"], origen["etapa"]
 
-    # ── 4. Etapa contra ETAPAS (§5.15) ─────────────────────────────────────────
+    # ── 4. Etapa contra ETAPAS (§5.15 v1.7) ────────────────────────────────────
     obra = m.obra(campos["obra"])
-    etapas_obra = m.etapas_de(obra.nombre) if obra else []
+    # «cert 4 extras» en Moreno: el certificado 4 de la etapa extras (§5.11 v1.7).
+    if obra and campos["numero"]:
+        numero_cert, etapa_cert = _etapa_del_certificado(campos["numero"], obra, m)
+        if etapa_cert:
+            campos["numero"] = numero_cert
+            etapa = etapa or etapa_cert
     campos["etapa"] = None
     origen.pop("etapa", None)
-    ya_pregunta_etapa = any(p.campo == "etapa" for p in preguntas)
-    if obra and etapa:
-        if not etapas_obra:
-            advertencias.append(f"{obra.nombre} no tiene etapas cargadas en ETAPAS: se ignora la etapa {etapa}")
-        elif etapa in etapas_obra:
-            poner("etapa", etapa, origen_etapa)
-        elif not ya_pregunta_etapa:
-            advertencias.append(f"{obra.nombre} no tiene una etapa {etapa}")
-            preguntas.append(Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}?", opciones=etapas_obra))
-    elif obra and etapas_obra and not ya_pregunta_etapa:
-        preguntas.append(Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre}?", opciones=etapas_obra))
-    elif not obra and etapa:
+    if any(p.campo == "etapa" for p in preguntas):
+        pass  # el PDF y el nombre del archivo no coinciden: ya se pregunta
+    elif obra:
+        valor, org, pregs, avisos = _decidir_etapa(obra, etapa, None, extras, m)
+        preguntas += pregs
+        advertencias += avisos
+        if valor:
+            poner("etapa", valor, origen_etapa if org == "texto" else org)
+    elif etapa:
         extras["etapa_leida"] = etapa  # se valida cuando se sepa la obra
 
     fecha_msg = _fecha_local(req, s)
