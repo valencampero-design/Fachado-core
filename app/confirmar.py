@@ -20,7 +20,7 @@ import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 
-from app import archivo, certificados, maestros
+from app import archivo, certificados, maestros, obligatorios
 from app.archivo import Archivador
 from app.clasificador import CLASIFICACION_POR_TIPO_OBRA
 from app.comprobante import id_drive
@@ -71,6 +71,24 @@ def _ahora_local() -> str:
     return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
 
 
+def validar_etapa(obra, valor, extras: dict, m: Maestros) -> str:
+    """§5.15 (v1.7). Si la obra tiene etapas en curso, hace falta cuál (lo pide la lista de
+    obligatorios); si no tiene etapas, no puede venir una; una etapa futura o terminada solo
+    se acepta si el usuario dijo que la activa (`extras.activar_etapa`)."""
+    etapa = normalizar(valor)
+    if not etapa:
+        return ""
+    if obra is None or not m.etapas_de(obra.nombre):
+        raise ErrorConfirmar(422, "etapa", f"«{obra.nombre if obra else '—'}» no tiene etapas cargadas en ETAPAS")
+    e = m.etapa(obra.nombre, etapa)
+    if e is None:
+        raise ErrorConfirmar(422, "etapa", f"«{obra.nombre}» no tiene una etapa {etapa}")
+    if not e.en_curso and normalizar(extras.get("activar_etapa")) != etapa:
+        raise ErrorConfirmar(422, "etapa", f"La etapa {etapa} de {obra.nombre} figura como {e.estado}: "
+                                           f"hace falta confirmar que se activa")
+    return etapa
+
+
 def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, list[str]]:
     """La fila completa, por nombre de columna. 422 ante el primer problema; no escribe nada."""
     c = req.ficha.campos
@@ -81,15 +99,19 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
 
     tipo = str(c.get("tipo") or "").upper()
     if tipo == "PASANTE":
-        # §5.17: la cuenta la fija el motor, venga lo que venga en la ficha.
+        # §5.17: la cuenta la fija el motor, venga lo que venga en la ficha; el tipo_gasto, si
+        # falta, es el de la obra (la regla R4 de la cascada).
         c = {**c, "cuenta": maestros.CUENTA_PAGADO_POR_COMITENTE}
-        for campo in ("obra", "contratista"):
-            if _vacio(c.get(campo)):
-                raise falta(campo, f"Un depósito necesita «{campo}»")
+        obra_pasante = m.obra(c.get("obra")) if not _vacio(c.get("obra")) else None
+        if _vacio(c.get("tipo_gasto")) and obra_pasante:
+            c["tipo_gasto"] = CLASIFICACION_POR_TIPO_OBRA.get(obra_pasante.tipo)
 
-    for campo in ("fecha", "tipo", "importe", "moneda", "cuenta"):
+    # La misma lista que /interpretar usa para sus faltantes (§5.7 v1.7): si difieren, una
+    # ficha sin preguntas llega acá y se rechaza, que es el bug del arranque del 29/09.
+    for campo in obligatorios.obligatorios(c, m):
         if _vacio(c.get(campo)):
-            raise falta(campo)
+            raise falta(campo, "Un EGRESO sin tipo_gasto es un bug de la cascada: no se escribe"
+                        if campo == "tipo_gasto" and tipo == "EGRESO" else "")
     if tipo not in ("INGRESO", "EGRESO", "PASANTE"):
         raise falta("tipo", f"Tipo «{c['tipo']}» inválido: INGRESO, EGRESO, PASANTE o TRASPASO")
 
@@ -123,11 +145,6 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
     tipo_gasto = None if _vacio(c.get("tipo_gasto")) else str(c["tipo_gasto"]).lower()
     if tipo_gasto and tipo_gasto not in TIPOS_GASTO:
         raise falta("tipo_gasto", f"«{c['tipo_gasto']}» no es obra, estructura ni personal")
-    if tipo == "PASANTE" and not tipo_gasto and obra:
-        tipo_gasto = CLASIFICACION_POR_TIPO_OBRA.get(obra.tipo)  # la regla R4 de la cascada
-    if tipo in ("EGRESO", "PASANTE") and not tipo_gasto:
-        # La cascada siempre lo decide o pregunta: que llegue vacío a confirmar es un bug.
-        raise falta("tipo_gasto", "Un EGRESO sin tipo_gasto es un bug de la cascada: no se escribe")
     if not obra and not tipo_gasto:
         raise falta("obra", "Hace falta la obra o el tipo_gasto (un gasto personal puede no tener obra)")
 
@@ -138,14 +155,7 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
             raise falta("cuenta", f"«{cuenta.nombre}» es la caja de otra obra, no de "
                                   f"«{obra.nombre if obra else 'ninguna'}»")
 
-    # §5.15: si la obra tiene etapas, hace falta cuál; si no tiene, no puede venir una.
-    etapa = "" if _vacio(c.get("etapa")) else str(c["etapa"]).strip()
-    etapas_obra = m.etapas_de(obra.nombre) if obra else []
-    if etapa and not etapas_obra:
-        raise falta("etapa", f"«{obra.nombre if obra else '—'}» no tiene etapas cargadas en ETAPAS")
-    if etapas_obra and etapa not in etapas_obra:
-        raise falta("etapa", f"«{obra.nombre}» tiene etapas {etapas_obra}: hace falta cuál" if not etapa
-                    else f"«{obra.nombre}» no tiene una etapa {etapa}")
+    etapa = validar_etapa(obra, c.get("etapa"), req.ficha.extras, m)
 
     if not _vacio(c.get("contratista")) and m.contratista(c["contratista"]) is None:
         advertencias.append(f"«{c['contratista']}» no está en CONTRATISTAS")
@@ -367,9 +377,9 @@ def armar_traspaso(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dic
     def falta(campo: str, detalle: str = "") -> ErrorConfirmar:
         return ErrorConfirmar(422, campo, detalle or f"Falta «{campo}»")
 
-    for campo in ("fecha", "importe", "cuenta_origen", "cuenta_destino"):
+    for campo in obligatorios.obligatorios(c, m):
         if _vacio(c.get(campo)):
-            raise falta(campo)
+            raise falta(campo, "Un traspaso entre dólares y pesos necesita el tipo de cambio" if campo == "tc" else "")
     try:
         fecha = date.fromisoformat(str(c["fecha"])[:10]).isoformat()
     except ValueError:
@@ -390,17 +400,26 @@ def armar_traspaso(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dic
     co, cd = cuentas["cuenta_origen"], cuentas["cuenta_destino"]
     if co.nombre == cd.nombre:
         raise falta("cuenta_destino", f"Origen y destino son la misma cuenta ({co.nombre})")
-    if co.moneda != cd.moneda:
-        raise falta("cuenta_destino", f"{co.nombre} está en {co.moneda} y {cd.nombre} en {cd.moneda}: un traspaso "
-                                      f"entre monedas no está definido en el contexto")
-    tc = 1 if co.moneda == "ARS" else numero(c.get("tc"))
+    # §5.7 (v1.7): entre dólares y pesos, dos filas, cada una en su moneda, con el mismo tipo de
+    # cambio. El importe de la ficha está en su `moneda` (por defecto, la de la cuenta de
+    # origen); la otra fila lo convierte. `importe_ars` es el mismo en las dos: el total del
+    # estudio no cambia.
+    moneda = str(c.get("moneda") or co.moneda).upper()
+    en_dolares = "USD" in {co.moneda, cd.moneda, moneda}
+    tc = numero(c.get("tc")) if en_dolares else 1
     if tc <= 0:
-        raise falta("tc", f"Un traspaso en {co.moneda} necesita el tipo de cambio")
+        raise falta("tc", f"Tipo de cambio «{c.get('tc')}» inválido")
+    importe_ars = round(importe * tc if moneda != "ARS" else importe, 2)
+
+    def en_moneda(destino: str) -> float:
+        if destino == moneda:
+            return importe
+        return round(importe * tc if destino == "ARS" else importe / tc, 2)
 
     clave = clave_idempotencia(req.msg_id, req.ficha_indice)
     comunes = {campo: ("" if _vacio(c.get(campo)) else c[campo]) for campo in ("comprobante_url", "ref_comprobante")}
     comunes.update({
-        "fecha": fecha, "tipo": "TRASPASO", "moneda": co.moneda, "tc": tc, "origen": "WHATSAPP", "id_banco": "",
+        "fecha": fecha, "tipo": "TRASPASO", "tc": tc, "origen": "WHATSAPP", "id_banco": "",
         "tipo_gasto": "", "informal": "", "cargado_por": usuario.nombre, "ts": _ahora_local(), "certificado": "",
         "descripcion": str(c.get("descripcion") or f"Traspaso {co.nombre} → {cd.nombre}"),
     })
@@ -408,8 +427,8 @@ def armar_traspaso(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dic
     def fila(cuenta, signo: int, msg_id: str) -> dict:
         # Cada fila lleva la obra de su cuenta si es una caja de obra (§5.8); si no, ninguna.
         obra = m.obra_de_caja(cuenta.nombre)
-        return {**comunes, "cuenta": cuenta.nombre, "importe": signo * importe,
-                "importe_ars": round(signo * importe * tc, 2), "obra": obra.nombre if obra else "",
+        return {**comunes, "cuenta": cuenta.nombre, "moneda": cuenta.moneda, "importe": signo * en_moneda(cuenta.moneda),
+                "importe_ars": signo * importe_ars, "obra": obra.nombre if obra else "",
                 "comitente": obra.comitente if obra else "",
                 "concilia": "VERDADERO" if cuenta.concilia_contra_banco else "FALSO",
                 "estado_conc": "PENDIENTE" if cuenta.concilia_contra_banco else "SOLO_CAJA", "msg_id": msg_id}
@@ -467,7 +486,7 @@ def armar_certificado(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> dict:
     def falta(campo: str, detalle: str = "") -> ErrorConfirmar:
         return ErrorConfirmar(422, campo, detalle or f"Falta «{campo}»")
 
-    for campo in ("obra", "numero", "fecha", "saldo_a_cobrar"):
+    for campo in obligatorios.obligatorios(c, m):
         if _vacio(c.get(campo)):
             raise falta(campo)
     obra = m.obra(c["obra"])
@@ -486,13 +505,7 @@ def armar_certificado(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> dict:
     if saldo <= 0:
         raise falta("saldo_a_cobrar", f"Saldo a cobrar «{c['saldo_a_cobrar']}» inválido")
 
-    etapa = certificados.texto_etapa(c.get("etapa"))
-    etapas_obra = m.etapas_de(obra.nombre)
-    if etapa and not etapas_obra:
-        raise falta("etapa", f"«{obra.nombre}» no tiene etapas cargadas en ETAPAS")
-    if etapas_obra and etapa not in etapas_obra:
-        raise falta("etapa", f"«{obra.nombre}» tiene etapas {etapas_obra}: hace falta cuál" if not etapa
-                    else f"«{obra.nombre}» no tiene una etapa {etapa}")
+    etapa = validar_etapa(obra, certificados.texto_etapa(c.get("etapa")), req.ficha.extras, m)
 
     fuente = str(c.get("fuente") or "TEXTO").upper()
     return {"obra": obra.nombre, "etapa": etapa, "numero": numero_cert, "fecha": fecha, "saldo_a_cobrar": saldo,

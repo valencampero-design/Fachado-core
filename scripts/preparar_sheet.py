@@ -30,6 +30,8 @@ COLUMNAS = {
     "MOVIMIENTOS": ["msg_id", "certificado", "etapa", "informal", "ref_comprobante", "vinculo", "anula"],
     "USUARIOS": ["telefono", "nombre", "rol", "activo", "ve_personal", "auto_confirmar"],
     "CUENTAS": ["estado"],
+    # §5.7 (v1.7), regla 3: la cuenta de los pagos de la obra cuando nada más la dice.
+    "OBRAS": ["cuenta_habitual"],
     "CERTIFICADOS": COLUMNAS_CERTIFICADOS,
 }
 

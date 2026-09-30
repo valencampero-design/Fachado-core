@@ -31,7 +31,9 @@ CAMPOS_FICHA_CERTIFICADO: list[str] = ["tipo", "obra", "etapa", "numero", "fecha
                                        "comprobante_url"]
 
 # De dónde salió cada valor. El gateway lo muestra al lado del campo.
-Origen = Literal["texto", "comprobante", "maestro", "inferido", "llm", "fecha_mensaje", "contexto_previo"]
+# «supuesto» (§5.7 v1.7): ni el texto ni el comprobante lo dicen y el motor asume (la cuenta
+# Banco / transferencia). El gateway lo muestra marcado para que el usuario lo corrija.
+Origen = Literal["texto", "comprobante", "maestro", "inferido", "llm", "fecha_mensaje", "contexto_previo", "supuesto"]
 
 Clasificacion = Literal["obra", "estructura", "personal"]
 

@@ -33,6 +33,7 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     os.environ["MAESTROS_SNAPSHOT"] = str(RAIZ / "maestros_snapshot.json")
     os.environ["LLM_HABILITADO"] = "false"
+    os.environ["LEER_ADJUNTOS"] = "false"  # ningún test baja un archivo de Drive
     os.environ["MOTOR_API_KEY"] = "test-local"
     import logging
     logging.getLogger("app.confirmar").setLevel(logging.CRITICAL)  # el caso «Drive caído» loguea a propósito
@@ -241,8 +242,8 @@ async def _correr() -> int:
              ficha(tipo="TRASPASO", cuenta_origen="caja_obra", cuenta_destino="Efectivo")),
             ("TRASPASO desde «Pagado por el comitente» → 422", 422, "cuenta_origen", {},
              ficha(tipo="TRASPASO", cuenta_origen="Pagado por el comitente", cuenta_destino="Efectivo")),
-            ("TRASPASO entre monedas → 422", 422, "cuenta_destino", {},
-             ficha(tipo="TRASPASO", cuenta_origen="Banco", cuenta_destino="Banco USD")),
+            ("TRASPASO entre monedas sin tipo de cambio → 422", 422, "tc", {},
+             ficha(tipo="TRASPASO", cuenta_origen="Banco USD", cuenta_destino="Banco", tc=None)),
             ("USD sin tipo de cambio → 422", 422, "tc", {}, ficha(moneda="USD", tc=None)),
             ("PASANTE sin contratista → 422", 422, "contratista", {}, ficha(tipo="PASANTE", contratista=None)),
             ("la caja de otra obra → 422", 422, "cuenta", {}, ficha(cuenta="Caja obra Moreno")),
@@ -295,6 +296,35 @@ async def _correr() -> int:
         check("un cobro de un certificado que no está en CERTIFICADOS: se escribe y avisa",
               cuerpo["certificado"] is None and any("no está cargado en CERTIFICADOS" in a for a in cuerpo["advertencias"]),
               cuerpo["advertencias"])
+
+        # ── Fix del arranque (30/09) · 1.3: interpretar → confirmar, sin 422 ──
+        print("\nFix del arranque · lo que el 29/09 dio «Falta cuenta», de punta a punta")
+        from app import comprobante as comp_mod
+        from app.interpretar import interpretar as interpretar_directo
+        from app.models import Adjunto, InterpretarIn
+
+        libro, _ = preparar()
+        r = (await cli.post("/interpretar", json={"telefono": titular.telefono, "texto": "Metro Gas/Grigera Galpón 11.750",
+                                                  "fecha_mensaje": "2026-09-29T15:00:00Z"})).json()
+        f = r["fichas"][0]
+        check("«Metro Gas/Grigera Galpón 11.750»: Banco supuesto, sin faltantes ni preguntas",
+              (f["campos"]["cuenta"], f["origen_campo"].get("cuenta"), f["faltantes"], r["preguntas"]) == ("Banco", "supuesto", [], []), f)
+        c = await confirmar("wamid.ARR1", {"campos": f["campos"], "extras": f["extras"]})
+        check("… y /confirmar la escribe (antes: 422 «Falta cuenta»)", c.status_code == 200, (c.status_code, c.json()))
+
+        def lector_transf(adj):
+            d = comp_mod.DatosComprobante(url=adj.url, nombre_archivo=adj.nombre or "")
+            d.completar({"importe": 30000, "fecha": "2026-09-29", "medio_pago": "Transferencia"}, "pdf_texto")
+            return d
+        adj = Adjunto(url="https://drive.google.com/file/d/ARRANQUEGONZALOxxxxxxxxxx/view", nombre="comprobante.pdf")
+        out = interpretar_directo(InterpretarIn(texto="Maragaño/Gonzalo", adjuntos=[adj], telefono=titular.telefono,
+                                                fecha_mensaje="2026-09-29T15:00:00Z"), lector=lector_transf)
+        f = out.fichas[0]
+        check("comprobante + «Maragaño/Gonzalo»: Banco del comprobante, sin faltantes",
+              (f.campos["cuenta"], f.origen_campo.get("cuenta"), f.faltantes) == ("Banco", "comprobante", []), f.campos)
+        c = await confirmar("wamid.ARR2", {"campos": f.campos, "extras": f.extras})
+        check("… y /confirmar la escribe", c.status_code == 200 and libro.movimientos()[-1]["cuenta"] == "Banco",
+              (c.status_code, c.json()))
 
         # ── Tanda 6.1 · PASANTE ───────────────────────────────────────────────
         print("\n6.1 · Un depósito «en negro» se confirma (§5.17)")

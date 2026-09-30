@@ -22,8 +22,20 @@ def main() -> int:
 
     from app import maestros
     from app.filtros import para_conciliacion, para_iva
-    from app.interpretar import interpretar
+    from app.interpretar import interpretar as _interpretar
     from app.maestros import Etapa
+    from app.obligatorios import sin_pregunta
+
+    # §5.7 (v1.7): cada ficha de cada caso de este archivo pasa por el invariante «ningún
+    # obligatorio vacío sin su pregunta». Se junta todo y se chequea al final.
+    rotas_invariante: list[tuple[str, list]] = []
+
+    def interpretar(req, *a, **kw):
+        r = _interpretar(req, *a, **kw)
+        rotas = sin_pregunta(r.model_dump())
+        if rotas:
+            rotas_invariante.append((req.texto or "(adjunto)", rotas))
+        return r
     from app.models import InterpretarIn
     from app.saldos import saldo_estudio, saldo_obra
 
@@ -44,7 +56,7 @@ def main() -> int:
     @contextlib.contextmanager
     def con_etapas(*pares):
         """Etapas cargadas solo mientras dura el caso: ETAPAS arranca vacía en el Sheet."""
-        agregadas = [Etapa(obra, etapa, "", True) for obra, etapa in pares]
+        agregadas = [Etapa(obra, etapa, "", "en curso") for obra, etapa in pares]
         m.etapas.extend(agregadas)
         try:
             yield
@@ -500,6 +512,49 @@ def main() -> int:
     check(f"«Retiro» sigue siendo lo personal del titular ({titular.nombre})",
           f"lo personal de {titular.nombre}" in capturado["content"], capturado["content"])
     check("el system (cacheado, igual para todos) ya no dice «el arquitecto»", "arquitecto" not in capturado["system"].split("OBRAS")[0])
+
+    # ── Fix del arranque (30/09) · 1.1 a 1.3: la cuenta ───────────────────────
+    print("\nFix del arranque · 1.1 de qué cuenta salió (§5.7 v1.7)")
+    transf_gonzalo = Adjunto(url="https://drive.google.com/file/d/TRANSFGONZALOxxxxxxxxxxxxx/view", mime="application/pdf",
+                             nombre="comprobante.pdf")
+    r, f = leer_con("Maragaño/Gonzalo", adjuntos=[transf_gonzalo],
+                    lector=lector_con(importe=30000, fecha="2026-09-29", medio_pago="Transferencia"))
+    check("comprobante de transferencia + «Maragaño/Gonzalo» → cuenta Banco, del comprobante, sin faltantes",
+          (f.campos["cuenta"], f.origen_campo.get("cuenta"), f.campos["medio_pago"]) == ("Banco", "comprobante", "Transferencia")
+          and not f.faltantes and not r.preguntas, (f.campos["cuenta"], f.origen_campo.get("cuenta"), f.faltantes, r.preguntas))
+    r, f, c = leer("Metro Gas/Grigera Galpón 11.750")
+    check("«Metro Gas/Grigera Galpón 11.750», sin comprobante → Banco / transferencia «supuesto», sin preguntar",
+          (c["cuenta"], f.origen_campo.get("cuenta"), c["medio_pago"], f.origen_campo.get("medio_pago"))
+          == ("Banco", "supuesto", "Transferencia", "supuesto")
+          and not f.faltantes and not r.preguntas and "Cuenta asumida: Banco" in f.extras.get("advertencias", []),
+          (c["cuenta"], f.origen_campo, f.faltantes, r.preguntas))
+    r, f, c = leer("Barba/Hua Huan/efectivo $20.000")
+    check("«/efectivo» en el texto manda: Efectivo, no el supuesto",
+          c["cuenta"] == "Efectivo" and f.origen_campo.get("cuenta") != "supuesto", (c["cuenta"], f.origen_campo.get("cuenta")))
+    for medio, esperada in (("Cheque", "Chequera"), ("Mercado Pago", "Mercado Pago"), ("Débito automático", "Banco")):
+        r, f = leer_con("Barba/Hua Huan", adjuntos=[transf_gonzalo],
+                        lector=lector_con(importe=5000, fecha="2026-09-29", medio_pago=medio))
+        check(f"comprobante de {medio} → {esperada}", (f.campos["cuenta"], f.origen_campo.get("cuenta")) == (esperada, "comprobante"),
+              (f.campos["cuenta"], f.origen_campo.get("cuenta")))
+    r, f = leer_con("Barba/Hua Huan", adjuntos=[transf_gonzalo],
+                    lector=lector_con(importe=500, fecha="2026-09-29", medio_pago="Transferencia", moneda="USD"))
+    check("transferencia en dólares → Banco USD", f.campos["cuenta"] == "Banco USD", f.campos["cuenta"])
+    r, f = leer_con("Felipe J/Lennon", adjuntos=[transf_gonzalo],
+                    lector=lector_con(importe=300000, fecha="2026-09-02", medio_pago="Transferencia", cuit_originante="20-13851988-1"))
+    check("Lennon, comprobante pagado por el comitente (su CUIT es el originante) → «Pagado por el comitente»",
+          (f.campos["cuenta"], f.origen_campo.get("cuenta")) == ("Pagado por el comitente", "comprobante"), f.campos["cuenta"])
+    r, f, c = leer("Felipe J/Lennon $300.000")
+    check("Lennon sin comprobante → «Pagado por el comitente» por la obra (OBRAS.cuenta_habitual), no el supuesto",
+          (c["cuenta"], f.origen_campo.get("cuenta")) == ("Pagado por el comitente", "maestro") and not f.faltantes,
+          (c["cuenta"], f.origen_campo.get("cuenta"), f.faltantes))
+    r, f, c = leer("Barba/LennonC $10.000")
+    check("la C de la caja sigue mandando", c["cuenta"] == "Caja obra Lennon", c["cuenta"])
+    r, f, c = leer("Deposito Marcelo Maragaño/Moreno $300.000")
+    check("un depósito no se toca: «Pagado por el comitente»", c["cuenta"] == "Pagado por el comitente", c["cuenta"])
+
+    print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
+    check(f"ninguna ficha devolvió un faltante sin su pregunta ({len(rotas_invariante)} con problemas)",
+          not rotas_invariante, rotas_invariante)
 
     print(f"\n{'TODO OK' if not fallas else str(len(fallas)) + ' FALLAS'}")
     return 1 if fallas else 0

@@ -15,9 +15,9 @@ import logging
 import re
 from datetime import date, timedelta, timezone
 
-from app import certificados, clasificador, comprobante, consultas, duplicados, llm, maestros, resolver
+from app import certificados, clasificador, comprobante, consultas, duplicados, llm, maestros, obligatorios, resolver
 from app.config import Settings, settings
-from app.maestros import Maestros, Usuario, normalizar, numero
+from app.maestros import Maestros, Usuario, normalizar, numero, solo_digitos
 from app.models import (CAMPOS_FICHA_CERTIFICADO, CAMPOS_FICHA_TRASPASO, COLUMNAS_MOVIMIENTOS, Conflicto, Ficha,
                         InterpretarIn,
                         InterpretarOut, PosibleDuplicado, Pregunta)
@@ -30,6 +30,38 @@ UMBRAL_LLM = 0.75
 FACTOR_METODO = {"alias": 1.0, "exacto": 1.0, "cuit": 1.0, "palabra": 0.9, "difuso": 0.9, "llm": 0.8}
 ORIGEN_METODO = {"llm": "llm"}  # el resto de los métodos de diccionario son «texto»
 MAX_OPCIONES = 10
+
+
+# El medio de pago que corresponde a una cuenta cuando nadie lo dijo (§5.7). «Pagado por el
+# comitente» no está: cómo pagó el comitente no se sabe.
+MEDIO_POR_TIPO_DE_CUENTA = {"banco": "Transferencia", "efectivo": "Efectivo", "caja_obra": "Efectivo",
+                            "chequera": "Cheque", "billetera": "Mercado Pago"}
+
+
+def _cuenta_de_tipo(m: Maestros, tipo: str, moneda: str | None = "ARS"):
+    """La única cuenta activa de ese tipo y moneda (Banco, Banco USD, Chequera, Mercado Pago),
+    o None si hay varias o ninguna: nunca se elige al azar."""
+    candidatas = [c for c in m.cuentas if c.activa and c.tipo == tipo and c.moneda == (moneda or "ARS")]
+    return candidatas[0] if len(candidatas) == 1 else None
+
+
+def _cuenta_del_comprobante(comp, obra, moneda: str | None, m: Maestros):
+    """§5.7, regla 2: lo que dice el comprobante. Si lo pagó el comitente de la obra (su CUIT
+    es el originante), «Pagado por el comitente» (§5.9); una transferencia o un débito, el
+    banco (en dólares si el comprobante lo está); un cheque, la chequera; Mercado Pago, la
+    billetera. Un comprobante en efectivo ya lo resolvió la regla del medio de pago."""
+    if obra and obra.cuit_comitente and comp.cuit_originante \
+            and solo_digitos(comp.cuit_originante) == solo_digitos(obra.cuit_comitente):
+        return m.cuenta(maestros.CUENTA_PAGADO_POR_COMITENTE)
+    medio = normalizar(" ".join(filter(None, [comp.medio_pago, comp.tipo_comprobante])))
+    moneda = (comp.moneda or moneda or "ARS").upper()
+    if "mercado pago" in medio or "mercadopago" in medio:
+        return _cuenta_de_tipo(m, "billetera")
+    if "cheque" in medio:
+        return _cuenta_de_tipo(m, "chequera")
+    if "transferencia" in medio or "debito" in medio:
+        return _cuenta_de_tipo(m, "banco", moneda)
+    return None
 
 
 def _fmt_importe(v: float) -> str:
@@ -241,12 +273,63 @@ def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> 
     _marcar_duplicados(fichas, preguntas, libros, usuario, diag)
     _marcar_certificados_repetidos(fichas, preguntas, libros, usuario, diag)
     for i, ficha in enumerate(fichas):
+        preguntas += _completar_preguntas(ficha, i, [p for p in preguntas if p.ficha == i], m)
+    for i, ficha in enumerate(fichas):
         ficha.requiere_confirmacion = _requiere_confirmacion(
             ficha, [p for p in preguntas if p.ficha == i], usuario, m)
 
     diag["uso_llm"] = diag["llm_llamadas"] > 0
     return InterpretarOut(fichas=fichas, preguntas=preguntas, diagnostico=diag,
                           requiere_confirmacion=any(f.requiere_confirmacion for f in fichas))
+
+
+def _completar_preguntas(ficha: Ficha, i: int, suyas: list[Pregunta], m: Maestros) -> list[Pregunta]:
+    """§5.7 (v1.7): **ninguna ficha sale con un obligatorio vacío y sin pregunta.** Por cada
+    faltante que ninguna pregunta completa, se genera una, con opciones del maestro cuando
+    existen. Es el paso que faltaba el 29/09: la ficha volvía con `cuenta` faltante, sin
+    pregunta, y /confirmar la rechazaba."""
+    c = ficha.campos
+    ya = {p.campo for p in suyas}
+    nuevas: list[Pregunta] = []
+    tipo = str(c.get("tipo") or "").upper()
+    obra = m.obra(c.get("obra"))
+    verbo = "entró" if tipo == "INGRESO" else "salió"
+    cuentas = [x.nombre for x in m.cuentas if x.activa]
+
+    for campo in ficha.faltantes:
+        if obligatorios.cubierto(campo, ya | {p.campo for p in nuevas}):
+            continue
+        if campo in ("obra", "tipo_gasto"):
+            p = Pregunta(campo="obra", texto="¿A qué obra?", opciones=[
+                o.nombre for o in m.obras if o.estado != "cerrada" and o.tipo in ("obra_terceros", "obra_propia")][:MAX_OPCIONES])
+        elif campo in ("rubro_1", "rubro_2"):
+            afecta = "personal" if normalizar(c.get("tipo_gasto")) == "personal" else "obra"
+            p = Pregunta(campo="rubro", texto="¿Qué rubro?", opciones=[r.rubro_2 for r in m.rubros if r.afecta == afecta][:MAX_OPCIONES])
+        elif campo == "cuenta":
+            p = Pregunta(campo="cuenta", texto=f"¿De qué cuenta {verbo}?",
+                         opciones=[x for x in cuentas if m.cuenta(x).tipo != "caja_obra"][:MAX_OPCIONES])
+        elif campo == "cuenta_origen":
+            p = Pregunta(campo=campo, texto="¿De qué cuenta sale la plata?", opciones=cuentas[:MAX_OPCIONES])
+        elif campo == "cuenta_destino":
+            p = Pregunta(campo=campo, texto="¿A qué cuenta entra?", opciones=cuentas[:MAX_OPCIONES])
+        elif campo == "contratista":
+            p = Pregunta(campo="contratista", texto="¿A quién se le pagó?")
+        elif campo == "tc":
+            p = Pregunta(campo="tipo_cambio", texto="¿A qué tipo de cambio?")
+        elif campo == "etapa":
+            p = Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre if obra else 'la obra'}?",
+                         opciones=m.etapas_en_curso(obra.nombre) if obra else [])
+        elif campo == "tipo":
+            p = Pregunta(campo="tipo", texto="¿Es un pago o un cobro?", opciones=["EGRESO", "INGRESO"])
+        elif campo == "moneda":
+            p = Pregunta(campo="moneda", texto="¿En qué moneda?", opciones=["ARS", "USD"])
+        else:
+            textos = {"importe": "¿Cuál es el importe?", "fecha": "¿Qué fecha?", "numero": "¿Qué número de certificado es?",
+                      "saldo_a_cobrar": "¿Cuál es el saldo a cobrar de este certificado?"}
+            p = Pregunta(campo=campo, texto=textos.get(campo, f"Falta «{campo}». ¿Cuál es?"))
+        p.ficha = i
+        nuevas.append(p)
+    return nuevas
 
 
 def _marcar_duplicados(fichas: list[Ficha], preguntas: list[Pregunta], libros: dict | None,
@@ -626,10 +709,39 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             advertencias.append(f"Un depósito va siempre a «{maestros.CUENTA_PAGADO_POR_COMITENTE}», no a «{campos['cuenta']}»")
         poner("cuenta", maestros.CUENTA_PAGADO_POR_COMITENTE, "inferido")
     poner("moneda", campos["moneda"] or "ARS", origen.get("moneda", "inferido"))
+
+    # ── De qué cuenta salió (§5.7, v1.7) ───────────────────────────────────────
+    # 1. El texto: una cuenta nombrada, «efectivo», la C de la caja (ya puestos arriba).
+    # 2. El comprobante. 3. La obra (su cuenta habitual). 4. Si nada lo dice, Banco /
+    # transferencia con origen «supuesto»: se muestra marcado y no se pregunta. Nunca pisa una
+    # pregunta de cuenta que ya exista (una obra sin caja, un conflicto).
+    if tipo in ("INGRESO", "EGRESO") and not campos["cuenta"] and not any(p.campo == "cuenta" for p in preguntas):
+        por_comprobante = _cuenta_del_comprobante(comp, obra, campos["moneda"], m) if comp else None
+        habitual = m.cuenta(obra.cuenta_habitual) if obra and obra.cuenta_habitual and tipo == "EGRESO" else None
+        if por_comprobante:
+            poner("cuenta", por_comprobante.nombre, "comprobante")
+        elif habitual:
+            poner("cuenta", habitual.nombre, "maestro")
+        else:
+            banco = _cuenta_de_tipo(m, "banco", campos["moneda"])
+            if banco:
+                poner("cuenta", banco.nombre, "supuesto")
+                if not campos["medio_pago"]:
+                    poner("medio_pago", "Transferencia", "supuesto")
+                advertencias.append(f"Cuenta asumida: {banco.nombre}")
+    # El medio de pago que corresponde a la cuenta, si nadie lo dijo.
+    cuenta_elegida = m.cuenta(campos["cuenta"])
+    if cuenta_elegida and not campos["medio_pago"] and tipo in ("INGRESO", "EGRESO"):
+        poner("medio_pago", MEDIO_POR_TIPO_DE_CUENTA.get(cuenta_elegida.tipo),
+              "supuesto" if origen.get("cuenta") == "supuesto" else "inferido")
+
     if campos["moneda"] == "ARS":
         poner("tc", 1, "inferido")
         if campos["importe"] is not None:
             poner("importe_ars", campos["importe"], "inferido")
+    elif campos["tc"] not in (None, "") and campos["importe"] is not None:
+        # §5.7: en dólares, con el tipo de cambio que dijo el usuario.
+        poner("importe_ars", round(numero(campos["importe"]) * numero(campos["tc"]), 2), "inferido")
     if req.adjuntos:
         poner("comprobante_url", req.adjuntos[0].url, "comprobante")
     # En una corrección el adjunto vino con el mensaje anterior.
@@ -703,16 +815,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     if sin_resolver:
         poner("descripcion", " · ".join(filter(None, [campos["descripcion"], *sin_resolver])), "texto")
 
-    requeridos = {
-        "EGRESO": ["fecha", "importe", "contratista", "rubro_1", "rubro_2", "medio_pago", "cuenta", "tipo_gasto"]
-                  + ([] if res.clasificacion == "personal" else ["obra"]),
-        "INGRESO": ["fecha", "importe", "obra", "medio_pago", "cuenta", "tipo_gasto"],
-        "TRASPASO": ["fecha", "importe", "cuenta"],
-        "PASANTE": ["fecha", "importe", "obra", "contratista", "cuenta", "tipo_gasto"],
-    }[tipo]
-    if res.clasificacion == "personal":
-        requeridos = [c for c in requeridos if c != "contratista"]
-    faltantes = [c for c in COLUMNAS_MOVIMIENTOS if c in requeridos and campos[c] in (None, "")]
+    faltantes = obligatorios.faltantes(campos, m)  # la misma lista que valida /confirmar
 
     factor *= 0.8 ** len(preguntas) * 0.7 ** len(conflictos)
     if advertencias:
@@ -888,8 +991,7 @@ def _armar_certificado(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: 
     if advertencias:
         extras["advertencias"] = advertencias
 
-    requeridos = ["obra", "numero", "fecha", "saldo_a_cobrar"] + (["etapa"] if etapas_obra else [])
-    faltantes = [c for c in CAMPOS_FICHA_CERTIFICADO if c in requeridos and campos[c] in (None, "")]
+    faltantes = obligatorios.faltantes(campos, m)
     factor = 0.8 ** len(preguntas) * 0.7 ** len(conflictos)
     ficha = Ficha(campos=campos, origen_campo=origen, faltantes=faltantes, conflictos=conflictos,
                   confianza=round(max(0.0, min(1.0, factor)), 2), regla="§5.11", extras=extras)
@@ -1087,8 +1189,7 @@ def _armar_traspaso(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Set
 
     if advertencias:
         extras["advertencias"] = advertencias
-    requeridos = ["fecha", "importe", "cuenta_origen", "cuenta_destino"]
-    faltantes = [c for c in requeridos if campos[c] in (None, "")]
+    faltantes = obligatorios.faltantes(campos, m)
     factor = 0.8 ** len(preguntas) * 0.7 ** len(conflictos)
     diag["resoluciones"].append([{"token": seg.texto, "categoria": "traspaso", "valor": seg.traspaso, "metodo": "frase"}])
     return Ficha(campos=campos, origen_campo=origen, faltantes=faltantes, conflictos=conflictos,

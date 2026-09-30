@@ -182,7 +182,7 @@ def main() -> int:
         resp.raise_for_status()
         r = resp.json()
         resultados.append({"mensaje": msg, "respuesta": r})
-        if msg.texto:
+        if msg.texto and r["fichas"]:
             previa[msg.telefono] = r["fichas"][0]
 
     # ── Métricas ───────────────────────────────────────────────────────────────
@@ -279,6 +279,17 @@ def main() -> int:
             detalle = (f"  → tipo={c.get('tipo')} tipo_gasto={c.get('tipo_gasto')} obra={c.get('obra')} contratista={c.get('contratista')} "
                        f"rubro={c.get('rubro_2')} preguntas={[p['campo'] for p in x['respuesta']['preguntas']]} regla={f['regla']}")
         print(f"  {'PASA ' if ok else 'FALLA'}  {texto}{detalle}")
+
+    # §5.7 (v1.7): ninguna ficha sale con un obligatorio vacío y sin pregunta. Es el test que
+    # tendría que haber atrapado el «Falta cuenta» del arranque del 29/09.
+    from app.obligatorios import sin_pregunta as faltantes_sin_pregunta
+    rotas = [(x, faltantes_sin_pregunta(x["respuesta"])) for x in resultados]
+    rotas = [(x, f) for x, f in rotas if f]
+    n_fichas = sum(len(x["respuesta"]["fichas"]) for x in resultados)
+    print(f"\nInvariante (§5.7): {n_fichas} fichas, {len(rotas)} con un faltante sin pregunta")
+    for x, f in rotas:
+        print(f"  FALLA  fila {x['mensaje'].filas[0]:>3}  {x['mensaje'].texto!r} → {f}")
+    fallidos += len(rotas)
 
     salida = Path(args.salida)
     salida.parent.mkdir(parents=True, exist_ok=True)

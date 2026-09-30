@@ -13,7 +13,8 @@
       "comitente",
       "estado",
       "cuit_comitente",
-      "notas"
+      "notas",
+      "cuenta_habitual"
     ],
     [
       "Lennon",
@@ -23,7 +24,8 @@
       "Lucas Mariano Lennon",
       "activa",
       "20-13851988-1",
-      "El comitente paga directo a los contratistas. El estudio no mueve esa plata"
+      "El comitente paga directo a los contratistas. El estudio no mueve esa plata",
+      "Pagado por el comitente"
     ],
     [
       "Moreno",

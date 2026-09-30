@@ -67,6 +67,9 @@ class Obra:
     estado: str
     cuit_comitente: str
     notas: str
+    # §5.7 (v1.7), regla 3: la cuenta de los pagos de la obra cuando ni el mensaje ni el
+    # comprobante la dicen. Lennon: «Pagado por el comitente» (§5.9). Vacía en las demás.
+    cuenta_habitual: str = ""
 
 
 @dataclass
@@ -148,11 +151,34 @@ class Usuario:
 @dataclass
 class Etapa:
     """Subdivisión de una obra que se certifica (CONTEXTO-FACHADO.md §5.15). `Lennon1` es la
-    etapa 1 de Lennon. Una obra sin filas en ETAPAS no tiene etapas."""
+    etapa 1 de Lennon; `Moreno extras`, la etapa extras. Una obra sin filas en ETAPAS no tiene
+    etapas. Solo una etapa `en curso` se propone; una `futura` o `terminada`, si el usuario la
+    nombra, se pregunta si se activa."""
     obra: str
-    etapa: str
+    etapa: str        # normalizada: «1», «extras»
     descripcion: str
-    activa: bool
+    estado: str = "en curso"
+
+    @property
+    def en_curso(self) -> bool:
+        return self.estado == EN_CURSO
+
+
+EN_CURSO, FUTURA, TERMINADA = "en curso", "futura", "terminada"
+ESTADOS_ETAPA = (EN_CURSO, FUTURA, TERMINADA)
+
+
+def estado_etapa(valor) -> str | None:
+    """El estado de una fila de ETAPAS. Vacío es «en curso» (una etapa cargada sin estado se
+    está usando); lo que no se reconoce, None."""
+    n = normalizar(valor)
+    if n in ("", "en curso", "encurso", "activa", "activo", "actual"):
+        return EN_CURSO
+    if n in ("futura", "futuro", "proxima", "pendiente"):
+        return FUTURA
+    if n in ("terminada", "terminado", "cerrada", "cerrado", "inactiva", "inactivo", "finalizada"):
+        return TERMINADA
+    return None
 
 
 @dataclass
@@ -168,9 +194,34 @@ class Maestros:
     advertencias: list[str] = field(default_factory=list)
 
     def etapas_de(self, obra: str | None) -> list[str]:
-        """Las etapas activas de la obra, en el orden del Sheet. Vacía = la obra no tiene etapas."""
+        """Todas las etapas de la obra, en cualquier estado, en el orden del Sheet. Vacía = la
+        obra no tiene etapas."""
         n = normalizar(obra)
-        return [e.etapa for e in self.etapas if e.activa and normalizar(e.obra) == n]
+        return [e.etapa for e in self.etapas if normalizar(e.obra) == n]
+
+    def etapas_en_curso(self, obra: str | None) -> list[str]:
+        """Las que se proponen (§5.15): una sola se usa sin preguntar; dos o más, se pregunta."""
+        n = normalizar(obra)
+        return [e.etapa for e in self.etapas if e.en_curso and normalizar(e.obra) == n]
+
+    def etapa(self, obra: str | None, etapa: str | None) -> Etapa | None:
+        n, ne = normalizar(obra), normalizar(etapa)
+        return next((e for e in self.etapas if normalizar(e.obra) == n and e.etapa == ne), None)
+
+    def etapa_por_nombre(self, obra: str | None, texto: str | None) -> str | None:
+        """«extras», «ext», «Extras» → «extras»; «1» → «1». Solo si es inequívoco: un prefijo
+        de tres letras o más que corresponde a una sola etapa de la obra."""
+        t = normalizar(texto)
+        etapas = self.etapas_de(obra)
+        if not t:
+            return None
+        if t in etapas:
+            return t
+        if len(t) >= 3 and not t.isdigit():
+            candidatas = [e for e in etapas if e.startswith(t)]
+            if len(candidatas) == 1:
+                return candidatas[0]
+        return None
 
     def usuario(self, telefono: str | None) -> Usuario | None:
         """El usuario activo con ese teléfono, o None."""
@@ -240,7 +291,7 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
     obras = [
         Obra(r.get("obra", ""), r.get("codigo", ""), normalizar(r.get("tipo")).replace(" ", "_"),
              r.get("servicio", ""), r.get("comitente", ""), normalizar(r.get("estado")),
-             r.get("cuit_comitente", ""), r.get("notas", ""))
+             r.get("cuit_comitente", ""), r.get("notas", ""), r.get("cuenta_habitual", "").strip())
         for r in _registros(crudo.get("OBRAS", [])) if r.get("obra")
     ]
 
@@ -342,15 +393,26 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
 
     etapas: list[Etapa] = []
     for r in _registros(crudo.get("ETAPAS", [])):
-        obra, etapa = r.get("obra", ""), re.sub(r"\D", "", r.get("etapa", ""))
+        # Un número («1») o un nombre («extras», §5.15 v1.7).
+        obra, etapa = r.get("obra", ""), normalizar(r.get("etapa", ""))
         if not (obra and etapa):
             continue
         canonica = next((o.nombre for o in obras if normalizar(o.nombre) == normalizar(obra)), None)
         if canonica is None:
             advertencias.append(f"ETAPAS: «{obra}» no está en OBRAS")
             continue
-        etapas.append(Etapa(canonica, etapa, r.get("descripcion", ""),
-                            normalizar(r.get("estado")) not in ("inactiva", "inactivo", "cerrada", "terminada")))
+        estado = estado_etapa(r.get("estado"))
+        if estado is None:
+            advertencias.append(f"ETAPAS: {canonica} etapa {etapa} tiene estado «{r.get('estado')}»: se toma como "
+                                f"«{EN_CURSO}» (se espera {', '.join(ESTADOS_ETAPA)})")
+            estado = EN_CURSO
+        etapas.append(Etapa(canonica, etapa, r.get("descripcion", ""), estado))
+
+    nombres_cuentas = {normalizar(c.nombre) for c in cuentas if c.activa}
+    for o in obras:
+        if o.cuenta_habitual and normalizar(o.cuenta_habitual) not in nombres_cuentas:
+            advertencias.append(f"OBRAS: «{o.nombre}» tiene cuenta_habitual «{o.cuenta_habitual}», que no es una "
+                                f"cuenta activa de CUENTAS: no se usa")
 
     return Maestros(obras, contratistas, rubros, cuentas, alias, usuarios, etapas, advertencias=advertencias)
 
