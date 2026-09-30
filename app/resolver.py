@@ -50,6 +50,7 @@ RE_ETAPA = re.compile(r"\betapa\s*(\d+)\b", re.I)
 RE_IMPORTE_PESOS = re.compile(r"(?:u\$s|usd|us\$|\$)\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)", re.I)
 RE_IMPORTE_SUELTO = re.compile(r"(?<![\d/])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?)(?![\d/])")
 RE_USD = re.compile(r"u\$s|usd|us\$|d[oó]lar", re.I)
+RE_CUENTA_USD = re.compile(r"\bbanco\s+(?:en\s+)?(?:usd|d[oó]lares)\b", re.I)
 RE_CERTIFICADO = re.compile(r"^cert(?:ificado)?\b\s*(.*)$")
 RE_DOS_MOVIMIENTOS = re.compile(r"\s+e\s+(?=(?:imputar|ingresar|registrar|cargar)\w*\b)", re.I)
 RE_CORRECCION = re.compile(r"^\s*correcci[oó]n\s*!*\s*:?\s*", re.I)
@@ -191,7 +192,8 @@ def parsear(texto: str, hoy: date | None = None) -> list[Segmento]:
             seg.etapa = me.group(1)
             resto = RE_ETAPA.sub(" ", resto)
 
-        if RE_USD.search(resto):
+        # «banco usd» es el nombre de una cuenta, no dice en qué moneda está el importe.
+        if RE_USD.search(RE_CUENTA_USD.sub(" ", resto)):
             seg.moneda = "USD"
         im = RE_IMPORTE_PESOS.search(resto) or RE_IMPORTE_SUELTO.search(resto)
         if im:

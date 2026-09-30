@@ -426,6 +426,25 @@ async def _correr() -> int:
         check("sin la columna «vinculo» en el Sheet: 500 y no escribe nada",
               r.status_code == 500 and len(sin_vinculo.filas) == 1, (r.status_code, r.json()))
 
+        # ── Fix del arranque · 3 dólares ──────────────────────────────────────
+        print("\nFix del arranque · dólares: tipo de cambio en el egreso y traspaso entre monedas (§5.7 v1.7)")
+        libro, _ = preparar()
+        cuerpo = (await confirmar("wamid.USD1", ficha(obra="Hua Huan", etapa=None, cuenta="Banco USD", moneda="USD",
+                                                     importe=500, tc=1450, comprobante_url=None))).json()
+        fila = libro.movimientos()[-1]
+        check("egreso en USD con tipo de cambio: se escribe, importe_ars = 500 × 1450",
+              (fila["moneda"], fila["importe"], fila["tc"], fila["importe_ars"]) == ("USD", 500, 1450, 725000), (cuerpo, fila))
+        antes = saldo_estudio(libro.movimientos(), m)
+        r = await confirmar("wamid.USD2", ficha_traspaso(cuenta_origen="Banco USD", cuenta_destino="Banco", moneda="USD",
+                                                          importe=1000, tc=1450.5))
+        usd, ars = libro.movimientos()[-2:]
+        check("traspaso Banco USD → Banco: dos filas, cada una en su moneda, el mismo tipo de cambio",
+              r.status_code == 200 and (usd["cuenta"], usd["moneda"], usd["importe"]) == ("Banco USD", "USD", -1000)
+              and (ars["cuenta"], ars["moneda"], ars["importe"]) == ("Banco", "ARS", 1450500)
+              and usd["tc"] == ars["tc"] == 1450.5 and usd["vinculo"] == ars["id_mov"], (usd, ars))
+        despues = saldo_estudio(libro.movimientos(), m)
+        check("… el total del estudio (en pesos) no cambia", despues["total"] == antes["total"], (antes, despues))
+
         # ── Tanda 6.3 · contraasiento ─────────────────────────────────────────
         print("\n6.3 · Corregir algo confirmado: el contraasiento (§5.19)")
         from app.saldos import saldo_obra

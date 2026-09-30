@@ -594,6 +594,26 @@ def main() -> int:
     check("certificado por texto: «Certificado 5 Moreno extras» → etapa extras, número 5",
           (c["tipo"], c["numero"], c["etapa"]) == ("CERTIFICADO", "5", "extras"), c)
 
+    # ── Fix del arranque · 3 dólares (§5.7 v1.7) ──────────────────────────────
+    print("\nFix del arranque · 3 dólares: siempre se pregunta el tipo de cambio")
+    r0 = interpretar(InterpretarIn(texto="Barba/Hua Huan u$s 500", fecha_mensaje="2026-09-29T15:00:00Z"))
+    tc_p = [p for p in r0.preguntas if p.campo == "tipo_cambio"]
+    check("egreso en dólares → pregunta «¿A qué tipo de cambio?», texto libre (sin botones), cuenta Banco USD",
+          tc_p and not tc_p[0].opciones and r0.fichas[0].campos["cuenta"] == "Banco USD", (r0.preguntas, r0.fichas[0].campos["cuenta"]))
+    for valor, esperado in (("1.450", 1450.0), ("1450", 1450.0), ("1450,50", 1450.5)):
+        r1 = responder(r0, ("tipo_cambio", valor))
+        c1 = r1.fichas[0].campos
+        check(f"… «{valor}» → tc {esperado}, importe_ars = 500 × tc", (c1["tc"], c1["importe_ars"]) == (esperado, round(500 * esperado, 2))
+              and not campos_de(r1, "tipo_cambio"), (c1["tc"], c1["importe_ars"]))
+    r1 = responder(r0, ("tipo_cambio", "mil cuatrocientos"))
+    check("… una respuesta que no es un número no se usa: vuelve a preguntar", campos_de(r1, "tipo_cambio")
+          and not r1.fichas[0].campos["tc"], (r1.fichas[0].campos["tc"], r1.diagnostico["advertencias"]))
+    r, f, c = leer("pasé 1.000 dólares del banco usd al banco")
+    check("traspaso Banco USD → Banco: pregunta el tipo de cambio (antes era un 422)",
+          (c["cuenta_origen"], c["cuenta_destino"], c["moneda"]) == ("Banco USD", "Banco", "USD") and campos_de(r, "tipo_cambio"), c)
+    r, f, c = leer("pasé $1.450.000 del banco al banco usd")
+    check("«banco usd» es el nombre de la cuenta: el importe sigue en pesos", c["moneda"] == "ARS", c["moneda"])
+
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"ninguna ficha devolvió un faltante sin su pregunta ({len(rotas_invariante)} con problemas)",
           not rotas_invariante, rotas_invariante)

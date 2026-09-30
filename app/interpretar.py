@@ -260,6 +260,13 @@ def _aplicar_respuestas(contexto: dict, respuestas: list, m: Maestros, diag: dic
             libre.append("honorarios" if n.startswith("hon") else "certificado")
         elif campo == "duplicado":
             extras["no_es_duplicado" if n == "es otro" else "es_el_mismo"] = True
+        elif campo == "tipo_cambio":
+            # §5.7 (v1.7): «1.450», «1450», «1450,50». Se guarda en la columna `tc`.
+            tc = numero(valor)
+            if tc > 0:
+                fijar("tc", tc)
+            else:
+                diag["advertencias"].append(f"«{valor}» no es un tipo de cambio: se vuelve a preguntar")
         elif campo == "activar_etapa":
             # §5.15: «La etapa 2 de Lennon figura como futura, ¿la paso a en curso?»
             if n in ("si", "sí", "s", "dale", "ok"):
@@ -1222,15 +1229,18 @@ def _armar_traspaso(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Set
         campos["cuenta_destino"] = None
         origen.pop("cuenta_destino", None)
         cd = None
-    if co and cd and co.moneda != cd.moneda:
-        advertencias.append(f"{co.nombre} está en {co.moneda} y {cd.nombre} en {cd.moneda}: un traspaso entre monedas "
-                            f"no está definido en el contexto")
+    # §5.7 (v1.7): entre dólares y pesos, dos filas, cada una en su moneda, con el tipo de cambio
+    # que diga el usuario (la pregunta «tipo_cambio» la genera la lista de obligatorios). El
+    # importe de la ficha está en su moneda: la del texto o, si no dice, la de la cuenta de origen.
     moneda = campos["moneda"] or (co.moneda if co else cd.moneda if cd else "ARS")
     poner("moneda", moneda, origen.get("moneda", "inferido"))
-    if moneda == "ARS":
+    en_dolares = "USD" in {moneda, co.moneda if co else "ARS", cd.moneda if cd else "ARS"}
+    if not en_dolares:
         poner("tc", 1, "inferido")
         if campos["importe"] is not None:
             poner("importe_ars", campos["importe"], "inferido")
+    elif campos["tc"] not in (None, "") and campos["importe"] is not None:
+        poner("importe_ars", round(numero(campos["importe"]) * (numero(campos["tc"]) if moneda != "ARS" else 1), 2), "inferido")
     cajas = [c for c in (co, cd) if c and c.tipo == "caja_obra"]
     if cajas:
         obra = m.obra_de_caja(cajas[0].nombre)
