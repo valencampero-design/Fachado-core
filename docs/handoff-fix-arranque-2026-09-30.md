@@ -197,3 +197,116 @@ dejalo anotado. Si no llegás, no pasa nada.
 - Actualizá `docs/handoff-fachado-core.md` y `docs/handoff-fachado.md` (lo hecho, los
   contratos nuevos: origen `supuesto`, pregunta `tipo_cambio`, estado de etapas).
 - Dejá al final de este archivo la lista de 422 recuperables y la métrica antes/después.
+
+---
+
+## Resultado del motor (30/09, Code)
+
+Commits sin pushear: `59e8136` (1.1–1.3), `6aa6a39` (2), `aceef5b` (3), `7899ed8` (4). El 5
+no se hizo (ver abajo).
+
+### Métrica del corpus (con LLM, snapshot de los tests)
+
+| | Antes | Después |
+|---|---|---|
+| Obra sin preguntar | 42/50 (84 %) | 42/50 (84 %) |
+| Contratista sin preguntar | 42/50 (84 %) | 41/50 (82 %) |
+| Las dos | 34/50 (68 %) | 33/50 (66 %) |
+| **Con las preguntas de diseño** | **46/50 (92 %)** | **45/50 (90 %)** |
+| Casos obligatorios | 6/6 | 6/6 |
+| **Invariante: faltantes sin pregunta** | *(no se medía)* | **0 de 59 fichas** |
+
+**Por qué baja un punto:** «Pago Moreno» (fila 19). Antes su ficha salía con `contratista`
+en faltantes y **sin pregunta** —el mismo bug de la cuenta— y `/confirmar` la habría escrito
+sin contratista. Ahora se pregunta. Su comprobante real dice «Marcelo Alfredo Maragano
+Guerr», sin ñ, y el resolver no lo empareja con «Marcelo Maragaño»: en producción también
+pregunta. Las etapas, los dólares y Gessel no movieron la métrica.
+
+El corpus corre sin leer los comprobantes: ahí casi todo mensaje con adjunto pregunta el
+importe. Es un artefacto de la medición (en producción sale del comprobante) y no cuenta en
+la métrica, que mide obra, clasificación y contratista.
+
+### Los 422 del 29/09 para reenviar
+
+**No los pude listar:** el Railway CLI de esta máquina está logueado con otra cuenta (la de
+Hensel), no con la del proyecto de Fachado, y no la cambié. Para sacarlos: en Railway,
+servicio del gateway (`chatbot-contable`) → **Deployments → View logs**, filtrar por
+`Falta` o por `422` desde el 29/09. Cada línea de `motor POST /confirmar` trae el `msg_id`;
+la obra y el importe están en el mensaje «No lo pude cargar: … (Obra $ importe)» que le
+llegó a Gabriel. Como `/confirmar` es idempotente por `msg_id` y esos no se escribieron, se
+pueden reenviar sin riesgo.
+
+| msg_id | Obra | Importe |
+|---|---|---|
+| *(completar desde los logs)* | | |
+
+### Lo que el motor necesita en el deploy (orden)
+
+1. Desplegar el motor → `/salud`.
+2. Las migraciones del maestro, **en este orden y recién ahora** (la versión anterior del
+   motor no entiende etapas con nombre ni el estado «futura»). Cada una se corre primero sin
+   `--aplicar` para ver el simulacro:
+   ```bash
+   python scripts/preparar_sheet.py --aplicar
+   python scripts/migraciones/2026_09_30_cuenta_habitual.py --aplicar
+   python scripts/migraciones/2026_09_30_etapas.py --aplicar
+   python scripts/migraciones/2026_09_30_gessel.py --aplicar
+   ```
+3. `POST /maestros/recargar` (o esperar 5 minutos).
+4. `/interpretar` con `Metro Gas/Grigera Galpón 11.750` → `cuenta = Banco`, origen
+   `supuesto`, sin faltantes. Y con `Felipe J/Lennon $300.000` → `Pagado por el comitente`,
+   origen `maestro`.
+5. `python scripts/snapshot_maestros.py` para que el snapshot de los tests sea el maestro real.
+
+### Contratos nuevos para el gateway
+
+- **Origen `supuesto`** en `origen_campo` (cuenta y medio de pago): mostrarlo marcado,
+  «Cuenta: Banco · transferencia (supuesto)». Viene con la advertencia «Cuenta asumida: Banco».
+- **Pregunta `tipo_cambio`**: texto libre, sin opciones. La respuesta va con
+  `campo = "tipo_cambio"`; el motor la guarda en `tc`. Si no es un número, vuelve a preguntar.
+- **Pregunta `activar_etapa`** («La etapa 2 de Lennon figura como futura, ¿la paso a en
+  curso?», Sí / No). Con «Sí», la ficha trae `extras.activar_etapa` y `/confirmar` la pasa a
+  en curso; `ConfirmarOut.etapa_activada`.
+- **Etapa del maestro**: `origen_campo.etapa = "maestro"` cuando se eligió sola por ser la
+  única en curso → la ficha dice «Obra: Lennon, etapa 1 (en curso)» (2.4).
+- **Etapa con nombre**: `etapa` puede ser `"extras"`, no solo un número.
+- **Las preguntas genéricas** del invariante: `campo` puede ser cualquier obligatorio que
+  falte (`cuenta`, `contratista`, `rubro`, `importe`, `fecha`, `obra`, `etapa`,
+  `tipo_cambio`…). Todas se contestan con `respuestas` como las demás.
+
+### Decisiones tomadas que no estaban en el contexto (para subirlas)
+
+1. **La regla 3 de §5.7 («en Lennon, Pagado por el comitente») no existía en el motor**: el
+   handoff decía que sí. Se implementó con una columna nueva `OBRAS.cuenta_habitual` (así
+   ninguna obra queda escrita en el código), cargada por migración solo para Lennon.
+2. **Contratista obligatorio solo en los gastos de obra**, no en los de estructura (el IVA,
+   el banco) ni en los personales. `/confirmar` nunca lo exigió ahí; unificar las listas
+   obligaba a decidirlo.
+3. **`medio_pago` no es obligatorio** (el libro no lo necesita para saldos ni conciliación),
+   pero siempre se completa: del comprobante, o el que corresponde a la cuenta
+   (Banco → Transferencia, Efectivo o caja de obra → Efectivo, Chequera → Cheque, Mercado
+   Pago → Mercado Pago), con origen `supuesto` si la cuenta fue supuesta.
+4. **El orden de §5.7 pone el comprobante antes que la obra.** En Lennon, un comprobante de
+   transferencia cuyo originante es el comitente (su CUIT está en OBRAS) va a «Pagado por el
+   comitente»; pero si el CUIT originante no se pudo leer, la regla 2 dice Banco. ¿Debería
+   ganar la obra en Lennon aunque el comprobante sea una transferencia?
+5. **Mercado Pago como cuenta** se reconoce solo si el comprobante dice «Mercado Pago» en el
+   medio de pago o en el tipo de comprobante: un comprobante *hacia* una cuenta de Mercado
+   Pago de un tercero (Felipe cobra ahí) sigue siendo una transferencia desde el Banco.
+6. **`tipo_cambio` se guarda en la columna `tc`**, que ya existía: no se sumó una columna.
+7. **El importe de un traspaso entre monedas** está en la moneda que dice el mensaje; si no
+   dice, en la de la cuenta de origen. La otra fila lo convierte.
+8. **Una etapa sin estado en ETAPAS se toma como «en curso»** (se está usando); un estado que
+   no se reconoce, también, con advertencia.
+9. **«No» a activar una etapa futura** vuelve a la regla de siempre: la única en curso, o
+   pregunta cuál.
+
+### Preguntas abiertas
+
+- La 4 de la lista de arriba (Lennon con transferencia sin CUIT del comitente legible).
+- **La ñ en las razones sociales**: «Maragano» (sin ñ, como viene en los comprobantes) no se
+  empareja con «Maragaño». ¿Se agrega el alias `maragano`, o el motor pliega ñ→n al comparar
+  razones sociales? Lo segundo es código y no cambia reglas, pero toca todo el resolver.
+- **5 · caja de obra en negativo**: no se hizo. Escribe filas nuevas en el libro
+  (append-only) a partir de un supuesto a confirmar (P-28); conviene hacerlo en una tanda
+  propia, con el flag y sus tests, y con la respuesta del arquitecto sobre el supuesto.

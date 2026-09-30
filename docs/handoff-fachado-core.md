@@ -1,11 +1,12 @@
 # Handoff — `fachado-core`, el motor de imputación de Fachado
 
-> **Estado técnico del repo al 2026-09-25**, después de las cinco tandas del handoff del
-> proyecto (`docs/handoff-proyecto-2026-09-25.md`) y de la tanda 6
-> (`docs/handoff-tanda-6-2026-09-25.md`: lo que el motor necesita para conectar el gateway).
+> **Estado técnico del repo al 2026-09-30**, después de las cinco tandas del handoff del
+> proyecto (`docs/handoff-proyecto-2026-09-25.md`), de la tanda 6
+> (`docs/handoff-tanda-6-2026-09-25.md`) y del fix del arranque
+> (`docs/handoff-fix-arranque-2026-09-30.md`: «Falta cuenta», etapas, dólares, Gessel).
 > Qué está hecho, qué falta, cómo se corre y qué variables hacen falta.
 >
-> **Las reglas de negocio NO viven acá: viven en `CONTEXTO-FACHADO.md`** (v1.6), que se edita
+> **Las reglas de negocio NO viven acá: viven en `CONTEXTO-FACHADO.md`** (v1.7), que se edita
 > en el proyecto de Claude de A&C y baja a los dos repos. Si este documento y el contexto se
 > contradicen, **gana el contexto**. Este handoff dice dónde está implementada cada regla, no
 > cuál es.
@@ -19,15 +20,16 @@
 |---|---|
 | ✅ Motor en producción | Servicio `web` del proyecto Railway `bountiful-trust`, con dos dominios que son el mismo servicio: `web-production-6c935.up.railway.app` (el que usan la documentación y el cron) y `web-production-70e97.up.railway.app`. Las tandas 1 a 5 están desplegadas desde el 25/09 |
 | ✅ Tanda 6 | Desplegada el 25/09: PASANTE, TRASPASO, contraasiento, `intencion` / `respuestas` / `texto_compartido`, contratistas inactivos, el nombre de quien escribe en el prompt. Columnas `vinculo` y `anula` en los dos libros. Verificado en producción con `/interpretar`: un texto del corpus, una charla (`otro`) y un comprobante solo (un recibo manuscrito, leído por el modelo) |
+| ⏳ Fix del arranque (30/09) | Commiteado **sin pushear**: la cuenta se decide o se pregunta (origen `supuesto`), una sola lista de obligatorios, etapas con estado, tipo de cambio en dólares, Gessel. Después del deploy hay que correr cuatro migraciones del maestro, en orden (§5) |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
 | ✅ Lee y escribe el Sheet | Con la service account del gateway, compartida como Editor |
 | ✅ Lee los comprobantes | Token de Drive en Railway, app OAuth publicada |
-| ✅ Métrica del corpus | 92 % contando las preguntas de diseño, igual antes y después de las tandas 1 a 6 (§4) |
+| ✅ Métrica del corpus | 90 % contando las preguntas de diseño (92 % antes del fix del 30/09; la diferencia es «Pago Moreno», §4). Invariante: 0 fichas con un faltante sin pregunta |
 | ✅ Maestro alineado al contexto v1.5 | Cajas de obra, Petrus con teléfono y activo, Pinturería Andina, cobros de Moreno en su caja (§8) |
-| ✅ Hojas nuevas en el Master | `ETAPAS` (vacía: las carga el arquitecto) y `CERTIFICADOS` (vacía) |
-| ⏳ Conectar el gateway | El modo obras está desplegado en el gateway con `FACHADO_MOTOR_ACTIVO=0` (ya usa `ficha` de `GET /movimientos`). Se enciende en la reunión del martes 29/09 con el runbook de `chatbot-contable/docs/handoff-fachado.md` §6 |
+| ✅ Hojas nuevas en el Master | `ETAPAS` (se carga con la migración del 30/09) y `CERTIFICADOS` (vacía) |
+| ✅ Gateway conectado | Encendido el 29/09 con Gabriel. En el arranque, fuera de Lennon, la confirmación fallaba con «Falta cuenta»: lo corrige el fix del 30/09 (el gateway tiene su parte: no ofrecer Confirmar con faltantes, 1.4–1.7) |
 | ⏳ Conciliación, IVA | No empezados (§7) |
 
 ## 1. Qué es este repo
@@ -49,7 +51,8 @@ app/
   maestros.py      carga y cachea OBRAS, CONTRATISTAS, RUBROS, CUENTAS, ALIAS, USUARIOS, ETAPAS
   resolver.py      texto libre → obra (con etapa y C) / contratista / rubro / cuenta, SIN LLM
   clasificador.py  la cascada obra / estructura / personal, SIN LLM
-  interpretar.py   orquesta: resolver → LLM → comprobante → ficha → duplicados
+  interpretar.py   orquesta: resolver → LLM → comprobante → ficha → duplicados → preguntas que falten
+  obligatorios.py  la lista única de obligatorios de /interpretar y /confirmar (§5.7 v1.7)
   llm.py           cliente de Anthropic, prompts y esquemas de salida
   comprobante.py   nombre de archivo → texto del PDF → visión; reconoce certificados
   certificados.py  el PDF del certificado, el número como clave, lo cobrado y lo pendiente
@@ -164,6 +167,25 @@ Lo que el gateway tiene que respetar:
   (§5.18) trae `campos.tipo = "TRASPASO"` y `fecha · importe · moneda · tc · importe_ars ·
   cuenta_origen · cuenta_destino · obra · descripcion · comprobante_url · ref_comprobante`;
   `obra` es la de la caja de obra si una de las dos cuentas lo es.
+- **Ninguna ficha sale con un obligatorio vacío sin su pregunta** (§5.7 v1.7). La lista de
+  obligatorios es una sola, `app/obligatorios.py`, y la usan `/interpretar` (faltantes) y
+  `/confirmar` (422). Un paso final genera la pregunta de cada faltante que ninguna otra
+  completa: su `campo` puede ser `cuenta`, `contratista`, `rubro`, `importe`, `fecha`,
+  `obra`, `etapa`, `tipo_cambio`… y se contesta con `respuestas` como cualquier otra. El
+  gateway **no ofrece Confirmar** mientras haya faltantes o preguntas.
+- **La cuenta** (§5.7 v1.7): el texto; el comprobante (transferencia o débito → Banco, o
+  Banco USD en dólares; cheque → Chequera; Mercado Pago → Mercado Pago; si el originante es
+  el comitente de la obra → Pagado por el comitente); la obra (`OBRAS.cuenta_habitual`:
+  Lennon → Pagado por el comitente); y si nada lo dice, **Banco / transferencia con origen
+  `supuesto`** y la advertencia «Cuenta asumida: Banco». El gateway muestra el `supuesto`
+  marcado.
+- **La etapa** (§5.15 v1.7): puede ser un número o un nombre (`extras`). Sin etapa en el
+  mensaje: una sola en curso → esa, con `origen_campo.etapa = "maestro"` (la ficha dice
+  «etapa 1, en curso»); dos o más → pregunta `etapa` con esas. Una futura o terminada nombrada
+  → pregunta `activar_etapa` (Sí / No); con «Sí», `extras.activar_etapa` y `/confirmar` la
+  pasa a en curso (`ConfirmarOut.etapa_activada`).
+- **Dólares** (§5.7 v1.7): todo movimiento en USD y todo traspaso entre Banco USD y pesos
+  pregunta `tipo_cambio`, texto libre («1.450», «1450,50»); se guarda en `tc`.
 - **`preguntas[].motivo`**: `apodo_ambiguo` y `dual` son preguntas **de diseño**; `conflicto`
   es texto contra comprobante (o cuerpo del PDF contra nombre de archivo); `falta_dato` es que
   no se pudo resolver; `posible_duplicado` es «ya está cargado, ¿es el mismo?», con botones
@@ -346,7 +368,10 @@ El contexto dice **qué**; esta tabla dice **dónde**. Si cambia una regla allá
 | §5.13 · un teléfono fuera de USUARIOS no escribe | `confirmar.confirmar` → 403 antes de tocar nada; `cargado_por` = `Usuario.nombre` |
 | §5.13 y §5.14 · lo personal, por persona y en otro libro | `confirmar.confirmar` (ruteo, 403, 503), `consultas._visibles`, `interpretar._marcar_duplicados` |
 | §5.14 · la línea semanal | `cierre.cierre_semanal`; `filtros.para_conciliacion` la excluye |
-| §5.15 · etapas | `resolver._obra_con_sufijo` (`Lennon1`), `resolver.RE_ETAPA` («etapa 1»), el bloque «Etapa» de `_armar`, y la validación en `confirmar.armar_fila` |
+| §5.15 · etapas (v1.7: estado, nombre, una en curso) | `Maestros.etapas_en_curso` / `etapa_por_nombre`; `resolver._obra_con_sufijo` (`Lennon1`), `_obra_con_etapa` (`Moreno extras`); `interpretar._decidir_etapa` y `_etapa_del_certificado`; `confirmar.validar_etapa` y `_activar_etapa` |
+| §5.7 (v1.7) · de qué cuenta salió | `interpretar._cuenta_del_comprobante`, `Obra.cuenta_habitual` y el bloque «De qué cuenta salió» de `_armar` (origen `supuesto`) |
+| §5.7 (v1.7) · nunca Confirmar con un obligatorio vacío | `app/obligatorios.py` (la lista única) e `interpretar._completar_preguntas`; lo verifica `tests/test_corpus.py` (invariante) |
+| §5.7 (v1.7) · dólares | pregunta `tipo_cambio` desde `obligatorios` (`tc`); `confirmar.armar_traspaso` (dos monedas) |
 | §5.16 · el mismo hecho cargado dos veces | `duplicados.buscar` (referencias fuertes y probables), `interpretar._marcar_duplicados` y `_marcar_certificados_repetidos` |
 | §5.17 · depósito = PASANTE informal en «Pagado por el comitente» | `resolver.PALABRAS_TIPO`, `interpretar._armar` y `confirmar.armar_fila` (cuenta forzada, `informal = VERDADERO`), `saldos.saldo_obra`, `filtros.para_iva` / `para_conciliacion` |
 | §5.18 · traspasos: dos filas vinculadas | `resolver.RE_EXTRACCION` / `RE_REPOSICION` / `RE_PASE` y `resolver.escanear`; `interpretar._armar_traspaso` (origen y destino por la preposición y la frase); `confirmar.confirmar_traspaso`; `saldos` (importe con signo) |
@@ -413,8 +438,17 @@ Comparados mensaje por mensaje, los 57 resuelven igual (obra, contratista, rubro
 `tipo_gasto` y preguntas). La tanda 6 tampoco cambió la intención de ningún mensaje del
 corpus: los 57 siguen siendo `movimiento`, y no hay traspasos ni inactivos en el corpus.
 
+**Fix del arranque (30/09):** 92 % → **90 %** (45/50). La diferencia es «Pago Moreno»: su
+ficha salía con el contratista en faltantes y sin pregunta —el mismo bug de la cuenta—; ahora
+lo pregunta (su comprobante dice «Maragano», sin ñ, y no se resuelve). El test del corpus
+suma **el invariante**: ninguna ficha con un faltante sin pregunta (0 de 59), y cuenta como
+falla si aparece uno. El corpus corre sin leer los comprobantes, así que casi todo mensaje
+con adjunto pregunta el importe: es un artefacto de la medición y no entra en la métrica.
+
 El test corre contra `tests/maestros_snapshot.json` para ser reproducible; se regenera a
-propósito con `python scripts/snapshot_maestros.py`.
+propósito con `python scripts/snapshot_maestros.py`. **Desde el 30/09 el snapshot va un paso
+adelante del Sheet**: tiene aplicadas las tres migraciones del fix (`--snapshot`). Después
+de correrlas en el Sheet, regenerarlo.
 
 ## 5. Configuración y deploy
 
@@ -436,6 +470,23 @@ Railway, al lado del gateway, desde GitHub. `nixpacks.toml` fija Python 3.11 y a
 
 **El libro personal** ya existe: una hoja `MOVIMIENTOS` con el mismo encabezado que la del
 Master, compartida como Editor con la service account. No lleva maestros: usa los del Master.
+
+**El deploy del fix del arranque (30/09).** Después de desplegar el motor, y no antes (la
+versión anterior no entiende etapas con nombre ni el estado «futura»), las migraciones del
+maestro, en este orden. Cada una muestra primero el simulacro si se corre sin `--aplicar`:
+
+```bash
+python scripts/preparar_sheet.py --aplicar                          # OBRAS.cuenta_habitual
+python scripts/migraciones/2026_09_30_cuenta_habitual.py --aplicar  # Lennon → Pagado por el comitente
+python scripts/migraciones/2026_09_30_etapas.py --aplicar           # Lennon 1; Moreno 1 y extras
+python scripts/migraciones/2026_09_30_gessel.py --aplicar           # alias «gessel»
+```
+
+Después: `POST /maestros/recargar`, `/interpretar` con `Metro Gas/Grigera Galpón 11.750`
+(→ Banco, `supuesto`, sin faltantes) y con `Felipe J/Lennon $300.000` (→ Pagado por el
+comitente, `maestro`), y `python scripts/snapshot_maestros.py`. Cada migración se puede
+correr con `--snapshot tests/maestros_snapshot.json` para aplicarla solo a la copia de los
+tests (`scripts/migraciones/_comun.py`).
 
 **Las columnas de la tanda 6.** `vinculo` (la otra fila de un traspaso, §5.18) y `anula` (la
 fila que anula un contraasiento, §5.19) van al final de MOVIMIENTOS **en los dos libros**.
@@ -553,9 +604,9 @@ manda mensajes repetidos** con un segundo de diferencia.
 - [ ] **Encender el gateway**: el runbook de `chatbot-contable/docs/handoff-fachado.md` §6, en
       la reunión del martes 29/09 (ensayo primero, después la primera fila real).
 - [ ] **La primera fila real**, con un movimiento verdadero, mirándola en el Sheet.
-- [ ] **Etapas** (queda para después de la reunión del 29/09): preguntarle a Gabriel qué obras
-      tienen etapas y cargarlas en `ETAPAS` (`obra · etapa · descripcion · estado`). Hoy está
-      vacía: ninguna obra tiene etapas y el bot no las pregunta.
+- [ ] **Desplegar el fix del 30/09 y correr sus cuatro migraciones** (§5), y reenviar los
+      movimientos que dieron 422 el 29/09 (la lista sale de los logs del gateway; cómo, en
+      `docs/handoff-fix-arranque-2026-09-30.md`).
 - [x] ~~`DRIVE_CARPETA_COMPROBANTES_ID`~~ — fijada el 27/09 (la carpeta «comprobantes» la creó
       la misma app OAuth del motor).
 - [x] ~~Claves y réplicas~~ — verificado el 27/09: `MOTOR_API_KEY` igual a
@@ -566,8 +617,11 @@ manda mensajes repetidos** con un segundo de diferencia.
 
 **Código, esperando una decisión del contexto**
 
-- [ ] **Traspasos entre monedas** (Banco USD → Banco): hoy 422. Un cambio de moneda no está
-      definido en el contexto (¿qué tipo de cambio, de dónde sale?).
+- [ ] **Lennon con un comprobante de transferencia sin el CUIT del comitente legible**: por
+      el orden de §5.7 (el comprobante antes que la obra) va a Banco. ¿Debería ganar la obra?
+- [ ] **La ñ en las razones sociales**: «Maragano» no se empareja con «Maragaño». ¿Alias o
+      plegar ñ→n al comparar razones sociales?
+- [ ] **Caja de obra en negativo** (5 del handoff del 30/09, supuesto P-28): no se hizo.
 - [ ] **Corregir un certificado**: CERTIFICADOS no tiene `id_mov` y `/anular` es solo para
       MOVIMIENTOS. Un certificado mal cargado hoy no tiene cómo corregirse.
 - [ ] **Las series de certificados de Moreno** («cert 4» y «cert 4 extras», «cert.pintura»,
