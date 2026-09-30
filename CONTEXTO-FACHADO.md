@@ -8,7 +8,7 @@ que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico 
 - `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
   clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.6 · 25 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.7 · 30 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -183,6 +183,25 @@ operativa del banco. **La conciliación es global.**
 **«Personal» no es una cuenta, es una clasificación.** La plata sale del mismo banco. En
 cambio **el efectivo sí es una cuenta**: sacar del cajero es `TRASPASO`, no un gasto.
 
+**De qué cuenta salió** *(definido 30/09, después del arranque)*. En orden:
+
+1. Lo que dice el mensaje: «efectivo», la `C` de una caja de obra (§5.8), una cuenta
+   nombrada.
+2. Lo que dice el comprobante: una transferencia o un débito es **Banco**; un cheque va a la
+   cuenta que el libro ya usa para cheques; un comprobante de Mercado Pago, a Mercado Pago.
+3. Lo que dice la obra: en Lennon, `Pagado por el comitente` (§5.9).
+4. **Si nada lo dice, se asume `Banco` / transferencia y la ficha lo muestra marcado como
+   «supuesto»**, para que el usuario lo vea y lo corrija si no fue así. No se pregunta.
+
+**Nunca se ofrece «Confirmar» con un dato obligatorio vacío.** Si falta algo que el libro
+necesita, el bot lo completa por una regla de este archivo o lo pregunta antes de mostrar
+la ficha.
+
+**Dólares** *(definido 29/09)*. No hay un tipo de cambio fijo: depende de cada caso. **Cada
+vez que se carga un movimiento en dólares, o se pasa plata entre la cuenta en dólares y la
+de pesos, el bot pregunta a qué tipo de cambio fue.** Con eso se calcula el importe en
+pesos. Un traspaso entre monedas son dos filas, cada una en su moneda.
+
 ### 5.8 · La plata de las obras administradas no es del estudio
 
 *Definido el 18/09. Es el cambio de modelo más importante después del libro único.*
@@ -216,6 +235,16 @@ error que el sistema viene a evitar.
 aparece por necesidad en cualquiera. Se marca en el mensaje con una **`C` pegada al nombre
 de la obra**: `Barba/LennonC`, o con etapa, `Barba/Lennon1C` (§5.15). Sin la `C`, el pago no
 sale de la caja de obra.
+
+**Cómo se rinde** *(definido 29/09)*: no hay una regla general; cada cuánto y contra qué
+depende de cada obra. El sistema no impone un ciclo de rendición: muestra el saldo de cada
+caja y lo que se pagó con ella.
+
+**Cuando la caja no alcanza, a veces pone plata propia.** Ese aporte se clasifica según de
+dónde salió: **Austral** (plata del estudio: un traspaso de una cuenta del estudio a la caja
+de la obra) o **Gabriel** (plata personal suya). *Supuesto a confirmar:* el bot lo detecta
+cuando un pago deja la caja en negativo y pregunta «¿La diferencia la pusiste de Austral o
+tuya?».
 
 **Moreno cobra dos cosas distintas** *(definido 24/09)*: **honorarios de proyecto**, que son
 del estudio, y **certificaciones de obra**, que le paga el comitente al arquitecto para que
@@ -257,6 +286,10 @@ de la presente certificación**, con su fecha. Nada más del documento.
 obligatorio. En el PDF —lo genera él desde Excel— **el único monto que importa es el punto 7
 de la primera tabla, «Saldo a cancelar en la presente certificación»**. Número, fecha, obra y
 etapa se toman solo para identificarlo.
+
+**Numeración** *(definido 29/09)*: los certificados son **correlativos dentro de cada
+etapa**. En Moreno, los «extras» son una etapa aparte (§5.15), así que «cert 4 extras» es el
+certificado 4 de la etapa *extras*, distinto del certificado 4 de la etapa 1.
 
 Cada certificado es una **cuenta por cobrar**. Cada cobro que registra el certificado lo
 cancela. La diferencia contesta la pregunta que él hace: **«¿el comitente me pagó todo lo
@@ -358,12 +391,27 @@ número pegado al nombre de la obra: **`Lennon1`** es la etapa 1 de Lennon.
 
 - Las etapas de cada obra viven en una hoja **`ETAPAS`** del maestro. **Una obra sin filas
   en `ETAPAS` no tiene etapas** y el bot nunca las pregunta.
-- **Si la obra tiene etapas y el mensaje no dice cuál, el bot repregunta** con botones.
+- Cada etapa tiene un **estado**: `en curso`, `futura` o `terminada`.
+- **Si el mensaje no dice la etapa** *(definido 30/09)*: si la obra tiene **una sola etapa en
+  curso**, el bot la usa y la ficha lo muestra («etapa 1, en curso»); **si tiene dos o más
+  en curso, repregunta** con botones. Una etapa `futura` o `terminada` no se propone: si el
+  usuario la nombra, el bot pregunta si la activa.
 - La sintaxis completa del token de obra es **`<obra>[<etapa>][C]`**: `Lennon`, `Lennon1`,
-  `LennonC`, `Lennon1C`. La `C` es la caja chica (§5.8).
+  `LennonC`, `Lennon1C`. La `C` es la caja chica (§5.8). La etapa suele ser un número, pero
+  puede tener nombre: `Moreno extras`.
+- **Etapa y certificado son cosas distintas** *(confirmado 29/09)*: una etapa tiene varios
+  certificados. Por eso son dos campos.
 
-*Supuesto a confirmar:* etapa y certificado son cosas distintas —una etapa puede tener
-varios certificados—. Por eso son dos campos.
+**Las etapas de hoy** *(relevadas el 29/09)*:
+
+| Obra | Etapas |
+|---|---|
+| Lennon | **1 en curso**; 2 y 3 futuras («va a tener tres por lo menos») |
+| Moreno | **1 en curso** y **extras en curso**; 2 futura, más adelante |
+| Moquehue, Gonzalo, Hua Huan, Grigera Galpón, Belleli, Gessel, Tres Cerros | Sin etapas |
+
+Moreno tiene dos etapas en curso, así que un pago a Moreno sin etapa se pregunta: «¿Etapa 1
+o extras?».
 
 ### 5.16 · El mismo movimiento cargado dos veces
 
@@ -382,8 +430,7 @@ dos veces. Acá son dos mensajes distintos que describen el mismo hecho.
 hecho a la cuenta de otra persona: indirectamente es plata que entra para él y, a la vez,
 un gasto con el que canceló algo.
 
-Se registra como **`PASANTE`** *(definido 25/09; sigue en la lista de supuestos a
-confirmar con el arquitecto)*: **una sola fila** con `cuenta = Pagado por el comitente`, que
+Se registra como **`PASANTE`** *(definido 25/09, confirmado por el arquitecto el 29/09)*: **una sola fila** con `cuenta = Pagado por el comitente`, que
 suma a la cuenta corriente del contratista en la obra igual que un pago directo del
 comitente (§5.9). **No toca el saldo del estudio** y va marcada **`informal`**. Los
 movimientos informales quedan **fuera de la posición de IVA y fuera de la conciliación
@@ -431,13 +478,13 @@ cargó, quién lo corrigió y cuándo.
 | Grigera Galpón | obra_propia | todo | El arquitecto |
 | **Tres Cerros** | obra_propia | **todo** | El arquitecto |
 | Austral | estructura | — | Indirectos del estudio |
-| Sur · Abucoque · Belelli | personal | — | Inmuebles personales |
+| Sur · Abucoque · Belelli · Gessel | personal | — | Inmuebles personales. Gessel se sumó el 29/09; «Belleli» es otra forma de escribir Belelli |
 | Jardín Maternal | obra_terceros | administración | **cerrada** · obra de referencia |
 
 **Las cuatro obras propias —Gonzalo, Hua Huan, Grigera Galpón y Tres Cerros— son
 inversiones**, no consumo. El costo se sigue como **capital inmovilizado** y el resultado se
-mide contra la venta. No van al circuito personal, y *—supuesto a confirmar—* se quedan en
-el libro del estudio, no en el libro personal (§5.14).
+mide contra la venta. No van al circuito personal, y se quedan en el libro del estudio, no en el libro
+personal (§5.14; confirmado 29/09).
 
 **Las de «proyecto y dirección» no llevan cuenta corriente de costos**: el estudio no mueve
 plata ahí, solo cobra honorarios.
@@ -491,17 +538,15 @@ certificado, «Austral» es el emisor, nunca la obra.**
 
 ## 8. Estado y pendientes
 
-**Semana 4 de 8.** El motor está en producción con libro personal, cierre semanal, etapas,
-caja chica, duplicados, certificados y `/consultar` (**92 %** del corpus sin preguntar de
-más). **Próximo paso (decidido 25/09): conectar el gateway al motor y arrancar la carga real
-con Gabriel**, con confirmación de todo y la captura como red. Después: tablero, conciliación
-y marcha blanca.
+**Semana 5 de 8. El bot está en marcha desde el 29/09**, conectado al motor, con Gabriel
+como único usuario y confirmación de todo. En el arranque, Lennon funcionó; en otras obras
+la ficha llegaba sin cuenta y la confirmación fallaba con «Falta cuenta» (lo corrige §5.7,
+v1.7). Siguen: tablero, conciliación, Petrus (después de una semana de carga) y marcha
+blanca.
 
-**Supuestos a confirmar con el arquitecto** —el diseño los toma como válidos hasta que diga
-otra cosa—: etapa y certificado son cosas distintas (§5.15; el certificado de ejemplo es el
-Nº 1 de una etapa 2, lo que lo refuerza); el «depósito» es un pasante
-informal (§5.17); las cuatro obras propias se quedan en el libro del estudio, no en el
-personal (§6); los certificados los paga el comitente (§5.11).
+**Los cuatro supuestos quedaron confirmados el 29/09**: etapa y certificado son distintos
+(§5.15), el depósito es un pasante (§5.17), las obras propias van en el libro del estudio
+(§6) y los certificados los paga el comitente (§5.11).
 
 **Ideas para una etapa futura, a presupuestar aparte:** cuentas por pagar a proveedores por
 obra, un reporte para pasarle al comitente con lo pendiente de pagar, y que el comprobante
