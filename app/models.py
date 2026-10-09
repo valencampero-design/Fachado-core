@@ -145,6 +145,7 @@ class CajaObra(BaseModel):
     ingresado: float
     pagado: float
     por_rendir: float  # si da negativo, el arquitecto puso plata propia (§5.8)
+    moneda: str = "ARS"  # la de la caja: una caja en dólares se informa en dólares (§5.8 v1.8)
 
 
 class SaldoObra(BaseModel):

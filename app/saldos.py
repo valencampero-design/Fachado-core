@@ -28,6 +28,21 @@ def _signo(mov: dict) -> int:
     return 1 if mov.get("tipo") == "INGRESO" else -1
 
 
+def en_moneda_de_la_cuenta(mov: dict, moneda_cuenta: str) -> float | None:
+    """El importe del movimiento en la moneda de su cuenta (§5.8 v1.8: una caja de obra en
+    dólares se lleva en dólares). En la misma moneda, el importe; una cuenta en pesos, el
+    importe en pesos; un pago en pesos desde una cuenta en dólares descuenta importe / tc.
+    None si no se puede convertir (falta el tc)."""
+    moneda_mov = str(mov.get("moneda") or "ARS").upper()
+    if moneda_mov == moneda_cuenta:
+        return numero(mov.get("importe"))
+    if moneda_cuenta == "ARS":
+        return numero(mov.get("importe_ars"))
+    tc = numero(mov.get("tc"))
+    pesos = numero(mov.get("importe_ars")) if moneda_mov != "ARS" else numero(mov.get("importe"))
+    return round(pesos / tc, 2) if tc > 1 else None
+
+
 def saldo_estudio(movs: list[dict], m: Maestros) -> dict:
     """Saldo por cuenta del estudio y total. Nunca incluye `caja_obra` ni `externa`.
     Un TRASPASO (§5.18) lleva el signo en el importe: negativo en la cuenta de la que sale,
@@ -50,6 +65,8 @@ def saldo_obra(movs: list[dict], obra: str, m: Maestros) -> tuple[SaldoObra, lis
     Devuelve también advertencias por movimientos con una cuenta que no está en CUENTAS."""
     adelantado = pagado_estudio = pagado_comitente = caja_in = caja_out = 0.0
     hay_caja = False
+    caja = m.caja_de_obra(obra)
+    moneda_caja = caja.moneda if caja else "ARS"
     advertencias: list[str] = []
     n_obra = normalizar(obra)
     for mov in sin_anulados(movs):
@@ -67,6 +84,7 @@ def saldo_obra(movs: list[dict], obra: str, m: Maestros) -> tuple[SaldoObra, lis
             cuenta = m.cuenta(mov.get("cuenta"), incluir_inactivas=True)
             if cuenta is not None and cuenta.tipo == "caja_obra":
                 hay_caja = True
+                importe = _en_la_caja(mov, moneda_caja, advertencias)
                 if importe >= 0:
                     caja_in += importe
                 else:
@@ -80,6 +98,7 @@ def saldo_obra(movs: list[dict], obra: str, m: Maestros) -> tuple[SaldoObra, lis
                                 f"no entra en el saldo de {obra}")
         elif cuenta.tipo == "caja_obra":
             hay_caja = True
+            importe = _en_la_caja(mov, moneda_caja, advertencias)
             if mov["tipo"] == "INGRESO":
                 caja_in += importe
             else:
@@ -99,6 +118,15 @@ def saldo_obra(movs: list[dict], obra: str, m: Maestros) -> tuple[SaldoObra, lis
         pagado_por_el_comitente=round(pagado_comitente, 2),
         saldo=round(adelantado - pagado_estudio, 2),
         caja_obra=CajaObra(ingresado=round(caja_in, 2), pagado=round(caja_out, 2),
-                           por_rendir=round(caja_in - caja_out, 2)) if hay_caja else None,
+                           por_rendir=round(caja_in - caja_out, 2), moneda=moneda_caja) if hay_caja else None,
     )
     return saldo, advertencias
+
+
+def _en_la_caja(mov: dict, moneda_caja: str, advertencias: list[str]) -> float:
+    importe = en_moneda_de_la_cuenta(mov, moneda_caja)
+    if importe is None:
+        advertencias.append(f"{mov.get('id_mov')}: un pago en pesos desde la caja en {moneda_caja} sin tipo de "
+                            f"cambio; no entra en el saldo de la caja")
+        return 0.0
+    return importe

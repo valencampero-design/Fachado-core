@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 
-from tests.dobles import ArchivadorFalso, LibroMemoria
+from tests.dobles import ArchivadorFalso, LibroMemoria, cuenta_en_moneda
 
 RAIZ = Path(__file__).resolve().parent
 
@@ -47,6 +47,7 @@ async def _correr() -> int:
     from app import confirmar as modulo_confirmar
     from app import maestros
     from app.main import app, obtener_archivador, obtener_libro, obtener_libro_personal
+    from app.maestros import numero
     from app.saldos import saldo_estudio
 
     snapshot = json.loads((RAIZ / "maestros_snapshot.json").read_text(encoding="utf-8"))
@@ -705,6 +706,33 @@ async def _correr() -> int:
         check("el cobro de un certificado no cargado (el 9) se muestra aparte y no se resta",
               [c["certificado"] for c in r["datos"]["cobros_sin_certificado"]] == ["9"]
               and "pendiente $2.000.000" in r["texto"] and "no está cargado" in r["texto"], r)
+
+        # ── G · Caja de obra en dólares (§5.8 v1.8) ───────────────────────────
+        print("\nG · Caja obra Lennon en dólares: ingreso sin tc, pagos en pesos al tc del día, saldo en USD")
+        # El snapshot es el maestro real: la migración que la pasa a USD la aplica Valen.
+        with cuenta_en_moneda("Caja obra Lennon", "USD"):
+            libro, _ = preparar()
+            base = dict(obra="Lennon", cuenta="Caja obra Lennon", comprobante_url=None, fecha="2026-09-28")
+            r = await confirmar("wamid.G1", ficha(tipo="INGRESO", importe=20000, moneda="USD", tc=None,
+                                                  contratista=None, rubro_1=None, rubro_2=None, **base))
+            fila = libro.movimientos()[-1]
+            check("USD 20.000 a la caja en dólares: se escribe sin tipo de cambio ni importe_ars",
+                  r.status_code == 200 and fila["moneda"] == "USD" and fila["tc"] == "" and fila["importe_ars"] == "",
+                  (r.status_code, r.text[:200], {k: fila.get(k) for k in ("moneda", "tc", "importe_ars")}))
+            r = await confirmar("wamid.G2", ficha(importe=1450000, moneda="ARS", tc=1, contratista="Miguel Soto",
+                                                  **{**base, "fecha": "2026-10-03"}))
+            check("un pago en pesos desde la caja en dólares sin tc → 422 que nombra el tc",
+                  r.status_code == 422 and r.json()["detail"]["campo"] == "tc", (r.status_code, r.text[:200]))
+            r = await confirmar("wamid.G3", ficha(importe=1450000, moneda="ARS", tc=1450, contratista="Miguel Soto",
+                                                  **{**base, "fecha": "2026-10-03"}))
+            fila = libro.movimientos()[-1]
+            caja = (r.json().get("obra") or {}).get("caja_obra") or {}
+            check("… con tc 1.450: importe en pesos, importe_ars igual, tc guardado",
+                  r.status_code == 200 and (numero(fila["importe"]), fila["moneda"], numero(fila["tc"]), numero(fila["importe_ars"]))
+                  == (1450000, "ARS", 1450, 1450000), (r.status_code, r.text[:200]))
+            check("el saldo de la caja, en dólares: 20.000 − 1.000 = 19.000 por rendir",
+                  caja.get("moneda") == "USD" and caja.get("ingresado") == 20000 and caja.get("pagado") == 1000
+                  and caja.get("por_rendir") == 19000, caja)
 
     app.dependency_overrides.clear()
 

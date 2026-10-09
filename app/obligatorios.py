@@ -60,9 +60,20 @@ def obligatorios(campos: dict, m: Maestros) -> list[str]:
         req += ["obra"]
     elif tipo == "PASANTE":
         req += ["obra", "contratista"]
-    if str(campos.get("moneda") or "ARS").upper() != "ARS":
+    if necesita_tc(campos, m):
         req.append("tc")
     return req + con_etapa
+
+
+def necesita_tc(campos: dict, m: Maestros) -> bool:
+    """§5.7 y §5.8 v1.8. Un movimiento en dólares lleva tipo de cambio, salvo que entre o salga
+    de una caja de obra en dólares: esa caja se lleva en dólares y no se convierte. Un pago en
+    pesos desde una cuenta en dólares también lo lleva: la cuenta descuenta importe / tc."""
+    moneda = str(campos.get("moneda") or "ARS").upper()
+    cuenta = m.cuenta(campos.get("cuenta")) if not vacio(campos.get("cuenta")) else None
+    if cuenta is not None and cuenta.moneda != "ARS":
+        return moneda != cuenta.moneda or cuenta.tipo != "caja_obra"
+    return moneda != "ARS"
 
 
 def faltantes(campos: dict, m: Maestros) -> list[str]:

@@ -248,9 +248,16 @@ class Maestros:
                      if normalizar(c.nombre) == n and (c.activa or incluir_inactivas)), None)
 
     def caja_de_obra(self, obra: str | None) -> Cuenta | None:
-        """La «Caja obra <obra>» activa, si la obra tiene (§5.8). Si no, None: nunca se inventa."""
-        c = self.cuenta(f"Caja obra {obra}") if obra else None
-        return c if c and c.tipo == "caja_obra" else None
+        """La «Caja obra <obra>» activa, si la obra tiene (§5.8). Si no, None: nunca se inventa.
+        Una caja que cambió de moneda con movimientos queda inactiva y la reemplaza «Caja obra
+        <obra> USD» (§5.8 v1.8): también es la caja de la obra."""
+        if not obra:
+            return None
+        c = self.cuenta(f"Caja obra {obra}")
+        if c and c.tipo == "caja_obra":
+            return c
+        return next((x for x in self.cuentas if x.activa and x.tipo == "caja_obra"
+                     and normalizar(x.nombre) == normalizar(f"Caja obra {obra} {x.moneda}")), None)
 
     def obra_de_caja(self, cuenta: str | None) -> Obra | None:
         """La inversa: de qué obra es una caja de obra. None si la cuenta no es una caja."""

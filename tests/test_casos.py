@@ -706,6 +706,41 @@ def main() -> int:
     check("«Juan Perez» no se parte en palabras: sigue siendo un contratista desconocido", c["contratista"] is None
           and campos_de(r, "contratista"), (c["contratista"], [p.campo for p in r.preguntas]))
 
+    print("\nConversación · G caja de obra en dólares (§5.8 v1.8)")
+    from app.maestros import numero
+    from tests.dobles import cuenta_en_moneda
+    with cuenta_en_moneda("Caja obra Lennon", "USD"):
+        r = interpretar(InterpretarIn(texto="INGRRSO/28 de septiembre,  Lennon me paso us$20.000 Para ingresar a caja "
+                                            "chica, efectivo", fecha_mensaje="2026-10-05T03:19:00Z"))
+        c = r.fichas[0].campos
+        check("captura 4 con la caja en dólares → USD 20.000 a la caja, sin tipo de cambio, cero preguntas (test 3)",
+              (c["cuenta"], c["moneda"], c["importe"]) == ("Caja obra Lennon", "USD", 20000) and not r.preguntas,
+              (c["cuenta"], c["moneda"], c["tc"], [(p.campo, p.texto) for p in r.preguntas]))
+        r, f = leer_con("Lennon/Miguel efectivo $1.450.000", estudio=con_historia)  # el rubro, del libro
+        tc_p = [p for p in r.preguntas if p.campo == "tipo_cambio"]
+        check("primer pago en pesos del día desde la caja en dólares → solo se pregunta el tc, diciendo por qué",
+              [p.campo for p in r.preguntas] == ["tipo_cambio"] and "dólares" in tc_p[0].texto,
+              [(p.campo, p.texto) for p in r.preguntas])
+        hoy = libro(dict(id_mov="M-000020", fecha="2026-09-25", tipo="EGRESO", importe=725000, moneda="ARS", tc=1450,
+                         importe_ars=725000, obra="Lennon", contratista="Miguel Soto", rubro_1="Mano de obra",
+                         rubro_2="Contratistas", cuenta="Caja obra Lennon", tipo_gasto="obra",
+                         cargado_por="Gabriel Fachado", ts="2026-09-25 10:00:00"))
+        r, f = leer_con("Lennon/Miguel efectivo $1.450.000", estudio=hoy)
+        check("el segundo pago del día reusa el tc del libro: «TC 1.450 (de hoy)», cero preguntas",
+              numero(f.campos["tc"]) == 1450 and not r.preguntas
+              and "TC 1.450 (de hoy)" in f.extras.get("advertencias", []),
+              (f.campos["tc"], f.extras.get("advertencias"), [p.campo for p in r.preguntas]))
+        r0 = interpretar(InterpretarIn(texto="Ingreso Lennon caja $20.000", fecha_mensaje="2026-09-28T12:00:00Z"))
+        r1 = responder(r0, ("tipo_cambio", "Lo dejamos en dólares"))
+        check("«Lo dejamos en dólares» a la pregunta del tc, con la caja en dólares → moneda USD, sin más preguntas",
+              "tipo_cambio" in [p.campo for p in r0.preguntas] and r1.fichas[0].campos["moneda"] == "USD"
+              and not campos_de(r1, "tipo_cambio"),
+              ([p.campo for p in r0.preguntas], r1.fichas[0].campos["moneda"], [p.campo for p in r1.preguntas]))
+    r0 = interpretar(InterpretarIn(texto="Ingreso Moreno/cert 4 us$1.000", fecha_mensaje="2026-09-28T12:00:00Z"))
+    r1 = responder(r0, ("tipo_cambio", "no hay tipo de cambio"))
+    check("… pero si la cuenta está en pesos, «no hay tipo de cambio» no vale: se vuelve a preguntar",
+          campos_de(r1, "tipo_cambio"), [p.campo for p in r1.preguntas])
+
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"ninguna ficha devolvió un faltante sin su pregunta ({len(rotas_invariante)} con problemas)",
           not rotas_invariante, rotas_invariante)

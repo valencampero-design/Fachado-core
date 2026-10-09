@@ -38,6 +38,8 @@ MAX_OPCIONES = 10
 # comitente» no está: cómo pagó el comitente no se sabe.
 MEDIO_POR_TIPO_DE_CUENTA = {"banco": "Transferencia", "efectivo": "Efectivo", "caja_obra": "Efectivo",
                             "chequera": "Cheque", "billetera": "Mercado Pago"}
+# §5.8 v1.8: respuestas a «¿A qué tipo de cambio?» cuando la cuenta está en dólares.
+RE_SIN_CONVERSION = re.compile(r"\b(?:dolar(?:es)?|usd|no hay|sin tipo|sin tc|no se convierte)\b")
 
 
 def _cuenta_de_tipo(m: Maestros, tipo: str, moneda: str | None = "ARS"):
@@ -266,8 +268,14 @@ def _aplicar_respuestas(contexto: dict, respuestas: list, m: Maestros, diag: dic
         elif campo == "tipo_cambio":
             # §5.7 (v1.7): «1.450», «1450», «1450,50». Se guarda en la columna `tc`.
             tc = numero(valor)
+            destino = m.cuenta(campos.get("cuenta") or campos.get("cuenta_destino"))
             if tc > 0:
                 fijar("tc", tc)
+            elif RE_SIN_CONVERSION.search(n) and destino and destino.moneda != "ARS":
+                # §5.8 v1.8: «lo dejamos en dólares», «no hay tipo de cambio»: la cuenta está en
+                # dólares y el movimiento también; no hay nada que convertir.
+                fijar("moneda", destino.moneda)
+                campos["tc"] = None
             else:
                 diag["advertencias"].append(f"«{valor}» no es un tipo de cambio: se vuelve a preguntar")
         elif campo == "activar_etapa":
@@ -376,6 +384,25 @@ def _leer_libros(libros: dict | None, usuario: Usuario | None, diag: dict) -> di
     return salida
 
 
+def _tc_del_dia(cuenta: str, fecha, historia) -> float | None:
+    """§5.8 v1.8: el tipo de cambio del último movimiento de esa cuenta en esa fecha (el primer
+    pago del día lo preguntó; los siguientes lo reusan)."""
+    if not fecha:
+        return None
+    del_dia = [mv for mv in historia if normalizar(mv.get("cuenta")) == normalizar(cuenta)
+               and str(mv.get("fecha") or "")[:10] == str(fecha)[:10] and numero(mv.get("tc")) > 1]
+    if not del_dia:
+        return None
+    return numero(max(del_dia, key=lambda mv: str(mv.get("ts") or "")).get("tc"))
+
+
+def _formato_tc(tc: float) -> str:
+    """1450 → «1.450»; 1450.5 → «1.450,50»."""
+    entero, _, dec = f"{tc:,.2f}".partition(".")
+    entero = entero.replace(",", ".")
+    return entero if dec == "00" else f"{entero},{dec}"
+
+
 def _ultimo_rubro(contratista: str, historia: list[dict], personal: bool, m: Maestros):
     """§5.12 v1.8: el rubro de la última vez que se le pagó a este contratista, en los dos
     libros. Solo uno del mismo lado (personal o no) que el movimiento de ahora."""
@@ -443,7 +470,13 @@ def _completar_preguntas(ficha: Ficha, i: int, suyas: list[Pregunta], m: Maestro
         elif campo == "contratista":
             p = Pregunta(campo="contratista", texto="¿A quién se le pagó?")
         elif campo == "tc":
-            p = Pregunta(campo="tipo_cambio", texto="¿A qué tipo de cambio?")
+            cta = m.cuenta(c.get("cuenta"))
+            if cta and cta.moneda != "ARS" and str(c.get("moneda") or "ARS").upper() == "ARS":
+                # §5.8 v1.8: el primer pago en pesos del día desde una caja en dólares.
+                p = Pregunta(campo="tipo_cambio", texto=f"{cta.nombre} está en dólares. ¿A qué tipo de cambio "
+                                                        f"pagaste hoy? (lo uso para los demás pagos del día)")
+            else:
+                p = Pregunta(campo="tipo_cambio", texto="¿A qué tipo de cambio?")
         elif campo == "etapa":
             p = Pregunta(campo="etapa", texto=f"¿Qué etapa de {obra.nombre if obra else 'la obra'}?",
                          opciones=m.etapas_en_curso(obra.nombre) if obra else [])
@@ -812,9 +845,16 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         verbo = "entra" if tipo == "INGRESO" else "sale"
         # §5.8 v1.8: Gabriel no usa la C. En una obra con caja, «efectivo» (lo diga el texto o el
         # comprobante) es la caja de la obra; «efectivo del estudio» es el Efectivo del estudio.
+        # La C y «efectivo del estudio» se dicen una vez: viajan en extras para que una respuesta
+        # posterior (el tc, el rubro) no los pierda. La C solo vale para la misma obra.
+        if caja_pedida:
+            extras["caja_de"] = obra.nombre
+        caja_pedida = caja_pedida or extras.get("caja_de") == obra.nombre
+        if seg.efectivo_estudio:
+            extras["efectivo_estudio"] = True
         cuenta_dicha = m.cuenta(campos["cuenta"])
         efectivo_de_la_obra = caja is not None and cuenta_dicha is not None and cuenta_dicha.tipo == "efectivo" \
-            and not seg.efectivo_estudio
+            and not extras.get("efectivo_estudio")
         if caja_pedida or efectivo_de_la_obra or (tipo == "INGRESO" and administrada and es_cert and not seg.honorarios):
             actual = m.cuenta(campos["cuenta"])
             if caja is None:
@@ -898,13 +938,28 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         poner("medio_pago", MEDIO_POR_TIPO_DE_CUENTA.get(cuenta_elegida.tipo),
               "supuesto" if origen.get("cuenta") == "supuesto" else "inferido")
 
-    if campos["moneda"] == "ARS":
-        poner("tc", 1, "inferido")
-        if campos["importe"] is not None:
-            poner("importe_ars", campos["importe"], "inferido")
-    elif campos["tc"] not in (None, "") and campos["importe"] is not None:
-        # §5.7: en dólares, con el tipo de cambio que dijo el usuario.
-        poner("importe_ars", round(numero(campos["importe"]) * numero(campos["tc"]), 2), "inferido")
+    # §5.7 y §5.8 v1.8. Dólares a una caja en dólares: sin tc. Un pago en pesos desde una caja
+    # en dólares: el tc del día, que se pide en el primer pago del día de esa caja y se lee del
+    # libro en los siguientes (el motor sigue sin estado).
+    if not obligatorios.necesita_tc(campos, m):
+        if campos["moneda"] == "ARS":
+            poner("tc", 1, "inferido")
+            if campos["importe"] is not None:
+                poner("importe_ars", campos["importe"], "inferido")
+    else:
+        if campos["moneda"] == "ARS" and campos["tc"] in (None, "", 1) and cuenta_elegida:
+            campos["tc"] = None
+            # La fecha del mensaje se pone más abajo: si el texto no trae fecha, es esa.
+            fecha_pago = campos["fecha"] or (f.isoformat() if (f := _fecha_local(req, s)) else None)
+            tc_hoy = _tc_del_dia(cuenta_elegida.nombre, fecha_pago, historia)
+            if tc_hoy:
+                poner("tc", tc_hoy, "inferido")
+                extras["tc_de_hoy"] = True
+                advertencias.append(f"TC {_formato_tc(tc_hoy)} (de hoy)")
+        if campos["tc"] not in (None, "") and campos["importe"] is not None:
+            # §5.7: en dólares, con el tipo de cambio que dijo el usuario; en pesos, ya está.
+            pesos = numero(campos["importe"]) * (numero(campos["tc"]) if campos["moneda"] != "ARS" else 1)
+            poner("importe_ars", round(pesos, 2), "inferido")
     if req.adjuntos:
         poner("comprobante_url", req.adjuntos[0].url, "comprobante")
     # En una corrección el adjunto vino con el mensaje anterior.

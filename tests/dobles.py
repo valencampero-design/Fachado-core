@@ -5,6 +5,7 @@ se puede borrar. El libro en memoria imita al Sheet en lo que importa: escribir 
 lo que había en la fila N. Así, si el lock del id_mov fallara, se vería igual que en
 producción: dos confirmaciones sacan el mismo número y la segunda borra a la primera.
 """
+import contextlib
 import time
 
 # El encabezado de CERTIFICADOS (tanda 5). Vive acá para no depender del snapshot, que solo
@@ -85,3 +86,25 @@ class ArchivadorFalso:
             raise ConnectionError("Drive caído (simulado)")
         self.movidos.append((file_id, list(carpetas), nombre_base))
         return f"https://drive.google.com/file/d/{file_id}/view"
+
+
+@contextlib.contextmanager
+def cuenta_en_moneda(nombre: str, moneda: str):
+    """Mientras dura el caso, la cuenta está en esa moneda (§5.8 v1.8: Caja obra Lennon en
+    dólares). Se cambia en lo que lee el maestro, no en el objeto: /confirmar recarga los
+    maestros. Al salir se recargan como estaban. Devuelve los maestros cambiados."""
+    from app import maestros
+    original = maestros._leer_crudo
+
+    def crudo():
+        d = original()
+        for fila in d["CUENTAS"][1:]:
+            if fila and fila[0] == nombre:
+                fila[2] = moneda
+        return d
+    maestros._leer_crudo = crudo
+    try:
+        yield maestros.cargar(forzar=True)
+    finally:
+        maestros._leer_crudo = original
+        maestros.cargar(forzar=True)

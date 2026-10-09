@@ -124,17 +124,22 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
     if importe <= 0:
         raise falta("importe", f"Importe «{c['importe']}» inválido")
 
-    moneda = str(c["moneda"]).upper()
-    if moneda == "ARS":
-        tc = 1
-    else:
-        tc = numero(c.get("tc"))
-        if tc <= 0:
-            raise falta("tc", f"Un movimiento en {moneda} necesita el tipo de cambio")
-
     cuenta = m.cuenta(c["cuenta"])
     if cuenta is None:
         raise falta("cuenta", f"La cuenta «{c['cuenta']}» no está en CUENTAS")
+
+    # §5.7 y §5.8 v1.8: en pesos, tc 1; en dólares, el que dijo el usuario. Un pago en pesos
+    # desde una caja en dólares lleva el tc del día (la caja descuenta importe / tc dólares).
+    # Dólares a una caja en dólares: sin tc, y sin importe_ars (no hay a qué convertirlo).
+    moneda = str(c["moneda"]).upper()
+    if obligatorios.necesita_tc(c, m):
+        tc = numero(c.get("tc"))
+        if tc <= 0 or (moneda == "ARS" and tc == 1):  # tc 1 en pesos es el de relleno, no el del día
+            raise falta("tc", f"Un movimiento en {moneda} necesita el tipo de cambio" if moneda != "ARS"
+                        else f"Un pago en pesos desde «{cuenta.nombre}» (en {cuenta.moneda}) necesita el tipo de cambio")
+    else:
+        tc = 1 if moneda == "ARS" else ""
+    importe_ars = importe if moneda == "ARS" else round(importe * tc, 2) if tc else ""
 
     obra = None
     if not _vacio(c.get("obra")):
@@ -170,7 +175,7 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
         "importe": importe,
         "moneda": moneda,
         "tc": tc,
-        "importe_ars": round(importe * tc, 2),
+        "importe_ars": importe_ars,
         "obra": obra.nombre if obra else "",
         "comitente": obra.comitente if obra else "",   # se hereda de OBRAS, no se tipea
         "cuenta": cuenta.nombre,
