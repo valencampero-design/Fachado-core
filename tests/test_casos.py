@@ -621,6 +621,91 @@ def main() -> int:
         check(f"«{texto}» → {obra}, inmueble personal: circuito personal (R1)",
               (c["obra"], c["tipo_gasto"]) == (obra, "personal"), (c["obra"], c["tipo_gasto"], f.regla))
 
+    # ── Conversación (9/10) · D: pocas preguntas (§5.12 v1.8) ─────────────────
+    print("\nConversación · D «Lennon/Miguel» + comprobante = cero preguntas (§5.12 v1.8)")
+    recibo_miguel = Adjunto(url="https://drive.google.com/file/d/RECIBOMIGUELxxxxxxxxxxxxx/view", mime="image/jpeg",
+                            nombre="recibo.jpg")
+    leido_miguel = dict(importe=7084000, fecha="2026-10-03", razon_social="Miguel Soto", medio_pago="Efectivo",
+                        tipo_comprobante="Recibo")
+    con_historia = libro(dict(id_mov="M-000010", fecha="2026-10-07", tipo="EGRESO", importe=3070000, obra="Lennon",
+                              contratista="Miguel Soto", rubro_1="Mano de obra", rubro_2="Contratistas",
+                              cuenta="Efectivo", tipo_gasto="obra", cargado_por="Gabriel Fachado"))
+    r, f = leer_con("Lennon/Miguel", estudio=con_historia, adjuntos=[recibo_miguel], lector=lector_con(**leido_miguel))
+    c = f.campos
+    check("«Lennon/Miguel» + el recibo → cero preguntas (el criterio de aceptación)", not r.preguntas,
+          [(p.campo, p.texto) for p in r.preguntas])
+    check("… Miguel Soto, importe y fecha del recibo, rubro el último usado con él (supuesto)",
+          (c["contratista"], c["importe"], c["fecha"], c["rubro_2"], f.origen_campo.get("rubro_2"))
+          == ("Miguel Soto", 7084000, "2026-10-03", "Contratistas", "supuesto"), (c, f.origen_campo))
+    r, f = leer_con("Lennon/Miguel", estudio=libro(), adjuntos=[recibo_miguel], lector=lector_con(**leido_miguel))
+    rubro_p = [p for p in r.preguntas if p.campo == "rubro"]
+    primeros_de_rubros = [x.rubro_2 for x in m.rubros if x.afecta == "obra"][:10]
+    check("sin historia ni rubro habitual: solo se pregunta el rubro, con las opciones más usadas (no los primeros 10 de "
+          "RUBROS)", rubro_p and [p.campo for p in r.preguntas] == ["rubro"] and "Contratistas" in rubro_p[0].opciones[:3]
+          and rubro_p[0].opciones != primeros_de_rubros, [(p.campo, p.opciones[:5]) for p in r.preguntas])
+
+    r = interpretar(InterpretarIn(texto="INGRRSO/28 de septiembre,  Lennon me paso us$20.000 Para ingresar a caja chica, "
+                                        "efectivo", fecha_mensaje="2026-10-05T03:19:00Z"))  # la hora real del mensaje
+    f, c = r.fichas[0], r.fichas[0].campos
+    check("captura 4: INGRESO (typo), Lennon (del texto libre), USD 20.000, fecha 28/9, caja de Lennon, sin preguntar "
+          "a quién se le pagó",
+          (c["tipo"], c["obra"], c["moneda"], c["importe"], c["fecha"]) == ("INGRESO", "Lennon", "USD", 20000, "2026-09-28")
+          and c["cuenta"] and c["cuenta"].startswith("Caja obra Lennon") and not campos_de(r, "contratista", "obra", "concepto"),
+          (c, [p.campo for p in r.preguntas]))
+    for texto, tipo in (("ingrso Moreno/cert 4 $1.000", "INGRESO"), ("Egreso Barba/Hua Huan $1.000", "EGRESO"),
+                        ("INGRESO Lennon $1.000", "INGRESO")):
+        r, f, c = leer(texto)
+        check(f"«{texto.split()[0]}» → {tipo}", c["tipo"] == tipo, c["tipo"])
+    r, f, c = leer("Ingreso Lennon $100.000")
+    concepto = [p for p in r.preguntas if p.campo == "concepto"]
+    check("un ingreso en Lennon sin decir qué es: la pregunta incluye «Adelanto para la caja de obra», y nunca a quién se "
+          "le pagó", concepto and "Adelanto para la caja de obra" in concepto[0].opciones and not campos_de(r, "contratista"),
+          [(p.campo, p.opciones) for p in r.preguntas])
+    r1 = responder(r, ("concepto", "Adelanto para la caja de obra"))
+    check("… «Adelanto para la caja de obra» → entra a la caja de Lennon",
+          (r1.fichas[0].campos["cuenta"] or "").startswith("Caja obra Lennon"), r1.fichas[0].campos["cuenta"])
+
+    transf_sofi = Adjunto(url="https://drive.google.com/file/d/TRANSFSOFIxxxxxxxxxxxxxxx/view", mime="image/jpeg",
+                          nombre="t.jpg")
+    r, f = leer_con("Retiro/Sofi", adjuntos=[transf_sofi],
+                    lector=lector_con(importe=184000, fecha="2026-09-30", medio_pago="Transferencia"))
+    c = f.campos
+    check("captura 1: «Retiro/Sofi» + comprobante → personal, sin obra, rubro Familia (supuesto), cero preguntas",
+          (c["tipo_gasto"], c["obra"], c["rubro_2"], f.origen_campo.get("rubro_2")) == ("personal", None, "Familia", "supuesto")
+          and not r.preguntas, (c, [p.campo for p in r.preguntas]))
+    r0 = interpretar(InterpretarIn(texto="Retiro/Sofi", fecha_mensaje="2026-09-30T19:17:00Z"))
+    r1 = responder(r0, ("importe", "184000"))
+    check("… y si se pregunta algo (el importe), la respuesta no hace aparecer la obra: lo personal se mantiene",
+          r1.fichas[0].campos["tipo_gasto"] == "personal" and not campos_de(r1, "obra", "clasificacion"),
+          (r1.fichas[0].campos["tipo_gasto"], [p.campo for p in r1.preguntas]))
+    r, f, c = leer("Retiro/Sofi/Moreno $1.000")
+    check("un personal no lleva la obra de un tercero (P-000001): la obra se descarta y se avisa",
+          c["tipo_gasto"] == "personal" and c["obra"] is None and any("personal" in a for a in f.extras.get("advertencias", [])),
+          (c["obra"], f.extras.get("advertencias")))
+    r, f, c = leer("Edesur/Belleli $1.000")
+    check("… pero un inmueble personal sí (Belelli)", c["obra"] == "Belelli", c["obra"])
+
+    print("\nConversación · F «efectivo» en una obra con caja = esa caja (§5.8 v1.8)")
+    caja_lennon = m.caja_de_obra("Lennon")
+    r, f, c = leer("Lennon/Miguel efectivo $500.000")
+    check("«Lennon/Miguel efectivo» (sin la C, como escribe Gabriel) → Miguel Soto, sale de la caja de Lennon",
+          (c["contratista"], c["cuenta"], c["medio_pago"]) == ("Miguel Soto", caja_lennon.nombre, "Efectivo"),
+          (c["contratista"], c["cuenta"], c["medio_pago"], [p.campo for p in r.preguntas]))
+    r, f, c = leer("Lennon/Miguel/efectivo del estudio $500.000")
+    check("«efectivo del estudio» → la cuenta Efectivo, no la caja", c["cuenta"] == "Efectivo", c["cuenta"])
+    r, f = leer_con("Lennon/Miguel", estudio=con_historia, adjuntos=[recibo_miguel], lector=lector_con(**leido_miguel))
+    check("«Lennon/Miguel» + un recibo en efectivo → la caja de Lennon, cero preguntas (test 2 del handoff)",
+          f.campos["cuenta"] == caja_lennon.nombre and not r.preguntas,
+          (f.campos["cuenta"], [(p.campo, p.texto) for p in r.preguntas]))
+    sin_caja = next(o.nombre for o in m.obras if o.estado != "cerrada" and o.tipo in ("obra_terceros", "obra_propia")
+                    and m.caja_de_obra(o.nombre) is None)
+    r, f, c = leer(f"{sin_caja}/Miguel efectivo $500.000")
+    check(f"una obra sin caja ({sin_caja}): «efectivo» sigue siendo el Efectivo del estudio", c["cuenta"] == "Efectivo",
+          (c["obra"], c["cuenta"]))
+    r, f, c = leer("Lennon/Juan Perez $1.000")
+    check("«Juan Perez» no se parte en palabras: sigue siendo un contratista desconocido", c["contratista"] is None
+          and campos_de(r, "contratista"), (c["contratista"], [p.campo for p in r.preguntas]))
+
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"ninguna ficha devolvió un faltante sin su pregunta ({len(rotas_invariante)} con problemas)",
           not rotas_invariante, rotas_invariante)

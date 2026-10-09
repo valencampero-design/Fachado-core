@@ -125,6 +125,9 @@ def main() -> int:
     ap.add_argument("--sheet", action="store_true", help="leer maestros del Sheet real")
     ap.add_argument("--url", help="URL de un motor corriendo (si no, se llama in-process)")
     ap.add_argument("--adjuntos", action="store_true", help="bajar y leer los adjuntos (requiere OAuth)")
+    ap.add_argument("--historia", metavar="ARCHIVO.json",
+                    help="los libros en memoria arrancan con MOVIMIENTOS reales (solo lectura); si el archivo "
+                         "no existe, se baja de los dos libros y se guarda ahí")
     ap.add_argument("--salida", default=str(RAIZ / "salida" / "corpus.json"))
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
@@ -151,8 +154,32 @@ def main() -> int:
         # Libros vacíos: la búsqueda de duplicados (§5.16) no puede depender de lo que haya en
         # el libro real, o la métrica dejaría de ser reproducible.
         encabezado = json.loads((RAIZ / "maestros_snapshot.json").read_text(encoding="utf-8"))["MOVIMIENTOS"][0]
-        app.dependency_overrides[obtener_libro] = lambda: LibroMemoria(encabezado)
-        app.dependency_overrides[obtener_libro_personal] = lambda: LibroMemoria(encabezado)
+        # --historia: los libros arrancan con lo que hoy tienen MOVIMIENTOS de los dos libros
+        # reales (solo lectura): mide las preguntas como si Gabriel mandara hoy estos mensajes
+        # (§5.12 v1.8, el rubro del último uso). El corpus es de antes de que existieran los
+        # libros, así que no hay duplicados verdaderos.
+        # El archivo se baja una vez y se reusa: el antes y el después miden con la misma historia.
+        reales = {"estudio": [encabezado], "personal": [encabezado]}
+        if args.historia:
+            archivo = Path(args.historia)
+            if archivo.exists():
+                reales = json.loads(archivo.read_text(encoding="utf-8"))
+            else:
+                from app.config import settings
+                from app.libro import LibroSheets
+                reales["estudio"] = LibroSheets().leer_movimientos()
+                if settings().personal_sheet_id:
+                    reales["personal"] = LibroSheets(settings().personal_sheet_id).leer_movimientos()
+                archivo.write_text(json.dumps(reales, ensure_ascii=False), encoding="utf-8")
+            print(f"Historia: {len(reales['estudio']) - 1} movimientos del estudio, "
+                  f"{len(reales['personal']) - 1} personales")
+
+        def libro_con(filas):
+            lib = LibroMemoria(filas[0])
+            lib.filas = [list(f) for f in filas]
+            return lib
+        app.dependency_overrides[obtener_libro] = lambda: libro_con(reales["estudio"])
+        app.dependency_overrides[obtener_libro_personal] = lambda: libro_con(reales["personal"])
         cliente = TestClient(app)
     headers = {"X-API-Key": os.environ["MOTOR_API_KEY"]}
 
@@ -251,6 +278,33 @@ def main() -> int:
     print(f"  Necesitaron LLM:                      {len(con_llm)}/{len(con_texto)}  "
           f"(solo diccionario: {len(con_texto) - len(con_llm)})")
     print(f"  Adjuntos sin texto (no se pueden imputar sin leer el comprobante): {len(solo_adjunto)}")
+
+    # §5.12 v1.8, «Pocas preguntas»: cuántas preguntas hace el bot por movimiento. Un movimiento
+    # es una ficha de un mensaje nuevo (las correcciones llegan con contexto_previo). «Completos»
+    # son los que traen obra, contratista y comprobante: «Lennon/Miguel» + la foto tendría que
+    # alcanzar, cero preguntas.
+    from collections import Counter
+
+    movimientos = [(x, i, f) for x in resultados if not x["mensaje"].es_correccion
+                   for i, f in enumerate(x["respuesta"]["fichas"])]
+
+    def preguntas_de(x, i):
+        return [p for p in x["respuesta"]["preguntas"] if int(p.get("ficha", 0)) == i]
+
+    completos = [(x, i, f) for x, i, f in movimientos
+                 if f["campos"].get("obra") and f["campos"].get("contratista") and x["mensaje"].adjuntos]
+    print("\nPreguntas por movimiento (§5.12 v1.8)" + ("" if args.adjuntos else
+          "  — sin leer los comprobantes: correr con --adjuntos para el número real"))
+    for nombre, conjunto in (("Todos", movimientos), ("Con obra + contratista + comprobante", completos)):
+        cuantas = [len(preguntas_de(x, i)) for x, i, _ in conjunto]
+        if not cuantas:
+            print(f"  {nombre:<38} sin casos")
+            continue
+        ceros = sum(1 for c in cuantas if c == 0)
+        print(f"  {nombre:<38} {sum(cuantas) / len(cuantas):.2f} por movimiento · cero preguntas: "
+              f"{ceros}/{len(cuantas)} ({100 * ceros / len(cuantas):.0f} %)")
+    que = Counter(p["campo"] for x, i, _ in movimientos for p in preguntas_de(x, i))
+    print("  Qué se pregunta: " + ", ".join(f"{c} {n}" for c, n in que.most_common()))
 
     print("\nPor usuario (obra y contratista sin preguntar · con las preguntas de diseño):")
     for tel in sorted({x["mensaje"].telefono for x in nuevos}):

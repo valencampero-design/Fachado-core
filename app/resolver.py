@@ -40,11 +40,23 @@ PALABRAS_RUIDO = {"e", "y", "imputar", "ingresar", "ingresarlo", "registrar", "c
                   "como", "aparte", "separado", "correccion", "corregir"}
 STOPWORDS_RUBRO = {"y", "de", "del", "la", "el", "los", "las", "a"}
 
+# §5.12 v1.8: la palabra de tipo con un error de tipeo («INGRRSO», «ingrso»). Solo la primera
+# palabra del mensaje, que es donde la escribe, y solo las largas: «pago» o «cobro» con un
+# error se confundirían con cualquier cosa.
+TIPOS_POR_PARECIDO = {"ingreso": "INGRESO", "egreso": "EGRESO", "traspaso": "TRASPASO", "deposito": "PASANTE",
+                      "extraccion": "TRASPASO"}
+UMBRAL_TIPO = 80
+MESES = {"enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6, "julio": 7, "agosto": 8,
+         "septiembre": 9, "setiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12}
+# «28 de septiembre», «28 de septiembre de 2026»
+RE_FECHA_TEXTO = re.compile(r"\b(\d{1,2})\s+de\s+(" + "|".join(MESES) + r")(?:\s+(?:de\s+)?(\d{4}))?\b", re.I)
 RE_FECHA = re.compile(r"(?<![\d$.,])(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})(?![\d])")
 # «del 20/9»: día y mes sin año. El año es el del mensaje (o el anterior, si quedaría en el futuro).
 RE_FECHA_SIN_ANIO = re.compile(r"(?:\bdel\s+)?(?<![\d/$.,])(\d{1,2})/(\d{1,2})(?![\d/])", re.I)
 # §5.8: la palabra suelta «caja» equivale a la C pegada a la obra.
 RE_CAJA = re.compile(r"\bcaja(?:\s+chica)?\b", re.I)
+# §5.8 v1.8: en una obra con caja, «efectivo» es la caja; «efectivo del estudio» es el del estudio.
+RE_EFECTIVO_ESTUDIO = re.compile(r"\b(efectivo|efvo)\s+del\s+estudio\b", re.I)
 # §5.15: «etapa 1» escrito aparte, además de la forma pegada «Lennon1».
 RE_ETAPA = re.compile(r"\betapa\s*(\d+)\b", re.I)
 RE_IMPORTE_PESOS = re.compile(r"(?:u\$s|usd|us\$|\$)\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)", re.I)
@@ -99,8 +111,12 @@ class Segmento:
     alias_propuesto: dict | None = None
     etapa: str | None = None   # «etapa 1» escrito aparte
     caja: bool = False         # la palabra «caja»
+    efectivo_estudio: bool = False  # «efectivo del estudio»: no es la caja de la obra (§5.8)
     honorarios: bool = False   # «hon», «honorarios»
     traspaso: str | None = None  # extraccion | reposicion | pase | explicito (§5.18)
+    # Frases libres de las que se sacó una entidad («Lennon me pasó us$20.000 para la caja»): no
+    # son un contratista desconocido, van a la descripción.
+    libres: list[str] = field(default_factory=list)
 
     def de(self, categoria: str) -> list[Resolucion]:
         return [r for r in self.resueltos if r.categoria == categoria]
@@ -149,6 +165,14 @@ def _fecha_sin_anio(d: str, m: str, hoy: date) -> FechaTexto | None:
     return FechaTexto(f, f"{d}/{m}")
 
 
+def _tipo_por_parecido(n: str) -> str | None:
+    """«ingrrso» → INGRESO. Solo palabras de cinco letras o más, y solo si no son otra cosa."""
+    if len(n) < 5 or n in PALABRAS_RUIDO:
+        return None
+    mejor = process.extractOne(n, list(TIPOS_POR_PARECIDO), scorer=fuzz.ratio)
+    return TIPOS_POR_PARECIDO[mejor[0]] if mejor and mejor[1] >= UMBRAL_TIPO else None
+
+
 def parsear(texto: str, hoy: date | None = None) -> list[Segmento]:
     """`hoy` es la fecha del mensaje: sirve para completar el año de «20/9»."""
     hoy = hoy or date.today()
@@ -183,7 +207,17 @@ def parsear(texto: str, hoy: date | None = None) -> list[Segmento]:
             if f:
                 seg.fechas.append(f)
                 resto = resto.replace(fm.group(0), " ", 1)
+        # «28 de septiembre»: sin año, el del mensaje (o el anterior si quedaría en el futuro).
+        for fm in list(RE_FECHA_TEXTO.finditer(resto)):
+            dia, mes, anio = fm.group(1), str(MESES[normalizar(fm.group(2))]), fm.group(3)
+            f = _parsear_fecha(dia, mes, anio) if anio else _fecha_sin_anio(dia, mes, hoy)
+            if f:
+                seg.fechas.append(f)
+                resto = resto.replace(fm.group(0), " ", 1)
 
+        if RE_EFECTIVO_ESTUDIO.search(resto):
+            seg.efectivo_estudio = True
+            resto = RE_EFECTIVO_ESTUDIO.sub(r"\1", resto)
         if RE_CAJA.search(resto):
             seg.caja = True
             resto = RE_CAJA.sub(" ", resto)
@@ -202,13 +236,18 @@ def parsear(texto: str, hoy: date | None = None) -> list[Segmento]:
         resto = re.sub(r"\b(?:total|importe|monto)\b|[?¿!¡]", " ", resto, flags=re.I)
 
         tokens = []
+        primera = True
         for crudo in resto.split("/"):
             palabras = crudo.split()
             limpias = []
             for p in palabras:
                 n = normalizar(p)
+                tipo_parecido = _tipo_por_parecido(n) if primera and not seg.tipo_mov else None
+                primera = False
                 if n in PALABRAS_TIPO:
                     seg.tipo_mov = seg.tipo_mov or PALABRAS_TIPO[n]
+                elif tipo_parecido:
+                    seg.tipo_mov = tipo_parecido
                 elif n in PALABRAS_HONORARIOS:
                     seg.honorarios = True
                 elif n not in PALABRAS_RUIDO:
@@ -501,6 +540,32 @@ def resolver_segmento(seg: Segmento, m: Maestros, incluir_inactivos: bool = Fals
             seg.resueltos += [r for r in resoluciones if (r.categoria, r.valor) not in vistos]
         else:
             seg.sin_resolver.append(token)
+    # §5.12 v1.8: «28 de septiembre, Lennon me pasó us$20.000 para la caja chica, efectivo». Una
+    # frase de tres palabras o más que no resolvió entera se recorre por palabras: la obra, el
+    # contratista y la cuenta que nombre (solo coincidencias firmes) se usan, y la frase va a la
+    # descripción en vez de tomarse por un contratista desconocido.
+    # Dos palabras («Lennon/Miguel efectivo», lo que escribe Gabriel): solo si cada palabra
+    # resuelve firme por sí sola; «Juan Pérez» sigue siendo un contratista desconocido.
+    for token in list(seg.sin_resolver):
+        n_palabras = len(normalizar(token).split())
+        if n_palabras < 2:
+            continue
+        hallazgos = escanear(token, m)[1]
+        if n_palabras == 2 and (len(hallazgos) != 2 or any(h.fin - h.inicio != 1 for h in hallazgos)):
+            continue
+        nuevas = []
+        for h in hallazgos:
+            r = h.resolucion
+            if r.categoria in ("obra", "contratista", "cuenta") and not seg.primero(r.categoria) \
+                    and all(x.categoria != r.categoria for x in nuevas):
+                nuevas.append(r)
+        if n_palabras == 2 and len(nuevas) != 2:
+            continue
+        if nuevas:
+            seg.resueltos += nuevas
+            seg.sin_resolver.remove(token)
+            if n_palabras >= 3:
+                seg.libres.append(token)
     return seg
 
 

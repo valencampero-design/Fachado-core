@@ -14,10 +14,14 @@ from app.maestros import Maestros, normalizar
 
 # La pregunta que completa cada campo, cuando no es el campo mismo. `tipo_gasto` lo resuelve
 # la cascada con la obra o la pregunta de clasificación; el rubro se pregunta entero.
+# §5.12 v1.8: el rubro se deduce de quién cobró y de si es de obra o personal; con una de
+# estas preguntas abiertas, el rubro se pregunta (si hace falta) después de la respuesta.
+PREGUNTAS_QUE_DEFINEN_EL_RUBRO = {"contratista", "inactivo", "clasificacion"}
+
 PREGUNTAS_QUE_LO_COMPLETAN: dict[str, set[str]] = {
     "tipo_gasto": {"tipo_gasto", "clasificacion", "obra"},
-    "rubro_1": {"rubro"},
-    "rubro_2": {"rubro"},
+    "rubro_1": {"rubro"} | PREGUNTAS_QUE_DEFINEN_EL_RUBRO,
+    "rubro_2": {"rubro"} | PREGUNTAS_QUE_DEFINEN_EL_RUBRO,
     "contratista": {"contratista", "inactivo"},
     "tc": {"tipo_cambio"},
     "etapa": {"etapa", "activar_etapa"},

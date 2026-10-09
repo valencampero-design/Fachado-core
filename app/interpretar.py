@@ -13,6 +13,7 @@ Reparto de autoridad cuando hay adjunto:
 import copy
 import logging
 import re
+from collections import Counter
 from datetime import date, timedelta, timezone
 
 from app import certificados, clasificador, comprobante, consultas, duplicados, llm, maestros, obligatorios, resolver
@@ -22,6 +23,7 @@ from app.models import (CAMPOS_FICHA_CERTIFICADO, CAMPOS_FICHA_TRASPASO, COLUMNA
                         InterpretarIn,
                         InterpretarOut, PosibleDuplicado, Pregunta)
 from app.resolver import Resolucion, Segmento
+from app.filtros import sin_anulados
 from app.saldos import como_dicts
 
 logger = logging.getLogger(__name__)
@@ -138,9 +140,10 @@ def _semilla(contexto: dict | None, respuestas: bool = False) -> dict | None:
     extras = contexto.get("extras") or {}
     return {
         "campos": {k: v for k, v in campos.items()
-                   if v not in (None, "") and origen.get(k) not in ("inferido", "maestro", "fecha_mensaje")},
+                   if v not in (None, "") and origen.get(k) not in ("inferido", "maestro", "fecha_mensaje", "supuesto")},
         "origen": origen if respuestas else {},
-        "clasificacion": contexto.get("clasificacion") or extras.get("clasificacion_respondida"),
+        "clasificacion": contexto.get("clasificacion") or extras.get("clasificacion_respondida")
+        or ("personal" if extras.get("destino_personal") else None),
         "extras": extras,
     }
 
@@ -257,7 +260,7 @@ def _aplicar_respuestas(contexto: dict, respuestas: list, m: Maestros, diag: dic
             f = _fecha_de(valor)
             fijar("fecha", f) if f else libre.append(valor)
         elif campo == "concepto":
-            libre.append("honorarios" if n.startswith("hon") else "certificado")
+            libre.append("honorarios" if n.startswith("hon") else "caja" if n.startswith("adelanto") else "certificado")
         elif campo == "duplicado":
             extras["no_es_duplicado" if n == "es otro" else "es_el_mismo"] = True
         elif campo == "tipo_cambio":
@@ -316,6 +319,10 @@ def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> 
         return InterpretarOut(intencion=intencion, fichas=[], preguntas=[], requiere_confirmacion=False, diagnostico=diag)
 
     semilla = _semilla(contexto, respuestas=bool(req.respuestas))
+    # Los libros que el usuario puede ver, leídos una vez: el rubro de la última vez con cada
+    # contratista (§5.12 v1.8) y los duplicados (§5.16) salen de acá.
+    libros_leidos = _leer_libros(libros, usuario, diag)
+    historia = sin_anulados([mv for movs in libros_leidos.values() for mv in movs])
     fichas: list[Ficha] = []
     preguntas: list[Pregunta] = []
     for i, seg in enumerate(segmentos):
@@ -329,16 +336,20 @@ def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> 
             armar = _armar_traspaso
         else:
             armar = _armar
-        ficha, pregs = armar(seg, comp, req, m, s, diag, semilla if i == 0 else None)
+        ficha, pregs = armar(seg, comp, req, m, s, diag, semilla if i == 0 else None, historia=historia)
         for p in pregs:
             p.ficha = i
         fichas.append(ficha)
         preguntas += pregs
 
-    _marcar_duplicados(fichas, preguntas, libros, usuario, diag)
+    _marcar_duplicados(fichas, preguntas, libros_leidos, usuario)
     _marcar_certificados_repetidos(fichas, preguntas, libros, usuario, diag)
+    # §5.12 v1.8: el rubro sale del contratista (habitual, último uso) y de si es de obra o
+    # personal; mientras eso esté preguntado, preguntar el rubro es una pregunta de más.
+    rubro_despues = {p.ficha for p in preguntas if p.campo in obligatorios.PREGUNTAS_QUE_DEFINEN_EL_RUBRO}
+    preguntas = [p for p in preguntas if not (p.campo == "rubro" and p.ficha in rubro_despues)]
     for i, ficha in enumerate(fichas):
-        preguntas += _completar_preguntas(ficha, i, [p for p in preguntas if p.ficha == i], m)
+        preguntas += _completar_preguntas(ficha, i, [p for p in preguntas if p.ficha == i], m, historia)
     for i, ficha in enumerate(fichas):
         ficha.requiere_confirmacion = _requiere_confirmacion(
             ficha, [p for p in preguntas if p.ficha == i], usuario, m)
@@ -348,7 +359,58 @@ def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> 
                           requiere_confirmacion=any(f.requiere_confirmacion for f in fichas))
 
 
-def _completar_preguntas(ficha: Ficha, i: int, suyas: list[Pregunta], m: Maestros) -> list[Pregunta]:
+def _leer_libros(libros: dict | None, usuario: Usuario | None, diag: dict) -> dict[str, list[dict]]:
+    """{nombre: movimientos} de los libros que el usuario puede ver. El personal, solo con
+    `ve_personal`: si no, ni siquiera se le puede decir que ahí hay algo parecido. Si un libro
+    no responde, la ficha sale igual, sin su historia."""
+    salida: dict[str, list[dict]] = {}
+    for nombre, libro in (libros or {}).items():
+        if libro is None or (nombre == "personal" and not (usuario and usuario.ve_personal)):
+            continue
+        try:
+            salida[nombre] = como_dicts(libro.leer_movimientos())
+        except Exception as e:  # noqa: BLE001
+            logger.exception("No se pudo leer el libro %s", nombre)
+            diag["advertencias"].append(f"No se pudo leer el libro {nombre} ({type(e).__name__}): sin duplicados ni "
+                                        f"rubro de la última vez")
+    return salida
+
+
+def _ultimo_rubro(contratista: str, historia: list[dict], personal: bool, m: Maestros):
+    """§5.12 v1.8: el rubro de la última vez que se le pagó a este contratista, en los dos
+    libros. Solo uno del mismo lado (personal o no) que el movimiento de ahora."""
+    suyos = [mv for mv in historia if normalizar(mv.get("contratista")) == normalizar(contratista)
+             and mv.get("rubro_1") and mv.get("rubro_2")]
+    suyos.sort(key=lambda mv: (str(mv.get("fecha") or ""), str(mv.get("ts") or "")), reverse=True)
+    for mv in suyos:
+        r = m.rubro(mv["rubro_1"], mv["rubro_2"])
+        if r and (r.afecta == "personal") == personal:
+            return r
+    return None
+
+
+def _rubros_por_uso(afecta: str, historia: list[dict], m: Maestros, contratista=None) -> list[str]:
+    """Las opciones de la pregunta del rubro (§5.12 v1.8: no los primeros diez de RUBROS):
+    primero la categoría del contratista si la tiene, después los más usados —en los libros y
+    como rubro habitual de los contratistas—, y después el resto en el orden del maestro."""
+    uso: Counter = Counter()
+    for mv in historia:
+        r = m.rubro(mv.get("rubro_1"), mv.get("rubro_2"))
+        if r and r.afecta == afecta:
+            uso[(r.rubro_1, r.rubro_2)] += 2
+    for c in m.contratistas:
+        r = m.rubro(c.rubro_1, c.rubro_2)
+        if r and r.afecta == afecta:
+            uso[(r.rubro_1, r.rubro_2)] += 1
+    categoria = normalizar(contratista.rubro_1) if contratista and contratista.rubro_1 else None
+    rubros = [r for r in m.rubros if r.afecta == afecta]
+    orden = sorted(range(len(rubros)), key=lambda i: (
+        not (categoria and normalizar(rubros[i].rubro_1) == categoria), -uso[(rubros[i].rubro_1, rubros[i].rubro_2)], i))
+    return [rubros[i].rubro_2 for i in orden][:MAX_OPCIONES]
+
+
+def _completar_preguntas(ficha: Ficha, i: int, suyas: list[Pregunta], m: Maestros,
+                         historia: list[dict] = ()) -> list[Pregunta]:
     """§5.7 (v1.7): **ninguna ficha sale con un obligatorio vacío y sin pregunta.** Por cada
     faltante que ninguna pregunta completa, se genera una, con opciones del maestro cuando
     existen. Es el paso que faltaba el 29/09: la ficha volvía con `cuenta` faltante, sin
@@ -369,7 +431,8 @@ def _completar_preguntas(ficha: Ficha, i: int, suyas: list[Pregunta], m: Maestro
                 o.nombre for o in m.obras if o.estado != "cerrada" and o.tipo in ("obra_terceros", "obra_propia")][:MAX_OPCIONES])
         elif campo in ("rubro_1", "rubro_2"):
             afecta = "personal" if normalizar(c.get("tipo_gasto")) == "personal" else "obra"
-            p = Pregunta(campo="rubro", texto="¿Qué rubro?", opciones=[r.rubro_2 for r in m.rubros if r.afecta == afecta][:MAX_OPCIONES])
+            p = Pregunta(campo="rubro", texto="¿Qué rubro?",
+                         opciones=_rubros_por_uso(afecta, list(historia), m, m.contratista(c.get("contratista"))))
         elif campo == "cuenta":
             p = Pregunta(campo="cuenta", texto=f"¿De qué cuenta {verbo}?",
                          opciones=[x for x in cuentas if m.cuenta(x).tipo != "caja_obra"][:MAX_OPCIONES])
@@ -397,23 +460,13 @@ def _completar_preguntas(ficha: Ficha, i: int, suyas: list[Pregunta], m: Maestro
     return nuevas
 
 
-def _marcar_duplicados(fichas: list[Ficha], preguntas: list[Pregunta], libros: dict | None,
-                       usuario: Usuario | None, diag: dict) -> None:
+def _marcar_duplicados(fichas: list[Ficha], preguntas: list[Pregunta], movs: dict[str, list[dict]],
+                       usuario: Usuario | None) -> None:
     """§5.16: si el hecho ya está en el libro, lo dice y pregunta. Nunca lo descarta solo.
-    El libro personal solo se mira si el que escribe tiene `ve_personal`: si no, ni siquiera
-    se le puede decir que ahí hay algo parecido."""
+    `movs` son los libros que el usuario puede ver (`_leer_libros`)."""
     fichas_mov = [f for f in fichas if f.campos.get("tipo") != "CERTIFICADO"]
-    if not libros or not any(f.campos.get("importe") is not None or f.campos.get("ref_comprobante") for f in fichas_mov):
+    if not movs or not any(f.campos.get("importe") is not None or f.campos.get("ref_comprobante") for f in fichas_mov):
         return
-    movs: dict[str, list[dict]] = {}
-    for nombre, libro in libros.items():
-        if libro is None or (nombre == "personal" and not (usuario and usuario.ve_personal)):
-            continue
-        try:
-            movs[nombre] = como_dicts(libro.leer_movimientos())
-        except Exception as e:  # noqa: BLE001 — sin libro no hay duplicados, pero la ficha sale igual
-            logger.exception("No se pudo leer el libro %s para buscar duplicados", nombre)
-            diag["advertencias"].append(f"No se pudo buscar duplicados en el libro {nombre} ({type(e).__name__})")
     for i, ficha in enumerate(fichas):
         dup = duplicados.buscar(ficha.campos, movs) if ficha.campos.get("tipo") != "CERTIFICADO" else None
         if dup and ficha.extras.get("es_el_mismo"):
@@ -547,7 +600,7 @@ def _validar(categoria: str | None, valor: str | None, m: Maestros) -> str | Non
 
 
 def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, diag: dict,
-           semilla: dict | None) -> tuple[Ficha, list[Pregunta]]:
+           semilla: dict | None, historia: list[dict] = ()) -> tuple[Ficha, list[Pregunta]]:
     campos: dict = {c: None for c in COLUMNAS_MOVIMIENTOS}
     origen: dict[str, str] = {}
     extras: dict = {}
@@ -687,11 +740,21 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     if obra:
         poner("comitente", obra.comitente, "maestro")
 
+    # El rubro (§5.12 v1.8): el habitual del contratista; si no tiene, el de la última vez que se
+    # le pagó (origen «supuesto»: Gabriel lo ve y lo corrige); si no, el que sugiera el LLM.
+    # Para un dual sin saber todavía si es personal u obra, la última vez no sirve.
+    lado_personal = True if marcador_personal or (semilla and semilla.get("clasificacion") == "personal") else \
+        False if (semilla and semilla.get("clasificacion") == "obra") or not (contratista and contratista.dual) else None
     if tipo in ("EGRESO", "PASANTE") and not campos["rubro_1"]:
+        ultimo = _ultimo_rubro(contratista.nombre, historia, lado_personal, m) \
+            if contratista and lado_personal is not None else None
         if contratista and contratista.rubro_1 and m.rubro(contratista.rubro_1, contratista.rubro_2):
             poner("rubro_1", contratista.rubro_1, "inferido")
             poner("rubro_2", contratista.rubro_2, "inferido")
             factor *= 0.95
+        elif ultimo:
+            poner("rubro_1", ultimo.rubro_1, "supuesto")
+            poner("rubro_2", ultimo.rubro_2, "supuesto")
         elif rubro_llm and rubro_llm.puntaje >= UMBRAL_LLM * 100:
             rubro_1, rubro_2 = rubro_llm.valor.split(" / ")
             poner("rubro_1", rubro_1, "llm")
@@ -709,6 +772,26 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             f"R2: «{contratista.nombre}» es dual y el usuario dijo obra", preguntar=None if obra else "obra")
     if semilla and semilla.get("clasificacion"):
         extras["clasificacion_respondida"] = semilla["clasificacion"]
+    if res.clasificacion == "personal" and marcador_personal:
+        # Queda en la ficha: en la ronda de una respuesta el texto ya no trae «Retiro», y sin
+        # esto el dual volvía a preguntar y aparecía «¿A qué obra?» (captura 1, 30/09).
+        extras["destino_personal"] = True
+    if res.clasificacion == "personal":
+        # §5.12 v1.8: un gasto personal no lleva la obra de un tercero ni una propia (P-000001
+        # quedó con «Moreno etapa 1»). Un inmueble personal (Belelli, Gessel) sí.
+        if obra and obra.tipo != "personal":
+            advertencias.append(f"Un gasto personal no lleva la obra «{obra.nombre}»: no se escribe")
+            for campo in ("obra", "etapa", "comitente"):
+                campos[campo] = None
+                origen.pop(campo, None)
+            obra = None
+        # Sofi y Juanma (duales, §7) en lo personal: Familia, como supuesto.
+        if tipo in ("EGRESO", "PASANTE") and not campos["rubro_1"] and contratista and contratista.dual:
+            familia = next((r for r in m.rubros if r.afecta == "personal" and normalizar(r.rubro_2) == "familia"), None)
+            if familia:
+                poner("rubro_1", familia.rubro_1, "supuesto")
+                poner("rubro_2", familia.rubro_2, "supuesto")
+                rubro = familia
 
     if tipo in ("EGRESO", "PASANTE"):
         poner("item", (comp.razon_social if comp else None) or campos["contratista"],
@@ -727,7 +810,12 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     if obra and tipo in ("INGRESO", "EGRESO"):
         caja = m.caja_de_obra(obra.nombre)
         verbo = "entra" if tipo == "INGRESO" else "sale"
-        if caja_pedida or (tipo == "INGRESO" and administrada and es_cert and not seg.honorarios):
+        # §5.8 v1.8: Gabriel no usa la C. En una obra con caja, «efectivo» (lo diga el texto o el
+        # comprobante) es la caja de la obra; «efectivo del estudio» es el Efectivo del estudio.
+        cuenta_dicha = m.cuenta(campos["cuenta"])
+        efectivo_de_la_obra = caja is not None and cuenta_dicha is not None and cuenta_dicha.tipo == "efectivo" \
+            and not seg.efectivo_estudio
+        if caja_pedida or efectivo_de_la_obra or (tipo == "INGRESO" and administrada and es_cert and not seg.honorarios):
             actual = m.cuenta(campos["cuenta"])
             if caja is None:
                 advertencias.append(f"{obra.nombre} no tiene caja de obra en CUENTAS: no se inventa la cuenta")
@@ -748,8 +836,10 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
                     poner("medio_pago", "Efectivo", origen.get("cuenta", "texto"))
                 poner("cuenta", caja.nombre, "inferido")
         elif tipo == "INGRESO" and administrada and not es_cert and not seg.honorarios:
-            preguntas.append(Pregunta(campo="concepto", texto=f"Este ingreso de {obra.nombre}, ¿es una certificación "
-                                      f"de obra o son honorarios del estudio?", opciones=["Certificación", "Honorarios"]))
+            # §5.12 v1.8: en una obra con caja, un ingreso puede ser un adelanto del comitente a
+            # la caja (Lennon, USD 20.000 el 28/09): esa opción tiene que estar.
+            opciones = ["Certificación", "Honorarios"] + (["Adelanto para la caja de obra"] if caja else [])
+            preguntas.append(Pregunta(campo="concepto", texto=f"Este ingreso de {obra.nombre}, ¿qué es?", opciones=opciones))
 
     # ── Etapa (§5.15 v1.7) ─────────────────────────────────────────────────────
     # «cert 4 extras»: extras es la etapa y 4 el número (§5.11). «Marcelo/Moreno/extras»: un
@@ -835,7 +925,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     partes = []
     if extras.get("certificado"):
         partes.append(f"Certificado {extras['certificado']}")
-    tokens_libres = descripciones + ([] if res.clasificacion != "personal" else seg.sin_resolver)
+    tokens_libres = descripciones + seg.libres + ([] if res.clasificacion != "personal" else seg.sin_resolver)
     partes += tokens_libres
     if extras.get("numero_cheque"):
         partes.append(f"Cheque {extras['numero_cheque']}")
@@ -876,7 +966,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     if tipo in ("EGRESO", "PASANTE") and not campos["rubro_1"] and res.preguntar != "clasificacion" \
             and (res.clasificacion == "personal" or campos["contratista"]):
         afecta = "personal" if res.clasificacion == "personal" else "obra"
-        opciones = [r.rubro_2 for r in m.rubros if r.afecta == afecta]
+        opciones = _rubros_por_uso(afecta, list(historia), m, contratista)  # §5.12 v1.8: los más usados
         if rubro_llm and res.clasificacion != "personal":
             opciones = [rubro_llm.valor.split(" / ")[1]] + [o for o in opciones if o != rubro_llm.valor.split(" / ")[1]]
         preguntas.append(Pregunta(campo="rubro", texto="¿Qué rubro?", opciones=opciones[:MAX_OPCIONES]))
@@ -918,7 +1008,7 @@ def _es_certificado(seg: Segmento, comp, semilla: dict | None) -> bool:
 
 
 def _armar_certificado(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, diag: dict,
-                       semilla: dict | None) -> tuple[Ficha, list[Pregunta]]:
+                       semilla: dict | None, historia: list[dict] = ()) -> tuple[Ficha, list[Pregunta]]:
     """La ficha de un certificado: obra, etapa, número, fecha y saldo a cobrar. Nada más.
 
     Mismo reparto de autoridad que un movimiento: el comprobante manda en montos, fecha y
@@ -1137,7 +1227,7 @@ def _unica(m: Maestros, tipo: str) -> str | None:
 
 
 def _armar_traspaso(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, diag: dict,
-                    semilla: dict | None) -> tuple[Ficha, list[Pregunta]]:
+                    semilla: dict | None, historia: list[dict] = ()) -> tuple[Ficha, list[Pregunta]]:
     """Una ficha TRASPASO con cuenta de origen y de destino (§5.18). /confirmar la escribe
     como dos filas vinculadas. No pasa por la cascada: un traspaso no es de obra ni personal."""
     campos: dict = {c: None for c in CAMPOS_FICHA_TRASPASO}
