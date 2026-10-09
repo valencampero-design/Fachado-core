@@ -1,12 +1,14 @@
 # Handoff — `fachado-core`, el motor de imputación de Fachado
 
-> **Estado técnico del repo al 2026-09-30**, después de las cinco tandas del handoff del
+> **Estado técnico del repo al 2026-10-09**, después de las cinco tandas del handoff del
 > proyecto (`docs/handoff-proyecto-2026-09-25.md`), de la tanda 6
-> (`docs/handoff-tanda-6-2026-09-25.md`) y del fix del arranque
-> (`docs/handoff-fix-arranque-2026-09-30.md`: «Falta cuenta», etapas, dólares, Gessel).
+> (`docs/handoff-tanda-6-2026-09-25.md`), del fix del arranque
+> (`docs/handoff-fix-arranque-2026-09-30.md`: «Falta cuenta», etapas, dólares, Gessel) y de
+> la parte del motor de la conversación del 9/10 (`docs/handoff-conversacion-2026-10-09.md`:
+> pocas preguntas, cajas de obra en dólares, correcciones por contraasiento).
 > Qué está hecho, qué falta, cómo se corre y qué variables hacen falta.
 >
-> **Las reglas de negocio NO viven acá: viven en `CONTEXTO-FACHADO.md`** (v1.7), que se edita
+> **Las reglas de negocio NO viven acá: viven en `CONTEXTO-FACHADO.md`** (v1.8), que se edita
 > en el proyecto de Claude de A&C y baja a los dos repos. Si este documento y el contexto se
 > contradicen, **gana el contexto**. Este handoff dice dónde está implementada cada regla, no
 > cuál es.
@@ -20,13 +22,14 @@
 |---|---|
 | ✅ Motor en producción | Servicio `web` del proyecto Railway `bountiful-trust`, con dos dominios que son el mismo servicio: `web-production-6c935.up.railway.app` (el que usan la documentación y el cron) y `web-production-70e97.up.railway.app`. Las tandas 1 a 5 están desplegadas desde el 25/09 |
 | ✅ Tanda 6 | Desplegada el 25/09: PASANTE, TRASPASO, contraasiento, `intencion` / `respuestas` / `texto_compartido`, contratistas inactivos, el nombre de quien escribe en el prompt. Columnas `vinculo` y `anula` en los dos libros. Verificado en producción con `/interpretar`: un texto del corpus, una charla (`otro`) y un comprobante solo (un recibo manuscrito, leído por el modelo) |
-| ⏳ Fix del arranque (30/09) | Commiteado **sin pushear**: la cuenta se decide o se pregunta (origen `supuesto`), una sola lista de obligatorios, etapas con estado, tipo de cambio en dólares, Gessel. Después del deploy hay que correr cuatro migraciones del maestro, en orden (§5) |
+| ✅ Fix del arranque (30/09) | Desplegado el 30/09 con sus migraciones aplicadas: la cuenta se decide o se pregunta (origen `supuesto`), una sola lista de obligatorios, etapas con estado, tipo de cambio en dólares, Gessel |
+| ⏳ Conversación del 9/10 (D, E, F, G, H, ñ) | Commiteado **sin pushear** (4 commits sobre `70df209`). Después del deploy: la migración de la caja de Lennon en dólares y, cuando Valen lo decida, el script de correcciones (§8). Detalle y métrica al final de `docs/handoff-conversacion-2026-10-09.md` |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
 | ✅ Lee y escribe el Sheet | Con la service account del gateway, compartida como Editor |
 | ✅ Lee los comprobantes | Token de Drive en Railway, app OAuth publicada |
-| ✅ Métrica del corpus | 90 % contando las preguntas de diseño (92 % antes del fix del 30/09; la diferencia es «Pago Moreno», §4). Invariante: 0 fichas con un faltante sin pregunta |
+| ✅ Métrica del corpus | 90 % contando las preguntas de diseño. **Preguntas por movimiento** (§5.12 v1.8, con los comprobantes y la historia real): 1,22 → **0,98**; con obra + contratista + comprobante, 0,63 → **0,45** y 58 % → **65 %** con cero preguntas (§4). Invariante: 0 fichas con un faltante sin pregunta |
 | ✅ Maestro alineado al contexto v1.5 | Cajas de obra, Petrus con teléfono y activo, Pinturería Andina, cobros de Moreno en su caja (§8) |
 | ✅ Hojas nuevas en el Master | `ETAPAS` (se carga con la migración del 30/09) y `CERTIFICADOS` (vacía) |
 | ✅ Gateway conectado | Encendido el 29/09 con Gabriel. En el arranque, fuera de Lennon, la confirmación fallaba con «Falta cuenta»: lo corrige el fix del 30/09 (el gateway tiene su parte: no ofrecer Confirmar con faltantes, 1.4–1.7) |
@@ -85,6 +88,37 @@ tests/
   test_confirmar.py      /confirmar, /anular, /movimientos, /cierre-semanal y /consultar contra
                          libros en memoria
 ```
+
+### Lo del 9/10: pocas preguntas y cajas en dólares (§5.8 y §5.12 v1.8)
+
+Dónde está cada cosa (el porqué, en el handoff de la conversación del 9/10):
+
+- **Rubro sin preguntar** (`interpretar._ultimo_rubro`, `_rubros_por_uso`): habitual del
+  contratista (`inferido`) → el último usado con él en los dos libros, del mismo lado obra o
+  personal (`supuesto`) → LLM. Si hay que preguntarlo, las opciones van por uso. **No se
+  pregunta mientras esté abierta la pregunta de contratista u obra/personal**
+  (`obligatorios.PREGUNTAS_QUE_DEFINEN_EL_RUBRO`): sale de esa respuesta.
+- **Frases libres** (`resolver.resolver_segmento`): «Lennon me pasó us$20.000 para la caja»
+  → obra, contratista y cuenta firmes de adentro de la frase, y la frase a la descripción;
+  dos palabras solo si las dos resuelven firme («Miguel efectivo» sí, «Juan Pérez» no).
+  Fechas «28 de septiembre», tipo con typos («INGRRSO»).
+- **Personal**: no lleva la obra de un tercero (se descarta con advertencia); Retiro + dual →
+  Familia como `supuesto`. El ingreso de una obra administrada ofrece «Adelanto para la caja
+  de obra».
+- **F · «efectivo» en una obra con caja es la caja** (`_armar`, bloque de la caja de obra),
+  lo diga el texto o el comprobante; «efectivo del estudio» (`resolver.RE_EFECTIVO_ESTUDIO`)
+  fuerza `Efectivo`. La C y «efectivo del estudio» viajan en `extras` (`caja_de`,
+  `efectivo_estudio`) para que una respuesta posterior no los pierda.
+- **G · cajas en dólares** (`obligatorios.necesita_tc`): dólares a una caja de obra en
+  dólares van **sin tc ni `importe_ars`**; un pago en pesos desde una cuenta en dólares
+  lleva el tc del día: se pregunta en el primer pago de esa caja en el día y los siguientes
+  lo leen del libro (`_tc_del_dia`, `extras.tc_de_hoy`, advertencia «TC 1.450 (de hoy)»).
+  `/confirmar` rechaza ese pago sin tc o con el tc 1 de relleno. El saldo de la caja sale
+  en su moneda (`saldos.en_moneda_de_la_cuenta`, `CajaObra.moneda`). «Lo dejamos en
+  dólares», «en dólares», «no hay tipo de cambio» contestan el tc si la cuenta está en
+  dólares (`RE_SIN_CONVERSION`). `caja_de_obra` también encuentra «Caja obra X USD».
+- **Razones sociales completas** (`resolver.contratista_por_razon_social`): «Marcelo
+  Alfredo Maragano Guerr» es Marcelo Maragaño. La ñ ya la plegaba `normalizar` (NFKD).
 
 ### Endpoints
 
@@ -445,6 +479,14 @@ suma **el invariante**: ninguna ficha con un faltante sin pregunta (0 de 59), y 
 falla si aparece uno. El corpus corre sin leer los comprobantes, así que casi todo mensaje
 con adjunto pregunta el importe: es un artefacto de la medición y no entra en la métrica.
 
+**Conversación del 9/10 (§5.12 v1.8): preguntas por movimiento.** El test suma el promedio de
+preguntas por movimiento y el % con cero, en total y para los que traen obra + contratista +
+comprobante, y `--historia ARCHIVO.json` siembra los libros en memoria con MOVIMIENTOS reales
+(si el archivo no existe, lo baja). Con `--adjuntos --historia`: **1,22 → 0,98** por
+movimiento (33 % → 37 % con cero); con obra + contratista + comprobante, **0,63 → 0,45**
+(58 % → 65 % con cero). El rubro pasó de 17 preguntas a 4. Detalle al final de
+`docs/handoff-conversacion-2026-10-09.md`.
+
 El test corre contra `tests/maestros_snapshot.json` para ser reproducible; se regenera a
 propósito con `python scripts/snapshot_maestros.py`. **Desde el 30/09 el snapshot va un paso
 adelante del Sheet**: tiene aplicadas las tres migraciones del fix (`--snapshot`). Después
@@ -586,6 +628,20 @@ anotadas al final de `docs/handoff-tanda-6-2026-09-25.md`):
   dijo «Reactivar», la ficha trae `extras.reactivar` y `/confirmar` lo reactiva.
 - **Arranque escalonado** (§5.13): primero solo Gabriel; Petrus después de la primera semana.
 
+Lo nuevo del 9/10 (motor; lo del gateway está en su propio handoff):
+
+- **El rubro puede llegar después**: con la pregunta de contratista u obra/personal abierta,
+  el motor no pregunta el rubro; lo deduce (o lo pregunta) cuando vuelve la respuesta. El
+  gateway ya recalcula las preguntas con cada `respuestas`: no hace falta cambiar nada.
+- **`obra.caja_obra.moneda`** en `ConfirmarOut`: «USD» para la caja de Lennon después de
+  la migración. El acuse tiene que mostrar el saldo de la caja con esa moneda (US$), no «$».
+- **La pregunta de tipo de cambio** de un pago en pesos desde la caja en dólares dice «Caja
+  obra Lennon está en dólares. ¿A qué tipo de cambio pagaste hoy? …». Los siguientes pagos
+  del día vienen sin pregunta y con la advertencia «TC 1.450 (de hoy)», para mostrar en la
+  ficha. «Lo dejamos en dólares» / «en dólares» / «no hay tipo de cambio» son respuestas
+  válidas cuando la cuenta está en dólares: el gateway las manda como el `valor` de
+  `tipo_cambio`, sin validarlas como número.
+
 Lo que el gateway tiene que cambiar para tener dos usuarios (contexto §5.13): hoy un teléfono
 es un perfil (`config/tenants/<telefono>.json`). **Varios teléfonos tienen que mapear al mismo
 cliente**, y la sesión —la ficha pendiente, la anterior para las correcciones— tiene que
@@ -604,9 +660,13 @@ manda mensajes repetidos** con un segundo de diferencia.
 - [ ] **Encender el gateway**: el runbook de `chatbot-contable/docs/handoff-fachado.md` §6, en
       la reunión del martes 29/09 (ensayo primero, después la primera fila real).
 - [ ] **La primera fila real**, con un movimiento verdadero, mirándola en el Sheet.
-- [ ] **Desplegar el fix del 30/09 y correr sus cuatro migraciones** (§5), y reenviar los
-      movimientos que dieron 422 el 29/09 (la lista sale de los logs del gateway; cómo, en
-      `docs/handoff-fix-arranque-2026-09-30.md`).
+- [x] ~~**Desplegar el fix del 30/09 y correr sus cuatro migraciones**~~ — 30/09.
+- [ ] **Desplegar lo del 9/10** y después, en orden: `scripts/migraciones/2026_10_09_caja_lennon_usd.py
+      --aplicar` (la caja no tiene movimientos: cambia la moneda), regenerar el snapshot
+      (`python scripts/snapshot_maestros.py`) y, cuando Valen lo decida,
+      `scripts/migraciones/2026_10_09_correcciones.py --aplicar` (con `--con-ingreso-usd`
+      solo si Gabriel confirmó el ingreso de USD 20.000). Simulacro de las dos: al final del
+      handoff del 9/10.
 - [x] ~~`DRIVE_CARPETA_COMPROBANTES_ID`~~ — fijada el 27/09 (la carpeta «comprobantes» la creó
       la misma app OAuth del motor).
 - [x] ~~Claves y réplicas~~ — verificado el 27/09: `MOTOR_API_KEY` igual a
@@ -619,8 +679,11 @@ manda mensajes repetidos** con un segundo de diferencia.
 
 - [ ] **Lennon con un comprobante de transferencia sin el CUIT del comitente legible**: por
       el orden de §5.7 (el comprobante antes que la obra) va a Banco. ¿Debería ganar la obra?
-- [ ] **La ñ en las razones sociales**: «Maragano» no se empareja con «Maragaño». ¿Alias o
-      plegar ñ→n al comparar razones sociales?
+- [x] ~~**La ñ en las razones sociales**~~ — 9/10: la ñ ya se plegaba; lo que faltaba era
+      emparejar la razón social completa («Marcelo Alfredo Maragano Guerr»).
+- [ ] **Las preguntas abiertas del 9/10** (al final de `docs/handoff-conversacion-2026-10-09.md`):
+      el rubro de Edesur, Sofía Cervera / Sofía Fachado, los pagos de Lennon de febrero y
+      agosto antes del adelanto del 28/09, la etapa de Moreno (13 preguntas en el corpus).
 - [ ] **Caja de obra en negativo** (5 del handoff del 30/09, supuesto P-28): no se hizo.
 - [ ] **Corregir un certificado**: CERTIFICADOS no tiene `id_mov` y `/anular` es solo para
       MOVIMIENTOS. Un certificado mal cargado hoy no tiene cómo corregirse.
@@ -641,6 +704,15 @@ manda mensajes repetidos** con un segundo de diferencia.
 - [ ] IVA con alcance completo (§5.10), con `filtros.para_iva`. Se planifica aparte.
 
 ## 8. Estado de los datos del Sheet
+
+**Pendiente del 9/10** (nada aplicado; los dos scripts con simulacro por defecto):
+
+- `Caja obra Lennon` en ARS en el Sheet → USD con `2026_10_09_caja_lennon_usd.py`. El
+  snapshot de los tests **sigue igual al Sheet** (ARS): los tests la pasan a dólares solo
+  mientras dura el caso (`tests/dobles.cuenta_en_moneda`).
+- Los tres pagos de Lennon contra `Efectivo` (M-000001, M-000008, M-000010, $ 13.640.000),
+  P-000001 (obra Moreno y contratista Tucu en un personal) y el `medio_pago = Otro` de
+  P-000004/5: `2026_10_09_correcciones.py`, por contraasiento.
 
 El maestro lo mantiene una persona a mano, así que llega sucio. El motor no lo corrige solo:
 resuelve lo que puede y **deja advertencias**, que se ven en `POST /maestros/recargar`.
@@ -674,6 +746,8 @@ Lo que el motor todavía avisa:
 - **Filas que no se aplican**: un alias con un `tipo` fuera de `contratista·obra·cuit·tipo`, o
   un contratista con `rubro_habitual_2` sin `rubro_habitual_1`.
 - **M-000001 y M-000002 tienen `cargado_por = bot`**, de antes de que existiera USUARIOS.
+  *(Nota del 9/10: esos eran los del libro anterior; en el libro actual M-000001 es el pago a
+  Luis Pereira del 7/02.)*
 - Los cobros de Moreno ya cargados (M-000007 a M-000009) tienen el certificado solo en la
   descripción («Certificado 4», «4 extras», «pintura»), no en la columna `certificado`: en
   `/consultar` no cancelan ningún certificado.

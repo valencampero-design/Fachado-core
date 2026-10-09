@@ -212,3 +212,206 @@ verifica qué contesta el bot. Mínimos:
 - Actualizá `docs/handoff-fachado-core.md` y `docs/handoff-fachado.md`.
 - Al final de este archivo: la métrica (preguntas por movimiento, antes y después), el
   simulacro del script de correcciones, la tabla del cruce y las decisiones que tomaste.
+
+---
+
+# Resultado — motor (sesión del 9/10)
+
+Hecho en `fachado-core`, **commiteado sin pushear** (4 commits sobre `70df209`): D, E, F, G,
+H en simulacro y la ñ. Nada aplicado en el Sheet. El gateway no se tocó. M (el cruce
+completo) no estaba en el pedido de esta sesión: queda pendiente.
+
+| Commit | Qué |
+|---|---|
+| `ebc1570` | D · pocas preguntas, E · métrica por movimiento, F · efectivo = caja de obra |
+| `5da8952` | G · cajas de obra en dólares + migración de la caja de Lennon (simulacro) |
+| `37ae3f5` | La ñ: razones sociales completas |
+| `03ff490` | H · script de correcciones por contraasiento (simulacro) |
+
+## Los tests de §5 que son del motor
+
+| | Resultado |
+|---|---|
+| 1 · «Retiro/Sofi» + comprobante | Personal, sin obra, rubro Familia (`supuesto`), **cero preguntas** |
+| 2 · «Lennon/Miguel» + recibo legible | Miguel Soto, importe y fecha del recibo, rubro del último uso, cuenta **Caja obra Lennon**, **cero preguntas**. También «Lennon/Miguel efectivo» sin comprobante |
+| 3 · El texto de la captura 4 | INGRESO, Lennon, USD 20.000, 28/09, Caja obra Lennon; con la caja en dólares, **cero preguntas** (sin tc) |
+| 4 a 6 | Son del gateway |
+
+Están en `tests/test_casos.py` (secciones «Conversación · D / F / G» y «La ñ») y en
+`tests/test_confirmar.py` («G · Caja obra Lennon en dólares»). Los tres archivos de tests:
+TODO OK.
+
+**Por qué la captura 2 preguntó el importe**: el texto llegó 8 s antes que la foto. Leído
+junto, el recibo da todo (7.084.000, Miguel Soto, efectivo, 03/10). Es de agrupamiento en el
+gateway: la foto que llega con una ficha pendiente sin comprobante tendría que sumarse a esa
+ficha, y eso choca con la regla A («llega un comprobante → movimiento nuevo»). Pregunta
+abierta abajo.
+
+## E · La métrica: preguntas por movimiento, antes y después
+
+`python -m tests.test_corpus --adjuntos --historia historia.json`: lee los comprobantes reales
+y siembra los libros en memoria con MOVIMIENTOS de los dos libros al 9/10 (11 del estudio, 5
+personales). El mismo archivo para el antes (código de `70df209`) y el después (código final).
+Es el número que vería Gabriel si mandara hoy los 54 movimientos del corpus.
+
+| Preguntas por movimiento | Antes | Después |
+|---|---|---|
+| **Todos** | 1,22 | **0,98** |
+| Todos, con cero preguntas | 18/54 (33 %) | **20/54 (37 %)** |
+| **Con obra + contratista + comprobante** | 0,63 | **0,45** |
+| Con obra + contratista + comprobante, cero preguntas | 11/19 (58 %) | **13/20 (65 %)** |
+| Qué se pregunta | rubro 17, importe 16, etapa 13, contratista 9, obra 6, clasificación 4, tc 1 | importe 16, etapa 13, contratista 9, obra 6, clasificación 4, **rubro 4**, tc 1 |
+| Obra/contratista con las preguntas de diseño | 45/50 (90 %) | 45/50 (90 %) |
+| Invariante (faltante sin pregunta) | 0 de 59 | 0 de 59 |
+
+El subconjunto completo pasa de 19 a 20 movimientos porque la ñ resolvió el contratista de
+«Pago Moreno» (Maragaño): ahora entra en el subconjunto, y pregunta la etapa de Moreno.
+
+Las otras mediciones (código de D/E/F, antes de G y la ñ):
+
+| | Antes | Después |
+|---|---|---|
+| Con adjuntos, libros vacíos · todos | 1,24 · 18/54 (33 %) | 1,02 · 18/53 (34 %) |
+| Con adjuntos, libros vacíos · completos | 0,63 · 11/19 (58 %) | 0,47 · 11/19 (58 %) |
+| Sin adjuntos, libros vacíos · todos | 1,85 · 1/54 (2 %) | 1,65 · 1/54 (2 %) |
+| Sin adjuntos, con historia · todos | 1,85 | 1,61 |
+
+Sin leer los comprobantes casi todo mensaje con adjunto pregunta el importe: ese modo no
+mide el criterio de D. Lo que más queda: **el importe** (comprobantes que no se pueden leer,
+o mensajes sin adjunto) y **la etapa de Moreno** (dos etapas en curso: pregunta abierta 4).
+
+## H · El simulacro del script de correcciones
+
+Antes de correrlo, lo que dicen los comprobantes (bajados y mirados uno por uno):
+
+- **M-000001**: «Sábado 7/02 de 2026 · Recibí de Lucas Lennon · US$ 400 × 1425 · $ 570.000 de
+  2.000.000 · Pintura de madera». El 7/2/2026 fue sábado: **la fecha está bien leída**.
+- **M-000008**: «Miércoles 05 de agosto de 2026 · Recibí de Lucas Lennon · US$ 6.600 × 1515
+  ≈ 10.000.000 · Cert. 17 e obra». El 5/8/2026 fue miércoles: **la fecha está bien leída**.
+- **M-000010**: «Miércoles 07 de octubre de 2026 · US$ 2.000 × $ 1535 = 3.070.000 ·
+  Certificado de obra».
+- **P-000001**: transferencia del Banco Patagonia de Gabriel a **«FACHADO, SOFIA»** (CUIT
+  27-47181632-4), $ 184.000, 30/09 16:05. No es Tucu.
+
+Así que el punto 3 (fechas) no cambia nada, y cada recibo trae su tipo de cambio: con la caja
+en dólares, es el tc de cada pago. Salida de
+`python scripts/migraciones/2026_10_09_correcciones.py --con-ingreso-usd` (simulacro: los dos
+libros reales leídos, todo corrido con `/anular` y `/confirmar` sobre una copia en memoria):
+
+```
+SIMULACRO · correcciones del 9/10 (handoff H)
+  («Caja obra Lennon» todavía está en ARS en el Sheet: el simulacro la toma en USD, como queda después de la migración)
+
+Lennon antes:   pagado con plata del estudio $ 13,640,000 · pagado por el comitente $ 0
+
+1 · Ingreso de USD 20.000 a la caja de Lennon (28/09)
+    cargado como M-000012: tipo=INGRESO, fecha=2026-09-28, importe=20000, moneda=USD, obra=Lennon, etapa=1, cuenta=Caja obra Lennon, medio_pago=Efectivo, tipo_gasto=obra, tipo_comprobante=Sin comprobante, descripcion=Adelanto de Lucas Lennon para la caja de obra (capturas 4 a 7 del 9/10), origen=WHATSAPP
+      por qué: adelanto del comitente a la caja (§5.8)
+
+2 a 4 · Contraasientos y recargas
+  · M-000001 anulado por M-000013
+    recargado como M-000014: cuenta: «Efectivo» → «Caja obra Lennon», tc: «1» → «1425», etapa: «» → «1»
+      por qué: §5.8 v1.8: el efectivo de Lennon sale de su caja. Recibo: US$ 400 × 1425 = $ 570.000
+      la caja descuenta US$ 400.00
+  · M-000008 anulado por M-000015
+    recargado como M-000016: cuenta: «Efectivo» → «Caja obra Lennon», tc: «1» → «1515»
+      por qué: §5.8 v1.8: el efectivo de Lennon sale de su caja. Recibo: US$ 6.600 × 1515 ≈ $ 10.000.000
+      la caja descuenta US$ 6,600.66
+  · M-000010 anulado por M-000017
+    recargado como M-000018: cuenta: «Efectivo» → «Caja obra Lennon», tc: «1» → «1535»
+      por qué: §5.8 v1.8: el efectivo de Lennon sale de su caja. Recibo: US$ 2.000 × 1535 = $ 3.070.000
+      la caja descuenta US$ 2,000.00
+  · P-000001 anulado por P-000006
+    recargado como P-000007: obra: «Moreno» → «», etapa: «1» → «», comitente: «Gonzalo Fernández Moreno» → «», contratista: «Tucu» → «Sofia Cervera», item: «Tucu» → «FACHADO, SOFIA»
+      por qué: Retiro/Sofi: un personal no lleva obra; la transferencia es a «FACHADO, SOFIA», no a Tucu
+  · P-000004 anulado por P-000008
+    recargado como P-000009: medio_pago: «Otro» → «Mercado Pago»
+      por qué: pagado desde Mercado Pago, no «Otro»
+  · P-000005 anulado por P-000010
+    recargado como P-000011: medio_pago: «Otro» → «Mercado Pago»
+      por qué: pagado desde Mercado Pago, no «Otro» (el rubro Agua, abierto)
+
+Lennon después: pagado con plata del estudio $ 0 · pagado por el comitente $ 0 · caja (USD): ingresado 20,000.00, pagado 9,000.66, por rendir 10,999.34
+
+5 · M-000005 (Austral · Valentín Campero · $ 400): no se toca
+
+(simulacro: no se escribió nada en los libros ni se movió nada en Drive. Correr con --aplicar)
+```
+
+Sin `--con-ingreso-usd`, lo mismo sin el punto 1: la caja queda con US$ 9.000,66 pagados y
+−9.000,66 por rendir (§5.8: el arquitecto puso plata propia) hasta que se cargue el adelanto.
+
+Orden para aplicarlo (lo corre Valen, después del deploy):
+
+```bash
+python scripts/migraciones/2026_10_09_caja_lennon_usd.py --aplicar
+```
+```bash
+python scripts/migraciones/2026_10_09_correcciones.py --aplicar
+```
+
+El segundo se niega a correr si la caja sigue en pesos. Es idempotente: cada corrección tiene
+su `msg_id` fijo (`correccion-2026-10-09-<id_mov>`), y volver a correrlo no duplica nada.
+
+## Decisiones que tomé (técnicas; ninguna regla de negocio nueva)
+
+1. **Rubro**: el último usado con ese contratista **del mismo lado** (obra o personal),
+   ordenado por fecha y `ts`; origen `supuesto`. Las opciones de la pregunta, por uso en los
+   libros (×2) y en los habituales del maestro (×1), con la categoría del contratista primero.
+2. **El rubro no se pregunta junto con el contratista ni con obra/personal**: sale de esa
+   respuesta. `obligatorios.PREGUNTAS_QUE_DEFINEN_EL_RUBRO`; el invariante lo cubre.
+3. **Frases libres**: de tres palabras o más se sacan obra, contratista y cuenta firmes (alias,
+   exacto, palabra única); de dos palabras, solo si las dos resuelven firme. Nada difuso.
+4. **Un personal con obra de terceros**: la obra se descarta con advertencia («Un gasto
+   personal no lleva la obra «Moreno»: no se escribe»). Un inmueble personal (Belelli) sí
+   queda.
+5. **La C y «efectivo del estudio» viajan en `extras`** (`caja_de`, `efectivo_estudio`). Sin
+   eso, cualquier respuesta posterior (el tc, el rubro) perdía la caja. La C solo vale para la
+   misma obra.
+6. **Sin tc solo en cajas de obra en dólares.** Un ingreso en dólares al `Banco USD` sigue
+   llevando tc: el saldo del estudio se suma en pesos (§5.7). Dólares a una caja en dólares
+   van con `tc` e `importe_ars` vacíos; un pago en pesos desde una cuenta en dólares exige un
+   tc mayor que 1.
+7. **El tc del día** es el del último movimiento de esa cuenta con esa fecha (por `ts`); con
+   la fecha del mensaje si el texto no trae otra.
+8. **Caja obra Lennon no tiene movimientos** en el Sheet: la migración le cambia la moneda (no
+   hace falta «Caja obra Lennon USD»). No la apliqué. El snapshot de los tests sigue igual al
+   Sheet; los tests la pasan a dólares mientras dura el caso.
+9. **H**: M-000001 recarga con etapa 1 (la única en curso de Lennon; `/confirmar` la exige).
+   P-000001 recarga con contratista **Sofia Cervera** (lo que Gabriel escribió, «Sofi», por
+   alias) e ítem «FACHADO, SOFIA» (el comprobante). Cada recarga se atribuye a quien cargó la
+   original (Gabriel), con su teléfono de USUARIOS.
+10. **La métrica con historia**: `test_corpus --historia ARCHIVO.json` siembra los libros en
+    memoria con MOVIMIENTOS reales (11 del estudio y 5 personales al 9/10). El mismo archivo
+    para el antes y el después. Sin historia, el rubro del último uso no puede verse.
+11. **La ñ** ya la plegaba `normalizar` (NFKD: «Maragaño» → «maragano»). Lo que fallaba era
+    el nombre legal completo: ahora empareja si todas las palabras del contratista están en la
+    razón social, en cualquier orden, y solo si hay uno.
+
+## Preguntas abiertas (decisiones de negocio que no están en v1.8)
+
+1. **Los pagos de Lennon de febrero y agosto** (M-000001, M-000008) son anteriores al adelanto
+   del 28/09, y los tres recibos dicen «Recibí de **Lucas Lennon**». ¿Salieron de una caja
+   que ya tenía dólares (hubo adelantos antes, sin cargar), o los pagó el comitente directo
+   («Pagado por el comitente», §5.9)? El script sigue el handoff (caja de obra); si fueron del
+   comitente, cambia la cuenta de esos dos.
+2. **Sofía**: la transferencia de P-000001 es a «FACHADO, SOFIA» (CUIT 27-47181632-4) y
+   «Sofi» es alias de **Sofia Cervera**. ¿Son la misma persona? Si sí, cargarle ese CUIT a
+   Sofia Cervera; si no, dar de alta a Sofía Fachado y cambiar la línea de P-000001 del script.
+3. **El rubro de Edesur** (P-000005 dice Agua; no hay rubro de electricidad). El script no lo
+   toca.
+4. **La etapa de Moreno**: tiene dos en curso (1 y extras), y es **la pregunta que más queda
+   en el corpus** después del importe (13). ¿Se usa la etapa del último pago a ese contratista
+   en esa obra como `supuesto`, igual que el rubro?
+5. **El tc del recibo**: los recibos de Miguel dicen «US$ 2.000 × 1535». Si el lector sacara
+   ese tc, el primer pago del día de la caja en dólares tampoco preguntaría. ¿Vale el tc del
+   recibo como el del día?
+6. **El ingreso de USD 20.000** del 28/09: falta que Gabriel lo confirme (`--con-ingreso-usd`).
+7. **M-000005** (Austral · Valentín Campero · $ 400): ¿es una prueba? No se tocó.
+8. **M-000010** está con rubro Materiales › Albañilería y el recibo dice «Certificado de obra»
+   de Miguel Soto (contratista). No estaba en la lista de H: no se tocó.
+9. **Captura 2** (el texto 8 s antes que la foto): ¿la foto que llega con una ficha pendiente
+   sin comprobante se suma a esa ficha, aunque la regla A diga «movimiento nuevo»? Es del
+   gateway.
+10. **El pago Tucu/Moreno** (la imagen de la fila 172 de CAPTURA) puede haberse perdido:
+    P-000001 se lo llevó como respuesta. Entra en el cruce (M).
