@@ -728,6 +728,9 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         if not contr_comp and comp.razon_social:
             r = next((r for r in resolver.resolver_token(comp.razon_social, m) if r.categoria == "contratista"), None)
             contr_comp, metodo_comp = (r.valor, r.metodo) if r else (None, None)
+            if not contr_comp:
+                contr_comp = resolver.contratista_por_razon_social(comp.razon_social, m)
+                metodo_comp = "exacto" if contr_comp else None
         if contr_comp:
             if campos["contratista"] and campos["contratista"] != contr_comp:
                 conflictos.append(Conflicto(campo="contratista", valor_texto=campos["contratista"], valor_comprobante=contr_comp,

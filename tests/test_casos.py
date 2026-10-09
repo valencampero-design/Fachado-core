@@ -736,6 +736,16 @@ def main() -> int:
               "tipo_cambio" in [p.campo for p in r0.preguntas] and r1.fichas[0].campos["moneda"] == "USD"
               and not campos_de(r1, "tipo_cambio"),
               ([p.campo for p in r0.preguntas], r1.fichas[0].campos["moneda"], [p.campo for p in r1.preguntas]))
+    print("\nLa ñ y las razones sociales (handoff del 30/09)")
+    recibo_marcelo = Adjunto(url="https://drive.google.com/file/d/RECIBOMARCELOxxxxxxxxxxxx/view", mime="image/jpeg",
+                             nombre="r.jpg")
+    for razon in ("Marcelo Alfredo Maragano Guerr", "MARAGANO GUERRERO MARCELO ALFREDO"):
+        r, f = leer_con("Pago Moreno", adjuntos=[recibo_marcelo],
+                        lector=lector_con(importe=50000, fecha="2026-09-20", razon_social=razon, medio_pago="Transferencia"))
+        check(f"«Pago Moreno» + comprobante a nombre de «{razon}» → Marcelo Maragaño, sin preguntar a quién",
+              f.campos["contratista"] == "Marcelo Maragaño" and not campos_de(r, "contratista"),
+              (f.campos["contratista"], [p.campo for p in r.preguntas]))
+
     r0 = interpretar(InterpretarIn(texto="Ingreso Moreno/cert 4 us$1.000", fecha_mensaje="2026-09-28T12:00:00Z"))
     r1 = responder(r0, ("tipo_cambio", "no hay tipo de cambio"))
     check("… pero si la cuenta está en pesos, «no hay tipo de cambio» no vale: se vuelve a preguntar",

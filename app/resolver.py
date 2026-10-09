@@ -581,6 +581,23 @@ def contratista_por_cuit(cuit: str | None, m: Maestros) -> str | None:
     return None
 
 
+def contratista_por_razon_social(razon_social: str | None, m: Maestros) -> str | None:
+    """La razón social de un comprobante es el nombre legal: «MARAGANO GUERR MARCELO
+    ALFREDO» es Marcelo Maragaño. La ñ ya la pliega `normalizar` (ñ → n: los comprobantes la
+    pierden). Empareja si todas las palabras del nombre del contratista (dos o más) están en
+    la razón social, en cualquier orden; la última puede venir cortada. Solo si hay uno."""
+    palabras = normalizar(razon_social).split()
+    if not palabras:
+        return None
+
+    def esta(w: str) -> bool:
+        return w in palabras or (len(w) >= 4 and any(len(p) >= 4 and w.startswith(p) for p in palabras[-1:]))
+
+    candidatos = [c.nombre for c in m.contratistas if c.activo
+                  and len(nombre := normalizar(c.nombre).split()) >= 2 and all(esta(w) for w in nombre)]
+    return candidatos[0] if len(candidatos) == 1 else None
+
+
 def obra_por_cuit_comitente(cuit: str | None, m: Maestros) -> str | None:
     digitos = solo_digitos(cuit)
     if len(digitos) != 11:
