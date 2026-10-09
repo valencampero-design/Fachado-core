@@ -20,7 +20,6 @@ def main() -> int:
     os.environ["LLM_HABILITADO"] = "false"
     os.environ["LEER_ADJUNTOS"] = "false"
 
-    from app import maestros
     from app.filtros import para_conciliacion, para_iva
     from app.interpretar import interpretar as _interpretar
     from app.maestros import Etapa
@@ -39,7 +38,11 @@ def main() -> int:
     from app.models import InterpretarIn
     from app.saldos import saldo_estudio, saldo_obra
 
-    m = maestros.cargar(forzar=True)
+    # Los casos dan por hecho la caja de Lennon en pesos; los de G la pasan a dólares adentro.
+    # Así no dependen de en qué moneda esté el snapshot (la migración del 9/10 la pasa a USD).
+    from tests.dobles import cuenta_en_moneda as _moneda
+    pila = contextlib.ExitStack()
+    m = pila.enter_context(_moneda("Caja obra Lennon", "ARS"))
     fallas: list[str] = []
 
     def check(descripcion, condicion, detalle=""):

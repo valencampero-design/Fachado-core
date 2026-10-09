@@ -53,7 +53,11 @@ async def _correr() -> int:
     snapshot = json.loads((RAIZ / "maestros_snapshot.json").read_text(encoding="utf-8"))
     # Como queda el Sheet después de scripts/preparar_sheet.py (tanda 6: vinculo y anula).
     encabezado = snapshot["MOVIMIENTOS"][0] + [c for c in ("vinculo", "anula") if c not in snapshot["MOVIMIENTOS"][0]]
-    m = maestros.cargar(forzar=True)
+    # Los casos dan por hecho la caja de Lennon en pesos; los de G la pasan a dólares adentro.
+    # Así no dependen de en qué moneda esté el snapshot (la migración del 9/10 la pasa a USD).
+    from tests.dobles import cuenta_en_moneda as _moneda
+    pila = contextlib.ExitStack()
+    m = pila.enter_context(_moneda("Caja obra Lennon", "ARS"))
     titular = next(u for u in m.usuarios if u.rol == "titular")  # de USUARIOS, no hardcodeado
 
     fallas: list[str] = []
