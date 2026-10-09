@@ -415,3 +415,22 @@ su `msg_id` fijo (`correccion-2026-10-09-<id_mov>`), y volver a correrlo no dupl
    gateway.
 10. **El pago Tucu/Moreno** (la imagen de la fila 172 de CAPTURA) puede haberse perdido:
     P-000001 se lo llevó como respuesta. Entra en el cruce (M).
+
+## Deploy (9/10, después de la sesión)
+
+- Pusheado y desplegado en Railway (`web`); `/salud` responde.
+- **`Caja obra Lennon` pasó a USD en el Sheet** (`2026_10_09_caja_lennon_usd.py --aplicar`:
+  CUENTAS fila 9; no tenía movimientos). `/maestros/recargar` y snapshot regenerado (`cdedbc8`):
+  el único cambio es esa moneda. Los tres archivos de tests, TODO OK.
+- **Verificado en producción con `/interpretar`** (no escribe):
+  - «Lennon/Miguel efectivo $1.450.000» → Miguel Soto, **Caja obra Lennon**, rubro Albañilería
+    (el último pago a Miguel, M-000010) y una sola pregunta: el tipo de cambio, porque es el
+    primer pago en pesos del día desde la caja en dólares.
+  - El texto de la captura 4 → INGRESO, Lennon, USD 20.000, 28/09, Caja obra Lennon, **cero
+    preguntas**.
+- **No aplicado**: el script de correcciones (preguntas abiertas 1 y 2 primero) y el ingreso
+  de USD 20.000 (falta la confirmación de Gabriel). Hasta que se cargue, la caja de Lennon
+  no tiene movimientos.
+- **Del gateway** (otra sesión): mostrar el saldo de la caja con `caja_obra.moneda` (US$) y
+  mandar «en dólares» / «no hay tipo de cambio» como respuesta a `tipo_cambio` sin validarla
+  como número.

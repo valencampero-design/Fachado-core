@@ -23,7 +23,7 @@
 | ✅ Motor en producción | Servicio `web` del proyecto Railway `bountiful-trust`, con dos dominios que son el mismo servicio: `web-production-6c935.up.railway.app` (el que usan la documentación y el cron) y `web-production-70e97.up.railway.app`. Las tandas 1 a 5 están desplegadas desde el 25/09 |
 | ✅ Tanda 6 | Desplegada el 25/09: PASANTE, TRASPASO, contraasiento, `intencion` / `respuestas` / `texto_compartido`, contratistas inactivos, el nombre de quien escribe en el prompt. Columnas `vinculo` y `anula` en los dos libros. Verificado en producción con `/interpretar`: un texto del corpus, una charla (`otro`) y un comprobante solo (un recibo manuscrito, leído por el modelo) |
 | ✅ Fix del arranque (30/09) | Desplegado el 30/09 con sus migraciones aplicadas: la cuenta se decide o se pregunta (origen `supuesto`), una sola lista de obligatorios, etapas con estado, tipo de cambio en dólares, Gessel |
-| ⏳ Conversación del 9/10 (D, E, F, G, H, ñ) | Commiteado **sin pushear** (4 commits sobre `70df209`). Después del deploy: la migración de la caja de Lennon en dólares y, cuando Valen lo decida, el script de correcciones (§8). Detalle y métrica al final de `docs/handoff-conversacion-2026-10-09.md` |
+| ✅ Conversación del 9/10 (D, E, F, G, H, ñ) | Desplegado el 9/10; `Caja obra Lennon` en USD en el Sheet y snapshot regenerado. Falta, cuando Valen lo decida, el script de correcciones (§8). Detalle y métrica al final de `docs/handoff-conversacion-2026-10-09.md` |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
@@ -661,12 +661,12 @@ manda mensajes repetidos** con un segundo de diferencia.
       la reunión del martes 29/09 (ensayo primero, después la primera fila real).
 - [ ] **La primera fila real**, con un movimiento verdadero, mirándola en el Sheet.
 - [x] ~~**Desplegar el fix del 30/09 y correr sus cuatro migraciones**~~ — 30/09.
-- [ ] **Desplegar lo del 9/10** y después, en orden: `scripts/migraciones/2026_10_09_caja_lennon_usd.py
-      --aplicar` (la caja no tiene movimientos: cambia la moneda), regenerar el snapshot
-      (`python scripts/snapshot_maestros.py`) y, cuando Valen lo decida,
-      `scripts/migraciones/2026_10_09_correcciones.py --aplicar` (con `--con-ingreso-usd`
-      solo si Gabriel confirmó el ingreso de USD 20.000). Simulacro de las dos: al final del
-      handoff del 9/10.
+- [x] ~~**Desplegar lo del 9/10**, la caja de Lennon en USD y el snapshot~~ — 9/10,
+      verificado en producción con `/interpretar`.
+- [ ] **Las correcciones del 9/10**, cuando Valen lo decida (preguntas abiertas 1 y 2 del
+      handoff del 9/10 antes): `FACHADO_PERSONAL_SHEET_ID` en el entorno y
+      `scripts/migraciones/2026_10_09_correcciones.py --aplicar`, con `--con-ingreso-usd`
+      solo si Gabriel confirmó el ingreso de USD 20.000. Simulacro al final del handoff del 9/10.
 - [x] ~~`DRIVE_CARPETA_COMPROBANTES_ID`~~ — fijada el 27/09 (la carpeta «comprobantes» la creó
       la misma app OAuth del motor).
 - [x] ~~Claves y réplicas~~ — verificado el 27/09: `MOTOR_API_KEY` igual a
@@ -705,11 +705,13 @@ manda mensajes repetidos** con un segundo de diferencia.
 
 ## 8. Estado de los datos del Sheet
 
-**Pendiente del 9/10** (nada aplicado; los dos scripts con simulacro por defecto):
+**Aplicado el 9/10:** `Caja obra Lennon` pasó a **USD** (`2026_10_09_caja_lennon_usd.py
+--aplicar`, CUENTAS fila 9; no tenía movimientos) y el snapshot se regeneró. Los tests fijan
+la caja de Lennon en pesos y los de G la pasan a dólares (`tests/dobles.cuenta_en_moneda`):
+no dependen de la moneda del snapshot.
 
-- `Caja obra Lennon` en ARS en el Sheet → USD con `2026_10_09_caja_lennon_usd.py`. El
-  snapshot de los tests **sigue igual al Sheet** (ARS): los tests la pasan a dólares solo
-  mientras dura el caso (`tests/dobles.cuenta_en_moneda`).
+**Pendiente del 9/10** (simulacro por defecto; lo decide Valen):
+
 - Los tres pagos de Lennon contra `Efectivo` (M-000001, M-000008, M-000010, $ 13.640.000),
   P-000001 (obra Moreno y contratista Tucu en un personal) y el `medio_pago = Otro` de
   P-000004/5: `2026_10_09_correcciones.py`, por contraasiento.
