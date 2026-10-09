@@ -8,7 +8,7 @@ que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico 
 - `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
   clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.7 · 30 de septiembre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.8 · 9 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -186,7 +186,8 @@ cambio **el efectivo sí es una cuenta**: sacar del cajero es `TRASPASO`, no un 
 **De qué cuenta salió** *(definido 30/09, después del arranque)*. En orden:
 
 1. Lo que dice el mensaje: «efectivo», la `C` de una caja de obra (§5.8), una cuenta
-   nombrada.
+   nombrada. **En una obra que tiene caja de obra, «efectivo» es esa caja**, con o sin la
+   `C` (§5.8, v1.8).
 2. Lo que dice el comprobante: una transferencia o un débito es **Banco**; un cheque va a la
    cuenta que el libro ya usa para cheques; un comprobante de Mercado Pago, a Mercado Pago.
 3. Lo que dice la obra: en Lennon, `Pagado por el comitente` (§5.9).
@@ -235,6 +236,21 @@ error que el sistema viene a evitar.
 aparece por necesidad en cualquiera. Se marca en el mensaje con una **`C` pegada al nombre
 de la obra**: `Barba/LennonC`, o con etapa, `Barba/Lennon1C` (§5.15). Sin la `C`, el pago no
 sale de la caja de obra.
+
+**«Efectivo» en una obra con caja es la caja de la obra** *(definido 9/10)*. Gabriel no
+usa la `C`: escribe «Lennon/Miguel efectivo». En una obra que tiene caja de obra, el
+efectivo sale de esa caja aunque no esté la `C`. Si alguna vez paga con el efectivo del
+estudio, lo aclara («efectivo del estudio»). Hasta el 9/10 esos pagos se cargaron contra el
+Efectivo del estudio y la cuenta corriente de Lennon mostró −$ 13,6 M «pagado por el
+estudio»: hay que corregirlos.
+
+**Cajas de obra en dólares** *(definido 9/10)*. Un comitente puede darle dólares para la
+caja (Lennon: USD 20.000 el 28/09). **El saldo de esa caja se lleva en dólares**, pero los
+pagos casi siempre se hacen en pesos: cada pago en pesos **descuenta de la caja los dólares
+equivalentes al tipo de cambio del momento del pago**. Por eso la caja de obra puede tener
+moneda USD, y un pago en pesos desde una caja en dólares necesita su tipo de cambio.
+*Decisión de A&C para no preguntar de más:* el bot pide el tipo de cambio en el primer
+pago del día de esa caja y lo reutiliza el resto del día, mostrándolo en la ficha.
 
 **Cómo se rinde** *(definido 29/09)*: no hay una regla general; cada cuánto y contra qué
 depende de cada obra. El sistema no impone un ciclo de rendición: muestra el saldo de cada
@@ -325,6 +341,27 @@ manda el texto y los comprobantes por separado, y a veces varios comprobantes se
 - **Una ficha sin confirmar nunca se escribe sola ni se descarta sola.** Si el usuario
   sigue mandando otra cosa, la ficha queda pendiente y el bot se lo recuerda; «pendientes»
   las lista.
+
+**Pocas preguntas** *(definido 9/10, después de la primera semana de uso)*. El mensaje de
+Gabriel tiene que alcanzar: **«Lennon/Miguel» más el comprobante es suficiente** para cargar
+un pago sin preguntar nada. La obra y el contratista salen del texto; el importe, la fecha y
+la cuenta, del comprobante y de la obra; **el rubro, del rubro habitual del contratista o
+del que se usó la última vez con él**. Lo que se deduce y no es seguro va a la ficha marcado
+«supuesto», y Gabriel lo corrige si hace falta. Solo se pregunta lo que de verdad no se
+puede deducir (por ejemplo, la obra cuando el texto no la nombra, o el importe cuando el
+comprobante no se lee), y nunca algo que no aplica: **a un gasto personal no se le pregunta
+la obra; a un ingreso no se le pregunta a quién se le pagó**.
+
+**La conversación tiene que seguir el hilo** *(definido 9/10)*:
+
+- **Un mensaje nuevo no es la respuesta a una pregunta vieja.** Si hay una pregunta
+  pendiente y llega un comprobante, o un texto que es claramente otro movimiento, el bot
+  arranca un movimiento nuevo y deja el anterior pendiente.
+- **Una respuesta que no es ninguna de las opciones se lee como texto**: puede traer otro
+  dato («efectivo», «caja chica», «es un ingreso») o pedir algo («¿cuál?»). Nunca se
+  responde «no entendí» dos veces seguidas a lo mismo.
+- **Nunca un error sin decir qué falta**, y nunca en bucle: después del segundo intento
+  fallido el bot ofrece descartar o dejarlo para que A&C lo revise.
 
 **Lo que no es un movimiento** *(definido 25/09)*: charla, «después te paso el ticket», una
 foto de obra, un audio sin importe. Se guarda en la captura como todo lo demás y el bot
@@ -538,7 +575,12 @@ certificado, «Austral» es el emisor, nunca la obra.**
 
 ## 8. Estado y pendientes
 
-**Semana 5 de 8. El bot está en marcha desde el 29/09**, conectado al motor, con Gabriel
+**Semana 6 de 8.** Primera semana de uso real (29/09–8/10): el bot carga, pero la
+conversación resultó tediosa —demasiadas preguntas, preguntas que no aplican, respuestas que
+no siguen el hilo y bucles de error—. La v1.8 fija las reglas de §5.12 («Pocas preguntas» y
+«La conversación tiene que seguir el hilo») y la caja de obra (§5.8).
+
+**El bot está en marcha desde el 29/09**, conectado al motor, con Gabriel
 como único usuario y confirmación de todo. En el arranque, Lennon funcionó; en otras obras
 la ficha llegaba sin cuenta y la confirmación fallaba con «Falta cuenta» (lo corrige §5.7,
 v1.7). Siguen: tablero, conciliación, Petrus (después de una semana de carga) y marcha
