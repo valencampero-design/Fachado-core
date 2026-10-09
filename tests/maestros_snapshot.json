@@ -1,7 +1,7 @@
 {
   "_meta": {
     "fuente": "1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A",
-    "tomado": "2026-09-30",
+    "tomado": "2026-10-09",
     "nota": "Copia literal de las hojas maestras. Se regenera con scripts/snapshot_maestros.py."
   },
   "OBRAS": [
@@ -1242,7 +1242,7 @@
     [
       "Caja obra Lennon",
       "caja_obra",
-      "ARS",
+      "USD",
       "no",
       "0,00",
       "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
