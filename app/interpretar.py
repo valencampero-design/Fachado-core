@@ -256,6 +256,12 @@ def _aplicar_respuestas(contexto: dict, respuestas: list, m: Maestros, diag: dic
             importe = numero(valor)
             if importe > 0:
                 fijar(campo, importe)
+                # «400 dólares» como respuesta al importe (M-000005, 3/10): la moneda que dice
+                # el texto manda; antes se tomaba el número y quedaba en pesos.
+                if campo == "importe" and resolver.RE_USD.search(valor):
+                    fijar("moneda", "USD")
+                elif campo == "importe" and re.search(r"\bpesos\b|\$(?!\s*us)", valor, re.I):
+                    fijar("moneda", "ARS")
             else:
                 diag["advertencias"].append(f"«{valor}» no es un importe")
         elif campo == "fecha":

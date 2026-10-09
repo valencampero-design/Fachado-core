@@ -663,7 +663,8 @@ manda mensajes repetidos** con un segundo de diferencia.
 - [x] ~~**Desplegar el fix del 30/09 y correr sus cuatro migraciones**~~ — 30/09.
 - [x] ~~**Desplegar lo del 9/10**, la caja de Lennon en USD y el snapshot~~ — 9/10,
       verificado en producción con `/interpretar`.
-- [ ] **Las correcciones del 9/10**, cuando Valen lo decida (preguntas abiertas 1 y 2 del
+- [ ] **Las correcciones del 9/10**, después de que Gabriel conteste las preguntas 1 a 3 del
+      guion del 9/10, y con el tc de M-000005 confirmado por Valen (preguntas abiertas 1 y 2 del
       handoff del 9/10 antes): `FACHADO_PERSONAL_SHEET_ID` en el entorno y
       `scripts/migraciones/2026_10_09_correcciones.py --aplicar`, con `--con-ingreso-usd`
       solo si Gabriel confirmó el ingreso de USD 20.000. Simulacro al final del handoff del 9/10.
@@ -712,6 +713,8 @@ no dependen de la moneda del snapshot.
 
 **Pendiente del 9/10** (simulacro por defecto; lo decide Valen):
 
+- **M-000005** quedó en pesos y era U$S 400 desde Banco USD (bug de moneda, arreglado el 9/10): el
+  script lo recarga con `--tc-m000005` (lo confirma Valen).
 - Los tres pagos de Lennon contra `Efectivo` (M-000001, M-000008, M-000010, $ 13.640.000),
   P-000001 (obra Moreno y contratista Tucu en un personal) y el `medio_pago = Otro` de
   P-000004/5: `2026_10_09_correcciones.py`, por contraasiento.

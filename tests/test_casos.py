@@ -739,6 +739,25 @@ def main() -> int:
               "tipo_cambio" in [p.campo for p in r0.preguntas] and r1.fichas[0].campos["moneda"] == "USD"
               and not campos_de(r1, "tipo_cambio"),
               ([p.campo for p in r0.preguntas], r1.fichas[0].campos["moneda"], [p.campo for p in r1.preguntas]))
+    print("\nLa moneda que dice el texto (M-000005, 3/10: «400 dólares» quedó en pesos)")
+    r0 = interpretar(InterpretarIn(texto="Austral/ Valentín", fecha_mensaje="2026-10-03T18:12:38Z",
+                                   telefono=titular.telefono))
+    r1 = responder(r0, ("importe", "400 dólares"))
+    c = r1.fichas[0].campos
+    check("«Austral/ Valentín» y después «400 dólares» como respuesta al importe → USD 400, y pregunta el tc",
+          "importe" in [p.campo for p in r0.preguntas] and (c["importe"], c["moneda"]) == (400, "USD")
+          and campos_de(r1, "tipo_cambio"), (c["importe"], c["moneda"], [p.campo for p in r1.preguntas]))
+    for texto in ("Austral/ Valentín 400 dólares", "Austral/Valentín u$d 400", "Austral/Valentín 400 usd",
+                  "Austral/Valentín US$400"):
+        r, f, c = leer(texto)
+        check(f"«{texto}» → USD 400", (c["importe"], c["moneda"]) == (400, "USD"), (c["importe"], c["moneda"]))
+    r, f = leer_con("Austral/Valentín 400 dólares", adjuntos=[transf_sofi],
+                    lector=lector_con(importe=400, fecha="2026-10-03", moneda="ARS", medio_pago="Transferencia"))
+    check("… y el texto le gana a un comprobante que dice pesos", f.campos["moneda"] == "USD", f.campos["moneda"])
+    r1 = responder(r0, ("importe", "$ 400.000"))
+    check("«$ 400.000» como respuesta al importe sigue en pesos", r1.fichas[0].campos["moneda"] == "ARS",
+          r1.fichas[0].campos["moneda"])
+
     print("\nLa ñ y las razones sociales (handoff del 30/09)")
     recibo_marcelo = Adjunto(url="https://drive.google.com/file/d/RECIBOMARCELOxxxxxxxxxxxx/view", mime="image/jpeg",
                              nombre="r.jpg")

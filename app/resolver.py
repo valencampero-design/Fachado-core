@@ -59,9 +59,12 @@ RE_CAJA = re.compile(r"\bcaja(?:\s+chica)?\b", re.I)
 RE_EFECTIVO_ESTUDIO = re.compile(r"\b(efectivo|efvo)\s+del\s+estudio\b", re.I)
 # §5.15: «etapa 1» escrito aparte, además de la forma pegada «Lennon1».
 RE_ETAPA = re.compile(r"\betapa\s*(\d+)\b", re.I)
-RE_IMPORTE_PESOS = re.compile(r"(?:u\$s|usd|us\$|\$)\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)", re.I)
+RE_IMPORTE_PESOS = re.compile(r"(?:u\$[sd]|usd|us\$|\$)\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)", re.I)
+# «400 dólares», «1.500 usd», «2000 pesos»: el número con la moneda escrita después (M-000005).
+RE_IMPORTE_CON_MONEDA = re.compile(r"(?<![\d/.,])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)\s*"
+                                   r"(?:u\$[sd]|usd|us\$|d[oó]lar(?:es)?|pesos)(?![a-z])", re.I)
 RE_IMPORTE_SUELTO = re.compile(r"(?<![\d/])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?)(?![\d/])")
-RE_USD = re.compile(r"u\$s|usd|us\$|d[oó]lar", re.I)
+RE_USD = re.compile(r"u\$[sd]|usd|us\$|d[oó]lar", re.I)
 RE_CUENTA_USD = re.compile(r"\bbanco\s+(?:en\s+)?(?:usd|d[oó]lares)\b", re.I)
 RE_CERTIFICADO = re.compile(r"^cert(?:ificado)?\b\s*(.*)$")
 RE_DOS_MOVIMIENTOS = re.compile(r"\s+e\s+(?=(?:imputar|ingresar|registrar|cargar)\w*\b)", re.I)
@@ -229,7 +232,7 @@ def parsear(texto: str, hoy: date | None = None) -> list[Segmento]:
         # «banco usd» es el nombre de una cuenta, no dice en qué moneda está el importe.
         if RE_USD.search(RE_CUENTA_USD.sub(" ", resto)):
             seg.moneda = "USD"
-        im = RE_IMPORTE_PESOS.search(resto) or RE_IMPORTE_SUELTO.search(resto)
+        im = RE_IMPORTE_PESOS.search(resto) or RE_IMPORTE_CON_MONEDA.search(resto) or RE_IMPORTE_SUELTO.search(resto)
         if im:
             seg.importe = parsear_importe(im.group(1))
             resto = resto[:im.start()] + " " + resto[im.end():]

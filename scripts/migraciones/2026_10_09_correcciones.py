@@ -15,11 +15,15 @@ con /anular y recarga la fila correcta con /confirmar, con las mismas funciones 
 4. P-000001 (Retiro/Sofi, 30/09): sin obra; contratista Sofía (la transferencia es a
    «FACHADO, SOFIA»; «Sofi» es Sofia Cervera por alias). P-000004 y P-000005: medio de pago
    Mercado Pago (decía «Otro»). El rubro de Edesur (Agua) no se toca: es una pregunta abierta.
-5. M-000005 no se toca hasta que Valen diga si es una prueba.
+5. M-000005 (Austral · Valentín Campero, 3/10): Gabriel contestó «400 dólares» y quedó en
+   pesos (el bug de moneda, revisión cruzada del 9/10). Su comprobante (la foto de la fila
+   191 de CAPTURA, que no quedó adjunta) es una transferencia de U$S 400,00 desde la caja de
+   ahorro en dólares (op. 1973111147, «Cuota»): se recarga en USD, desde Banco USD, con el
+   comprobante. El tc lo confirma Valen: `--tc-m000005 1450`; sin él, M-000005 no se toca.
 
-Antes, la caja de Lennon tiene que estar en dólares: correr
-`scripts/migraciones/2026_10_09_caja_lennon_usd.py --aplicar`. En el simulacro, si todavía
-no lo está, se simula en dólares y se avisa.
+La caja de Lennon ya está en dólares (`2026_10_09_caja_lennon_usd.py`, aplicado el 9/10).
+Si no lo estuviera, el simulacro la simula en dólares y `--aplicar` se niega a correr.
+**No aplicar hasta que Gabriel conteste las preguntas 1 a 3 del guion del 9/10.**
 
 Simulacro por defecto: lee los dos libros reales (solo lectura) y corre todo sobre una
 copia en memoria, sin Drive. Idempotente: cada corrección tiene su msg_id fijo, y volver a
@@ -27,7 +31,8 @@ correrlo con `--aplicar` no duplica nada.
 
     python scripts/migraciones/2026_10_09_correcciones.py                    (simulacro)
     python scripts/migraciones/2026_10_09_correcciones.py --con-ingreso-usd  (simulacro, con el 1)
-    python scripts/migraciones/2026_10_09_correcciones.py --aplicar [--con-ingreso-usd]
+    python scripts/migraciones/2026_10_09_correcciones.py --tc-m000005 1450  (simulacro, con el 5)
+    python scripts/migraciones/2026_10_09_correcciones.py --aplicar [--con-ingreso-usd] [--tc-m000005 N]
 """
 import argparse
 import asyncio
@@ -55,9 +60,16 @@ class Correccion:
     cambios: dict
     por_que: str
     extras: dict = field(default_factory=dict)
+    pide_tc: bool = False  # el tc no está en el comprobante: lo confirma Valen (--tc-m000005)
 
 
 CORRECCIONES = [
+    Correccion("M-000005", {"moneda": "USD", "importe": 400, "cuenta": "Banco USD", "medio_pago": "Transferencia",
+                            "tipo_comprobante": "Transferencia",
+                            "comprobante_url": "https://drive.google.com/file/d/1ESChzjC3uECJiRcFuawk8MuEgLdbXnAy/view",
+                            "ref_comprobante": "op:1973111147", "descripcion": "Op. 1973111147 · Cuota"},
+               "«400 dólares» quedó en pesos (bug de moneda). Comprobante: U$S 400,00 desde la CA en dólares",
+               pide_tc=True),
     Correccion("M-000001", {"cuenta": CAJA, "medio_pago": "Efectivo", "tc": 1425, "etapa": "1"},
                "§5.8 v1.8: el efectivo de Lennon sale de su caja. Recibo: US$ 400 × 1425 = $ 570.000"),
     Correccion("M-000008", {"cuenta": CAJA, "medio_pago": "Efectivo", "tc": 1515},
@@ -154,11 +166,15 @@ async def correr(args) -> int:
                                       estudio, personal, archivador, m, "adelanto del comitente a la caja (§5.8)")
         else:
             print("\n1 · Ingreso de USD 20.000: no se carga (falta que Gabriel lo confirme; usar --con-ingreso-usd)")
-        print("\n2 a 4 · Contraasientos y recargas")
+        print("\n2, 4 y 5 · Contraasientos y recargas")
         for c in CORRECCIONES:
+            if c.pide_tc and not args.tc_m000005:
+                print(f"  · {c.id_mov}: no se toca (falta el tc: --tc-m000005, lo confirma Valen)")
+                continue
+            if c.pide_tc:
+                c = Correccion(c.id_mov, {**c.cambios, "tc": args.tc_m000005}, c.por_que, c.extras)
             errores += await corregir(c, estudio, personal, archivador, m)
         print(f"\nLennon después: {resumen_lennon(estudio, m)}")
-    print("\n5 · M-000005 (Austral · Valentín Campero · $ 400): no se toca")
     if not args.aplicar:
         print("\n(simulacro: no se escribió nada en los libros ni se movió nada en Drive. Correr con --aplicar)")
     return 1 if errores else 0
@@ -212,6 +228,8 @@ async def recargar(id_mov, campos: dict, cambios: dict, msg_id: str, nombre_usua
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--aplicar", action="store_true", help="escribir en los libros reales (sin esto, simulacro)")
+    ap.add_argument("--tc-m000005", type=float, metavar="TC",
+                    help="el tipo de cambio de M-000005 (U$S 400 del 3/10), confirmado por Valen")
     ap.add_argument("--con-ingreso-usd", action="store_true",
                     help="cargar también el ingreso de USD 20.000 del 28/09 (solo si Gabriel lo confirmó)")
     return asyncio.run(correr(ap.parse_args()))

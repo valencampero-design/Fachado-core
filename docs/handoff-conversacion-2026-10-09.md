@@ -434,3 +434,48 @@ su `msg_id` fijo (`correccion-2026-10-09-<id_mov>`), y volver a correrlo no dupl
 - **Del gateway** (otra sesión): mostrar el saldo de la caja con `caja_obra.moneda` (US$) y
   mandar «en dólares» / «no hay tipo de cambio» como respuesta a `tipo_cambio` sin validarla
   como número.
+
+## Revisión cruzada del 9/10 (después del deploy)
+
+**1 · Bug de moneda (M-000005).** En CAPTURA: «Austral/ Valentín» (03/10 15:12:38), la foto
+del comprobante 7 s después (fila 191, que **no quedó adjunta**: M-000005 no tiene
+comprobante) y «400 dólares» como **respuesta a la pregunta del importe**. La respuesta tomaba
+el número y descartaba la moneda. Arreglado en dos lugares:
+- `_aplicar_respuestas`: una respuesta de importe que nombra dólares / USD / US$ / u$d fija
+  `moneda = USD` (y «pesos» o «$», ARS).
+- `resolver.RE_IMPORTE_CON_MONEDA`: «400 dólares», «1.500 usd», «2000 pesos» en el texto ya
+  son importe (antes un número sin $ ni puntos de miles quedaba pegado al contratista).
+- El texto le gana a un comprobante que dice pesos. Tests en `test_casos.py`, «La moneda
+  que dice el texto».
+
+El comprobante de M-000005 es una transferencia de **U$S 400,00 desde la caja de ahorro en
+dólares** de Gabriel a Valentín Campero (op. 1973111147, «Cuota», 03/10 15:11). Ya no es
+«¿una prueba?»: el script H lo anula y lo recarga en USD, desde **Banco USD** (la cuenta que
+§5.7 da a una transferencia en dólares), con el comprobante. **El tc lo confirma Valen**:
+`--tc-m000005 1450`; sin ese parámetro, M-000005 no se toca. Simulacro con 1450 (solo para
+probar el camino):
+
+```
+  · M-000005 anulado por M-000012
+    recargado como M-000013: moneda: «ARS» → «USD», cuenta: «Banco» → «Banco USD», tipo_comprobante: «Sin comprobante» → «Transferencia», comprobante_url: «» → «https://drive.google.com/file/d/1ESChzjC3uECJiRcFuawk8MuEgLdbXnAy/view», ref_comprobante: «» → «op:1973111147», descripcion: «» → «Op. 1973111147 · Cuota», tc: «1» → «1450.0»
+```
+
+(Con M-000005 primero, los id del resto del simulacro corren dos lugares.)
+
+**2 · P-000001 es la transferencia a Sofía**, y el pago Tucu/Moreno se perdió. En CAPTURA:
+P-000001 tiene el `msg_id` de la foto «Sofi/Varios» (fila 164). «Tucu/Moreno» (fila 171,
+30/09 16:19) y su foto (fila 172) se mezclaron con esa ficha pendiente: le dieron a la de
+Sofía el contratista, la obra y la etapa, y **el pago a Tucu nunca se escribió**.
+
+**Lista de reenvíos (motor)**, para sumar a la de «Perdidos de verdad» del gateway:
+
+| # | Fecha y hora (local) | Qué mandó Gabriel | Comprobante | msg_id a reenviar |
+|---|---|---|---|---|
+| 8 | 30/09 16:19 | «Tucu/Moreno» + foto (filas 171 y 172 de CAPTURA) | Transferencia del 28/09 16:42, **$ 200.000** a «ORELLANA, MARCELO DE» (CUIT 20131666145), op. 1962501515, desde la CA en pesos | texto `wamid.HBgNNTQ5Mjk0NDM0MTEzMhUCABIYIEFDMTNDMzM5NDdBQzBBMTM4RjkyNDJEOUUyNThEQTBDAA==` · foto `wamid.HBgNNTQ5Mjk0NDM0MTEzMhUCABIYIEFDMjI1NzAwMjRENzZFMkIyODQxNzQ2QkQzNzUzMDFCAA==` |
+
+Ningún libro tiene una fila de $ 200.000, y ninguna fila usa esos dos `msg_id`: reenviarlo
+no duplica nada. Pregunta nueva: ¿«Tucu» es Marcelo de Orellana? Si sí, cargarle ese CUIT a
+Tucu en CONTRATISTAS y el próximo comprobante se resuelve solo.
+
+**3 · H no se aplica** hasta que Gabriel conteste las preguntas 1 a 3 del guion de hoy. El
+script lo dice en su encabezado.
