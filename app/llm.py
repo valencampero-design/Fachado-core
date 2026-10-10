@@ -230,7 +230,10 @@ _SYSTEM_COMPROBANTE = [{
             "Mercado Pago, facturas, tickets). Los importes argentinos usan punto de miles y coma decimal: "
             "«$ 4.032.391,70» es 4032391.70. Las fechas vienen como DD/MM/AAAA: devolvelas como AAAA-MM-DD. "
             "Si un dato no figura, null: no lo inventes. En un cheque diferido, `fecha` es la de emisión y "
-            "`fecha_pago` la de pago.",
+            "`fecha_pago` la de pago. Una captura de una planilla o de un registro de movimientos (una fila "
+            "con fecha, nombre, importe y concepto, por ejemplo «12-03-26 · Pérez · $ 150.000,00 · "
+            "Anticipo · Depósito») también es un comprobante: extraé esos datos igual; el nombre de "
+            "la fila va como destinatario y el concepto como tipo de comprobante.",
 }]
 
 

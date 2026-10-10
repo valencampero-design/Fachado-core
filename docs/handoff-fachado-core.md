@@ -503,6 +503,16 @@ movimiento (33 % → 37 % con cero); con obra + contratista + comprobante, **0,6
 (58 % → 65 % con cero). El rubro pasó de 17 preguntas a 4. Detalle al final de
 `docs/handoff-conversacion-2026-10-09.md`.
 
+**El gasto del LLM (9/10).** `test_corpus` imprime al final el gasto por tipo de llamada
+(`tokens` | `comprobante`): llamadas, tokens, acierto de caché y USD estimados. El pico del
+9/10 era el lector de comprobantes en Opus 5 (imagen/PDF en base64, sin caché, y su uso se
+descartaba). Con el lector en Sonnet 5.5 (prompt ajustado para las capturas de planilla) y
+los tokens en Opus 5.5, una corrida `--adjuntos --historia` cuesta **USD 0,20** (lector
+0,15 · tokens 0,05, acierto de caché 85 %), contra ~USD 0,90 con Opus 5. La lectura es igual
+a la de Opus 5 en importe, fecha, moneda, CUIT y razón social (24 de 24) y la métrica no
+cambia (0,98 por movimiento, invariante 0). Repetir la corrida no vuelve a pagar los
+comprobantes: la caché local por sha256 + versión del lector.
+
 El test corre contra `tests/maestros_snapshot.json` para ser reproducible; se regenera a
 propósito con `python scripts/snapshot_maestros.py`. **Desde el 30/09 el snapshot va un paso
 adelante del Sheet**: tiene aplicadas las tres migraciones del fix (`--snapshot`). Después
