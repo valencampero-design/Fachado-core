@@ -504,7 +504,7 @@ def main() -> int:
     petrus = next((u for u in m.usuarios if u.rol != "titular" and u.activo), None)
     capturado: dict = {}
 
-    def llamar_falso(system, content, schema, max_tokens=4000):
+    def llamar_falso(system, content, schema, tipo=None, modelo=None, max_tokens=4000):
         capturado["system"], capturado["content"] = system[0]["text"], content
         return {"tokens": [], "rubro_sugerido": None}, {}
 

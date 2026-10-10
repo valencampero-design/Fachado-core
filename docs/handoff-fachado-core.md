@@ -522,7 +522,9 @@ Railway, al lado del gateway, desde GitHub. `nixpacks.toml` fija Python 3.11 y a
 | `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` | OAuth de usuario, para **bajar y mover los adjuntos** |
 | `DRIVE_CARPETA_COMPROBANTES_ID` | Carpeta raíz «comprobantes», **cargada el 27/09**. Si se vaciara, el motor la busca o la crea la primera vez y devuelve el id en una advertencia. Para obtener el id sin esperar un `/confirmar`: `python -c "from app import sheets; print(sheets.carpeta_drive('comprobantes', None))"` (tiene que correr con las credenciales OAuth del motor) |
 | `ANTHROPIC_API_KEY` | |
-| `LLM_MODELO` · `LLM_EFFORT` | Default `claude-opus-5` y `low` |
+| `LLM_MODELO` · `LLM_EFFORT` | Default `claude-opus-5-5` y `low` (desde el 9/10; antes `claude-opus-5`). La resolución de tokens. **El effort se manda siempre**: en Opus 5.5 el default es `medium` y el costo subiría |
+| `LLM_MODELO_COMPROBANTE` | Default `claude-sonnet-5-5`. El lector de comprobantes (imagen/PDF), la llamada más cara: extracción estructurada, no necesita Opus. Se mueve aparte de `LLM_MODELO`; para volver a Opus solo en el lector, `claude-opus-5-5` sin deploy |
+| `CACHE_COMPROBANTES` | Ruta de un JSON con lo que el modelo leyó de cada archivo (sha256 + modelo). Vacía en Railway; `test_corpus` la usa siempre (`%LOCALAPPDATA%\fachado-core\cache_comprobantes.json`; `--sin-cache` para medir una lectura limpia) |
 | `MAESTROS_TTL_SEGUNDOS` · `LEER_ADJUNTOS` · `UTC_OFFSET_HORAS` | Default 300 · true · -3 |
 | `MAESTROS_SNAPSHOT` | Solo para correr offline; en Railway va vacía |
 

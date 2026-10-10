@@ -34,12 +34,37 @@ def disponible() -> bool:
     return settings().llm_habilitado
 
 
-def _llamar(system: list[dict], content: list[dict] | str, schema: dict, max_tokens: int = 4000) -> tuple[dict | None, dict]:
-    """Una llamada con salida JSON estructurada. Devuelve (datos, uso)."""
+# USD por millón de tokens: entrada, salida, escritura de caché (5 min, 1,25 × entrada) y
+# lectura de caché. Para estimar el gasto en test_corpus; la factura real es la de la consola.
+PRECIOS_USD_MTOK = {
+    "claude-opus-5-5": (4.00, 20.00, 5.00, 0.20),
+    "claude-opus-5": (5.00, 25.00, 6.25, 0.50),
+    "claude-sonnet-5-5": (2.00, 10.00, 2.50, 0.20),
+    "claude-haiku-5-5": (0.10, 0.50, 0.125, 0.01),
+}
+
+
+def costo_usd(uso: dict) -> float | None:
+    """Lo que costó una llamada, estimado con PRECIOS_USD_MTOK. None si el modelo no está."""
+    modelo = str(uso.get("modelo") or "")
+    precio = PRECIOS_USD_MTOK.get(modelo) or next(
+        (p for nombre, p in sorted(PRECIOS_USD_MTOK.items(), key=lambda x: -len(x[0])) if modelo.startswith(nombre)), None)
+    if precio is None:
+        return None
+    entrada, salida, escritura, lectura = precio
+    return (uso.get("input", 0) * entrada + uso.get("output", 0) * salida + uso.get("cache_write", 0) * escritura
+            + uso.get("cache_read", 0) * lectura) / 1_000_000
+
+
+def _llamar(system: list[dict], content: list[dict] | str, schema: dict, tipo: str, modelo: str | None = None,
+            max_tokens: int = 4000) -> tuple[dict | None, dict]:
+    """Una llamada con salida JSON estructurada. Devuelve (datos, uso). `tipo` («tokens» |
+    «comprobante») va en el uso para medir el gasto por tipo de llamada."""
     s = settings()
+    modelo = modelo or s.llm_modelo
     try:
         resp = _anthropic().beta.messages.create(
-            model=s.llm_modelo,
+            model=modelo,
             max_tokens=max_tokens,
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
@@ -49,15 +74,16 @@ def _llamar(system: list[dict], content: list[dict] | str, schema: dict, max_tok
         )
     except anthropic.RateLimitError:
         logger.warning("LLM: rate limit")
-        return None, {"error": "rate_limit"}
+        return None, {"tipo": tipo, "modelo": modelo, "error": "rate_limit"}
     except anthropic.APIStatusError as e:
         logger.error("LLM: error %s: %s", e.status_code, e.message)
-        return None, {"error": f"http_{e.status_code}"}
+        return None, {"tipo": tipo, "modelo": modelo, "error": f"http_{e.status_code}"}
     except anthropic.APIConnectionError:
         logger.error("LLM: error de conexión")
-        return None, {"error": "conexion"}
+        return None, {"tipo": tipo, "modelo": modelo, "error": "conexion"}
 
     uso = {
+        "tipo": tipo,
         "modelo": resp.model,
         "input": resp.usage.input_tokens,
         "output": resp.usage.output_tokens,
@@ -169,7 +195,7 @@ def resolver_tokens(m: Maestros, texto: str, tokens: list[str], contexto: dict, 
         lineas.append("Además, sugerí el rubro (rubro_1 / rubro_2) más probable para este pago en `rubro_sugerido`.")
     else:
         lineas.append("`rubro_sugerido`: null.")
-    return _llamar(_system_maestros(m), "\n".join(lineas), ESQUEMA_TOKENS)
+    return _llamar(_system_maestros(m), "\n".join(lineas), ESQUEMA_TOKENS, tipo="tokens")
 
 
 # ─── Lectura de comprobantes ───────────────────────────────────────────────────
@@ -218,6 +244,9 @@ def extraer_comprobante(contenido: bytes | None, mime: str, texto_pdf: str | Non
         content = [{"type": "document", "source": {"type": "base64", "media_type": mime,
                                                     "data": base64.standard_b64encode(contenido).decode()}}]
     else:
-        return None, {"error": "formato_no_soportado"}
+        return None, {"tipo": "comprobante", "error": "formato_no_soportado"}
     content.append({"type": "text", "text": "Extraé los datos de este comprobante."})
-    return _llamar(_SYSTEM_COMPROBANTE, content, ESQUEMA_COMPROBANTE)
+    # Extracción estructurada de un documento: no razona sobre los maestros, va con su propio
+    # modelo (LLM_MODELO_COMPROBANTE), que se mueve aparte de LLM_MODELO.
+    return _llamar(_SYSTEM_COMPROBANTE, content, ESQUEMA_COMPROBANTE, tipo="comprobante",
+                   modelo=settings().llm_modelo_comprobante)

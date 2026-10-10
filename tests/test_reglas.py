@@ -89,6 +89,39 @@ def main() -> int:
           f"extras={f.extras.get('certificado')} descripcion={f.campos['descripcion']}")
     check("el cobro dice a qué obra corresponde", f.campos["obra"] == "Moreno")
 
+    # ── El gasto del lector de comprobantes (sin llamar al modelo: se reemplaza) ──
+    print("\nEl lector de comprobantes: se mide y no se paga dos veces")
+    import tempfile
+    from pathlib import Path
+
+    from app import comprobante, llm
+    llamadas: list[int] = []
+
+    def lector_falso(contenido, mime, texto):
+        llamadas.append(1)
+        return ({"importe": 1234.5, "fecha": "2026-10-09", "razon_social_destinatario": "PEREZ, ELIAS"},
+                {"tipo": "comprobante", "modelo": "claude-sonnet-5-5", "input": 3000, "output": 200,
+                 "cache_read": 0, "cache_write": 0})
+    originales = (llm.extraer_comprobante, llm.disponible, os.environ.get("CACHE_COMPROBANTES"))
+    llm.extraer_comprobante, llm.disponible = lector_falso, lambda: True
+    os.environ["CACHE_COMPROBANTES"] = str(Path(tempfile.mkdtemp()) / "cache.json")  # settings() se relee siempre
+    try:
+        a = comprobante.leer_bytes(b"un-comprobante", "x.jpg", "image/jpeg")
+        b = comprobante.leer_bytes(b"un-comprobante", "x.jpg", "image/jpeg")
+        check("el uso de la lectura se guarda (antes se tiraba) y lleva el tipo «comprobante»",
+              a.uso and a.uso.get("tipo") == "comprobante" and a.uso.get("input") == 3000, a.uso)
+        check("el mismo archivo con el mismo modelo se lee de la caché: una sola llamada, mismos datos",
+              len(llamadas) == 1 and b.uso.get("cache_local") and (b.importe, b.razon_social) == (1234.5, "PEREZ, ELIAS"),
+              (len(llamadas), b.uso))
+        check("costo estimado: 3.000 de entrada y 200 de salida en Sonnet 5.5 = USD 0,008",
+              abs(llm.costo_usd(a.uso) - 0.008) < 1e-9, llm.costo_usd(a.uso))
+    finally:
+        llm.extraer_comprobante, llm.disponible = originales[0], originales[1]
+        if originales[2] is None:
+            os.environ.pop("CACHE_COMPROBANTES", None)
+        else:
+            os.environ["CACHE_COMPROBANTES"] = originales[2]
+
     print(f"\n{'TODO OK' if not fallas else str(len(fallas)) + ' FALLAS'}")
     return 1 if fallas else 0
 

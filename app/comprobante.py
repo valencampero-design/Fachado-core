@@ -8,10 +8,13 @@ Del más barato y confiable al más caro:
 """
 import hashlib
 import io
+import json
 import logging
 import re
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import date
+from pathlib import Path
 
 from app import certificados, llm
 from app.config import settings
@@ -43,6 +46,7 @@ class DatosComprobante:
     sha256: str | None = None        # del archivo: la referencia más fuerte para duplicados (§5.16)
     fuente: dict[str, str] = field(default_factory=dict)  # campo → nombre_archivo | pdf_texto | vision
     uso_llm: bool = False
+    uso: dict | None = None          # el de la llamada al modelo (tokens), o la caché local
     error: str | None = None
     texto: str = ""                  # el texto del PDF; no se devuelve
     # Si el PDF es un certificado de obra (§5.11): lo que se leyó de él. Un certificado no es
@@ -204,6 +208,36 @@ def leer(adjunto: Adjunto) -> DatosComprobante:
     return leer_bytes(contenido, nombre, adjunto.mime or mime, datos)
 
 
+_lock_cache = threading.Lock()
+
+
+def _cache_leer(clave: str) -> dict | None:
+    ruta = settings().cache_comprobantes
+    if not ruta:
+        return None
+    with _lock_cache:
+        try:
+            datos = json.loads(Path(ruta).read_text(encoding="utf-8")).get(clave)
+        except (OSError, ValueError):
+            return None
+    return dict(datos) if datos else None
+
+
+def _cache_guardar(clave: str, extraido: dict) -> None:
+    ruta = settings().cache_comprobantes
+    if not ruta:
+        return
+    with _lock_cache:
+        try:
+            p = Path(ruta)
+            todo = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+            todo[clave] = dict(extraido)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(todo, ensure_ascii=False), encoding="utf-8")
+        except (OSError, ValueError) as e:
+            logger.warning("No se pudo guardar en la caché de comprobantes: %s", e)
+
+
 def leer_bytes(contenido: bytes, nombre: str, mime: str, datos: DatosComprobante | None = None) -> DatosComprobante:
     """Lo que se lee de un archivo ya bajado. Separado de `leer` para poder probarlo con un
     archivo local, como el certificado de ejemplo de tests/fixtures."""
@@ -228,8 +262,18 @@ def leer_bytes(contenido: bytes, nombre: str, mime: str, datos: DatosComprobante
         return datos  # alcanzó sin modelo
     if not llm.disponible():
         return datos
-    extraido, uso = llm.extraer_comprobante(contenido, mime, texto or None)
-    datos.uso_llm = True
+    # El mismo archivo leído por el mismo modelo no se paga dos veces (caché en disco, opcional).
+    clave = f"{datos.sha256}:{settings().llm_modelo_comprobante}"
+    extraido = _cache_leer(clave)
+    if extraido is not None:
+        uso = {"tipo": "comprobante", "modelo": settings().llm_modelo_comprobante, "cache_local": True,
+               "input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+    else:
+        extraido, uso = llm.extraer_comprobante(contenido, mime, texto or None)
+        if extraido:
+            _cache_guardar(clave, extraido)
+    datos.uso_llm = True  # la lectura es del modelo aunque venga de la caché: la métrica no cambia
+    datos.uso = uso
     if extraido:
         extraido["razon_social"] = extraido.get("razon_social_destinatario")
         extraido["cuit"] = formatear_cuit(extraido.get("cuit_destinatario"))

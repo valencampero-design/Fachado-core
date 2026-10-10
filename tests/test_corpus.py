@@ -119,6 +119,35 @@ CASOS = {
 }
 
 
+def imprimir_gasto(usos: list[dict]) -> None:
+    """Lo que gastó la corrida, por tipo de llamada (tokens | comprobante). Los comprobantes
+    leídos de la caché local no llamaron al modelo: se cuentan aparte, con costo 0."""
+    from app.llm import costo_usd
+    print("\nGasto de la corrida (estimado con app.llm.PRECIOS_USD_MTOK)")
+    if not usos:
+        print("  Ninguna llamada al modelo.")
+        return
+    total = 0.0
+    for tipo in sorted({u.get("tipo") or "sin tipo" for u in usos}):
+        del_tipo = [u for u in usos if (u.get("tipo") or "sin tipo") == tipo]
+        llamadas = [u for u in del_tipo if not u.get("cache_local") and "input" in u]
+        locales = sum(1 for u in del_tipo if u.get("cache_local"))
+        errores = sum(1 for u in del_tipo if u.get("error"))
+        suma = {k: sum(u.get(k, 0) for u in llamadas) for k in ("input", "cache_write", "cache_read", "output")}
+        entrada = suma["input"] + suma["cache_write"] + suma["cache_read"]
+        acierto = suma["cache_read"] / entrada if entrada else 0.0
+        costos = [costo_usd(u) for u in llamadas]
+        usd = sum(c for c in costos if c is not None)
+        total += usd
+        modelos = ", ".join(sorted({str(u.get("modelo")) for u in llamadas})) or "—"
+        print(f"  {tipo:<12} {len(llamadas)} llamadas ({modelos})"
+              f"{f' + {locales} de la caché local' if locales else ''}{f' · {errores} con error' if errores else ''}")
+        print(f"  {'':<12} entrada {suma['input']:,} · escritura de caché {suma['cache_write']:,} · lectura de caché "
+              f"{suma['cache_read']:,} · salida {suma['output']:,} · acierto de caché {acierto:.0%} · USD {usd:.3f}"
+              f"{' (hay modelos sin precio)' if None in costos else ''}")
+    print(f"  {'Total':<12} USD {total:.3f}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sin-llm", action="store_true", help="solo diccionario")
@@ -128,6 +157,8 @@ def main() -> int:
     ap.add_argument("--historia", metavar="ARCHIVO.json",
                     help="los libros en memoria arrancan con MOVIMIENTOS reales (solo lectura); si el archivo "
                          "no existe, se baja de los dos libros y se guarda ahí")
+    ap.add_argument("--sin-cache", action="store_true",
+                    help="no usar la caché local de comprobantes (cada lectura se paga)")
     ap.add_argument("--salida", default=str(RAIZ / "salida" / "corpus.json"))
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
@@ -141,6 +172,13 @@ def main() -> int:
         os.environ["LLM_HABILITADO"] = "false"
     if not args.adjuntos:
         os.environ["LEER_ADJUNTOS"] = "false"
+    # Lo que el modelo leyó de cada comprobante se guarda por sha256 + modelo, fuera del repo:
+    # medir dos veces no paga dos veces. --sin-cache para medir el costo de una lectura limpia.
+    if args.sin_cache:
+        os.environ["CACHE_COMPROBANTES"] = ""
+    else:
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".cache")
+        os.environ.setdefault("CACHE_COMPROBANTES", str(base / "fachado-core" / "cache_comprobantes.json"))
     os.environ.setdefault("MOTOR_API_KEY", "test-local")
 
     if args.url:
@@ -344,6 +382,8 @@ def main() -> int:
     for x, f in rotas:
         print(f"  FALLA  fila {x['mensaje'].filas[0]:>3}  {x['mensaje'].texto!r} → {f}")
     fallidos += len(rotas)
+
+    imprimir_gasto([u for x in resultados for u in x["respuesta"]["diagnostico"].get("llm_uso") or []])
 
     salida = Path(args.salida)
     salida.parent.mkdir(parents=True, exist_ok=True)

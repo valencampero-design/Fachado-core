@@ -43,8 +43,16 @@ class Settings:
 
     # LLM
     llm_habilitado: bool = field(default_factory=lambda: _bool("LLM_HABILITADO", True))
-    llm_modelo: str = field(default_factory=lambda: os.getenv("LLM_MODELO", "claude-opus-5"))
+    llm_modelo: str = field(default_factory=lambda: os.getenv("LLM_MODELO", "claude-opus-5-5"))
+    # Siempre explícito: en Claude Opus 5.5 el effort por defecto es `medium` (en Opus 5 era
+    # `high`); sin mandarlo, el costo sube.
     llm_effort: str = field(default_factory=lambda: os.getenv("LLM_EFFORT", "low"))
+    # El lector de comprobantes es extracción estructurada de un documento: no necesita Opus.
+    # Va aparte para poder moverlo sin tocar la resolución de tokens.
+    llm_modelo_comprobante: str = field(default_factory=lambda: os.getenv("LLM_MODELO_COMPROBANTE", "claude-sonnet-5-5"))
+    # Caché en disco de lo que el modelo leyó de cada comprobante (sha256 + modelo → datos).
+    # Vacía en Railway; test_corpus la usa siempre: una corrida repetida no vuelve a pagar.
+    cache_comprobantes: str = field(default_factory=lambda: os.getenv("CACHE_COMPROBANTES", ""))
 
     # Lectura de adjuntos (descarga de Drive + PDF + visión)
     leer_adjuntos: bool = field(default_factory=lambda: _bool("LEER_ADJUNTOS", True))

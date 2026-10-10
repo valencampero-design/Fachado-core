@@ -348,6 +348,7 @@ def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> 
     comprobantes = [(lector or comprobante.leer)(a) for a in req.adjuntos]
     diag["comprobantes"] = [c.dict() for c in comprobantes]
     diag["llm_llamadas"] += sum(1 for c in comprobantes if c.uso_llm)
+    diag["llm_uso"] += [c.uso for c in comprobantes if c.uso]  # el lector es la llamada más cara: se mide
 
     intencion = _intencion(req, texto, segmentos, comprobantes)
     if intencion != "movimiento":
