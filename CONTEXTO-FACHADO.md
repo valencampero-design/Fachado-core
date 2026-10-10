@@ -8,7 +8,7 @@ que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico 
 - `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
   clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.8 · 9 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.9 · 9 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -169,6 +169,14 @@ conciliación cruza por **fecha e importe** los comprobantes recibidos contra la
 Mercado Libre del extracto, y **todo lo que no cruza queda como gasto personal sin
 clasificar**. La ausencia de comprobante es, en este caso, información.
 
+**Contratista nuevo** *(definido 9/10, reunión 6)*: si el nombre del mensaje no está en el
+maestro, **el bot avisa que es nuevo y lo da de alta** al confirmar, en vez de ofrecer
+parecidos que no tienen nada que ver. La ficha dice «Elías es nuevo: lo agrego como
+contratista». El nombre completo y el CUIT salen del comprobante (destinatario de la
+transferencia) si lo hay; el rubro, del texto («zinguería» → `Zinguería`) o, si no lo dice,
+una sola pregunta. Lo que escribió el usuario («elias») queda como alias. Solo se ofrecen
+parecidos cuando son de verdad cercanos (los mismos umbrales de §5.5); si no, es nuevo.
+
 **Contratistas inactivos** *(definido 25/09)*: en la carga diaria **no se proponen por
 parecido** (ni difuso, ni palabra única, ni LLM). Solo aparecen si el usuario escribe el
 nombre exacto, un alias exacto o el CUIT, y en ese caso el bot pregunta «X está inactivo,
@@ -251,6 +259,15 @@ equivalentes al tipo de cambio del momento del pago**. Por eso la caja de obra p
 moneda USD, y un pago en pesos desde una caja en dólares necesita su tipo de cambio.
 *Decisión de A&C para no preguntar de más:* el bot pide el tipo de cambio en el primer
 pago del día de esa caja y lo reutiliza el resto del día, mostrándolo en la ficha.
+
+**Un pago en dólares desde una caja en dólares se descuenta directo en dólares**, sin tipo
+de cambio *(definido 9/10, reunión 6)*. **La palabra «caja» en el mensaje** («caja», «caja
+chica», «de la caja») **dice que sale de la caja de la obra**, igual que la `C` o
+«efectivo». Solo las cajas de obra en dólares van sin tipo de cambio: el Banco USD lo sigue
+pidiendo, porque el saldo del estudio se suma en pesos (§5.7).
+
+**Cualquier ficha o acuse en dólares muestra «US$»**, nunca «$» a secas: un importe sin
+moneda es ambiguo.
 
 **Cómo se rinde** *(definido 29/09)*: no hay una regla general; cada cuánto y contra qué
 depende de cada obra. El sistema no impone un ciclo de rendición: muestra el saldo de cada
@@ -362,6 +379,24 @@ la obra; a un ingreso no se le pregunta a quién se le pagó**.
   responde «no entendí» dos veces seguidas a lo mismo.
 - **Nunca un error sin decir qué falta**, y nunca en bucle: después del segundo intento
   fallido el bot ofrece descartar o dejarlo para que A&C lo revise.
+- **Una pregunta se hace una sola vez y después de leer el comprobante.** El bot no
+  pregunta el importe si el comprobante todavía se está leyendo, ni manda la misma pregunta
+  dos veces *(9/10, reunión 6)*.
+- **Un comprobante que llega dentro de los 90 s a una ficha que no tiene comprobante se
+  suma a esa ficha** (el texto a veces sale antes que la foto).
+- **Una consulta o un pedido nunca se toma como respuesta** a una pregunta pendiente:
+  «¿cuánto hay en la caja de Lennon?» se contesta, y la ficha pendiente sigue esperando.
+- **Pedir que se borre algo ya cargado** («el M 0014 está mal, hay que eliminarlo») es una
+  anulación (§5.19): el bot muestra el movimiento y pide confirmar «Anular M-000014»; la
+  fila no se borra, se anula con un contraasiento.
+- **El rubro, cuando no hay otra fuente, es el del último pago a ese contratista** (del
+  mismo lado, obra o personal), marcado «supuesto». **A un gasto personal no se le escribe
+  una obra de terceros.**
+
+**Lo que se le puede preguntar al bot** *(ampliado 9/10)*: cuántos pagos se le hicieron a un
+contratista en una obra, cuánto se gastó por obra en mano de obra y en materiales, qué
+certificados faltan cobrar, y **el saldo de una caja de obra** («¿cuánto hay en la caja
+chica de Lennon?»), en su moneda.
 
 **Lo que no es un movimiento** *(definido 25/09)*: charla, «después te paso el ticket», una
 foto de obra, un audio sin importe. Se guarda en la captura como todo lo demás y el bot
@@ -579,6 +614,16 @@ certificado, «Austral» es el emisor, nunca la obra.**
 conversación resultó tediosa —demasiadas preguntas, preguntas que no aplican, respuestas que
 no siguen el hilo y bucles de error—. La v1.8 fija las reglas de §5.12 («Pocas preguntas» y
 «La conversación tiene que seguir el hilo») y la caja de obra (§5.8).
+
+**Prioridad hacia adelante** *(decidido 9/10)*: **no se invierte tiempo en cerrar el
+histórico** de la primera semana (movimientos perdidos, filas a corregir): se ordena cuando
+haga falta, sin bloquear nada. **La meta es llegar a noviembre con todo operativo** —Gabriel y
+Petrus cargando sin fricción, el bot preguntando lo mínimo— y desde ahí cerrar los meses y
+arrancar la conciliación.
+
+**Petrus quedó dado de alta el 9/10** (§5.13): un segundo teléfono apuntando al mismo cliente,
+con su propia sesión. Ya carga. Acuerdo propuesto: cada uno carga lo que paga; lo que reciben los dos, uno
+solo.
 
 **El bot está en marcha desde el 29/09**, conectado al motor, con Gabriel
 como único usuario y confirmación de todo. En el arranque, Lennon funcionó; en otras obras
