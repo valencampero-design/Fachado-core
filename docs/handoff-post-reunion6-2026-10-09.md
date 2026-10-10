@@ -201,6 +201,13 @@ nuevos: de las 9 preguntas de contratista que quedan, 8 son los apodos ambiguos 
   borrar), con **`InterpretarOut.id_mov`** normalizado («M 0014», «M-0014», «M14» →
   `M-000014`; `P-` igual). `fichas` y `preguntas` vienen vacías.
 - Se detectan **aunque venga `contexto_previo`** (no con `respuestas`).
+- Un verbo de borrar fuerte (eliminar, borrar, anular) **sin id** («el pago de Miguel de
+  ayer está mal, borralo») → `intencion = "otro"`, `id_mov = null`: el id nunca se inventa.
+  «Sacá 2.000 de la caja» sigue siendo un movimiento.
+- Propuesto a la sesión del gateway el 9/10: el id va en **`InterpretarOut.id_mov`** (nivel
+  superior, no en `extras`: la respuesta de `/interpretar` no tiene `extras`), siempre
+  canónico (`M-000014`); el gateway no lo re-normaliza. `intencion` tiene cinco valores:
+  `movimiento | consulta | otro | anular | corregir`.
 - `anular` → `GET /movimientos/{id_mov}` → «¿Lo anulo?» → `/anular` sin recarga (G3).
   `corregir` → el circuito de corrección de siempre.
 
