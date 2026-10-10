@@ -535,6 +535,25 @@ def candidatos(token: str, m: Maestros, categoria: str, limite: int = 3) -> list
                                                         scorer=fuzz.WRatio, limit=limite)]
 
 
+def cercanos(token: str, opciones: list[str]) -> list[str]:
+    """§5.6 v1.9: solo se ofrecen parecidos de verdad cercanos, con el umbral de §5.5. «elias»
+    contra «Ibañez - Ybañez Fleitas» da 72: no es un parecido, Elías es nuevo."""
+    n = normalizar(token)
+    return [o for o in opciones if n and fuzz.WRatio(n, normalizar(o)) >= UMBRAL_DIFUSO]
+
+
+def nombre_propio(texto: str) -> str:
+    """«ORELLANA, MARCELO DE/» → «Marcelo de Orellana»; «elias» → «Elias». Para dar de alta un
+    contratista nuevo con el nombre del comprobante o con el que escribió el usuario."""
+    t = " ".join(str(texto or "").replace("/", " ").split())
+    if "," in t:
+        apellido, nombre = t.split(",", 1)
+        t = f"{nombre.strip()} {apellido.strip()}"
+    palabras = t.split()
+    return " ".join(p.lower() if i and p.lower() in ("de", "del", "la", "las", "los", "y") else
+                    (p.capitalize() if p.isupper() or p.islower() else p) for i, p in enumerate(palabras))
+
+
 def resolver_segmento(seg: Segmento, m: Maestros, incluir_inactivos: bool = False) -> Segmento:
     for token in seg.tokens:
         resoluciones = resolver_token(token, m, incluir_inactivos)

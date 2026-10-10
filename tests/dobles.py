@@ -19,6 +19,7 @@ class LibroMemoria:
         self.encabezado = list(encabezado)
         self.filas: list[list] = [list(encabezado)]
         self.alias = [list(a) for a in alias]
+        self.contratistas_nuevos: list[dict] = []  # altas de §5.6 v1.9
         self.certificados: list[list] = [list(ENCABEZADO_CERTIFICADOS)]
         self.demora = demora
         self.escrituras = 0  # llamadas de escritura a MOVIMIENTOS: un traspaso tiene que ser una
@@ -47,6 +48,13 @@ class LibroMemoria:
 
     def agregar_alias(self, fila):
         self.alias.append(list(fila))
+
+    def agregar_contratista(self, valores):
+        from app.maestros import normalizar
+        if any(normalizar(c.get("contratista")) == normalizar(valores.get("contratista")) for c in self.contratistas_nuevos):
+            return False
+        self.contratistas_nuevos.append(dict(valores))
+        return True
 
     def reactivar_contratista(self, nombre):
         self.reactivados.append(nombre)

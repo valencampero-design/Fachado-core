@@ -159,6 +159,14 @@ def _origen_semilla(semilla: dict, campo: str) -> str:
 # Acuses sueltos: no son un movimiento aunque tengan menos de tres palabras.
 ACUSES = {"ok", "oka", "okey", "dale", "gracias", "muchas gracias", "listo", "si", "no", "bueno", "perfecto",
           "genial", "joya", "barbaro", "hola", "buen dia", "buenas", "buenas tardes", "buenas noches", "de nada"}
+# §5.12 v1.9 (captura 3 del 9/10): «el M 0014 ESTA MAL HAY QUE ELIMINARLO». El id se acepta
+# como M 0014, M-0014, M14, M-000014 (y P- igual).
+RE_ID_MOV = re.compile(r"(?<![a-z0-9])([mp])\s*-?\s*(\d{1,6})(?![0-9])", re.I)
+RE_BORRAR = re.compile(r"\b(?:elimin|borr|anul|sac[aá]|quit|dar de baja|dalo de baja)")
+RE_CORREGIR = re.compile(r"\b(?:corregi|correg|esta mal|estan mal|cambia)")
+# Una consulta que se reconoce aunque no lleve «?»: «En cuanto esta el saldo de la caja chica».
+RE_CONSULTA_CLARA = re.compile(r"\bsaldo\b|\bcuant[oa]s?\b.*\b(?:hay|queda|tengo|va|van|esta)\b|"
+                               r"\bquier[oe] saber\b|\bquieto saber\b")
 RE_PREGUNTA = re.compile(r"[?¿]|^(?:cuant[oa]s?|que|cual(?:es)?|como|donde|quien|cuando|decime|pasame|mostrame)\b")
 
 
@@ -172,8 +180,22 @@ def _hay_senales(texto: str, segmentos: list[Segmento]) -> bool:
 
 def _intencion(req: InterpretarIn, texto: str, segmentos: list[Segmento], comprobantes: list) -> str:
     """movimiento | consulta | otro. **Ante la duda, movimiento**: es peor perder un pago que
-    hacer una pregunta de más."""
-    if req.contexto_previo or req.respuestas:
+    hacer una pregunta de más.
+
+    §5.12 v1.9: un pedido sobre un movimiento ya cargado («el M 0014 está mal, hay que
+    eliminarlo») o una consulta clara («¿cuánto hay en la caja chica de Lennon?») nunca son una
+    respuesta, aunque el gateway los mande con la ficha pendiente en `contexto_previo`."""
+    if req.respuestas:
+        return "movimiento"
+    if not comprobantes and _id_mov_nombrado(texto):
+        if RE_BORRAR.search(normalizar(texto)):
+            return "anular"
+        if RE_CORREGIR.search(normalizar(texto)):
+            return "corregir"
+    if not comprobantes and "/" not in texto and (RE_CONSULTA_CLARA.search(normalizar(texto)) or "?" in texto) \
+            and consultas.inferir_consulta(texto) and not any(seg.importe is not None for seg in segmentos):
+        return "consulta"
+    if req.contexto_previo:
         return "movimiento"
     if comprobantes:
         # Un adjunto leído sin nada de un comprobante —ni importe, ni fecha, ni CUIT— es una
@@ -330,7 +352,8 @@ def interpretar(req: InterpretarIn, libros: dict | None = None, lector=None) -> 
     intencion = _intencion(req, texto, segmentos, comprobantes)
     if intencion != "movimiento":
         diag["uso_llm"] = diag["llm_llamadas"] > 0
-        return InterpretarOut(intencion=intencion, fichas=[], preguntas=[], requiere_confirmacion=False, diagnostico=diag)
+        return InterpretarOut(intencion=intencion, fichas=[], preguntas=[], requiere_confirmacion=False, diagnostico=diag,
+                              id_mov=_id_mov_nombrado(texto) if intencion in ("anular", "corregir") else None)
 
     semilla = _semilla(contexto, respuestas=bool(req.respuestas))
     # Los libros que el usuario puede ver, leídos una vez: el rubro de la última vez con cada
@@ -388,6 +411,30 @@ def _leer_libros(libros: dict | None, usuario: Usuario | None, diag: dict) -> di
             diag["advertencias"].append(f"No se pudo leer el libro {nombre} ({type(e).__name__}): sin duplicados ni "
                                         f"rubro de la última vez")
     return salida
+
+
+def _id_mov_nombrado(texto: str) -> str | None:
+    """«M 0014», «M-0014», «M14», «m-000014» → «M-000014»; lo mismo con P-. None si no hay."""
+    mt = RE_ID_MOV.search(texto or "")
+    return f"{mt.group(1).upper()}-{int(mt.group(2)):06d}" if mt else None
+
+
+def _puede_ser_un_nombre(token: str) -> bool:
+    """Un contratista nuevo se da de alta con lo que escribió el usuario: una a tres palabras
+    sin números. «Nelson mano de obra 2» no es un nombre: se pregunta."""
+    palabras = normalizar(token).split()
+    return 1 <= len(palabras) <= 3 and not any(ch.isdigit() for ch in token)
+
+
+def _contratista_nuevo(token: str, comp, m: Maestros) -> dict:
+    """§5.6 v1.9: el alta que se propone. Nombre y CUIT del destinatario del comprobante si lo
+    hay; si no, el nombre como lo escribió, capitalizado. Lo que escribió queda como alias."""
+    razon = comp.razon_social if comp and comp.razon_social else None
+    nombre = resolver.nombre_propio(razon or token)
+    alias = normalizar(token)
+    return {"nombre": nombre, "cuit": (comp.cuit if comp and comp.cuit and razon else "") or "",
+            "rubro_habitual_1": "", "rubro_habitual_2": "",
+            "alias": alias if alias != normalizar(nombre) else ""}
 
 
 def _tc_del_dia(cuenta: str, fecha, historia) -> float | None:
@@ -1022,8 +1069,15 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             and not any(p.campo == "contratista" for p in preguntas):
         if sin_resolver:
             token = sin_resolver.pop(0)
-            opciones = seg.candidatos.get(token) or resolver.candidatos(token, m, "contratista")
-            preguntas.append(Pregunta(campo="contratista", texto=f"¿Quién es «{token}»?", opciones=opciones))
+            # §5.6 v1.9: solo parecidos de verdad cercanos; si no hay, el contratista es nuevo.
+            opciones = resolver.cercanos(token, seg.candidatos.get(token) or resolver.candidatos(token, m, "contratista"))
+            # Con la obra preguntada, el token suelto puede ser la obra mal escrita: no se da de alta.
+            if opciones or not _puede_ser_un_nombre(token) or any(p.campo == "obra" for p in preguntas):
+                preguntas.append(Pregunta(campo="contratista", texto=f"¿Quién es «{token}»?", opciones=opciones))
+            else:
+                nuevo = _contratista_nuevo(token, comp, m)
+                extras["contratista_nuevo"] = nuevo
+                poner("contratista", nuevo["nombre"], "comprobante" if nuevo["cuit"] else "texto")
         elif not tiene_adjunto and res.clasificacion == "obra":
             preguntas.append(Pregunta(campo="contratista", texto="¿A quién se le pagó?"))
 
@@ -1034,6 +1088,18 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         if rubro_llm and res.clasificacion != "personal":
             opciones = [rubro_llm.valor.split(" / ")[1]] + [o for o in opciones if o != rubro_llm.valor.split(" / ")[1]]
         preguntas.append(Pregunta(campo="rubro", texto="¿Qué rubro?", opciones=opciones[:MAX_OPCIONES]))
+
+    # El contratista nuevo (también el que viene de la ficha anterior, después de una respuesta):
+    # el rubro habitual es el de la ficha, y la ficha lo avisa. Si el usuario eligió otro, ya no
+    # hay alta.
+    nuevo = extras.get("contratista_nuevo")
+    if nuevo and campos["contratista"] == nuevo.get("nombre") and m.contratista(nuevo["nombre"]) is None:
+        nuevo.update(rubro_habitual_1=campos["rubro_1"] or "", rubro_habitual_2=campos["rubro_2"] or "")
+        poner("item", campos["item"] or nuevo["nombre"], origen.get("contratista", "texto"))
+        advertencias.append(f"{nuevo['nombre']} es nuevo: lo agrego como contratista"
+                            + (f" · {campos['rubro_2']}" if campos["rubro_2"] else ""))
+    elif nuevo:
+        extras.pop("contratista_nuevo")
 
     if campos["importe"] is None and (not tiene_adjunto or compartido) and not any(c.campo == "importe" for c in conflictos):
         preguntas.append(Pregunta(campo="importe", texto="¿Cuál es el importe?"))

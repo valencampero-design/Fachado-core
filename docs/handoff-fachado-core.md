@@ -24,6 +24,7 @@
 | ✅ Tanda 6 | Desplegada el 25/09: PASANTE, TRASPASO, contraasiento, `intencion` / `respuestas` / `texto_compartido`, contratistas inactivos, el nombre de quien escribe en el prompt. Columnas `vinculo` y `anula` en los dos libros. Verificado en producción con `/interpretar`: un texto del corpus, una charla (`otro`) y un comprobante solo (un recibo manuscrito, leído por el modelo) |
 | ✅ Fix del arranque (30/09) | Desplegado el 30/09 con sus migraciones aplicadas: la cuenta se decide o se pregunta (origen `supuesto`), una sola lista de obligatorios, etapas con estado, tipo de cambio en dólares, Gessel |
 | ✅ Conversación del 9/10 (D, E, F, G, H, ñ) | Desplegado el 9/10; `Caja obra Lennon` en USD en el Sheet y snapshot regenerado. Falta, cuando Valen lo decida, el script de correcciones (§8). Detalle y métrica al final de `docs/handoff-conversacion-2026-10-09.md` |
+| ⏳ Post-reunión 6 (M1 a M5) | Commiteado **sin pushear**: contratista nuevo con alta al confirmar, consulta del saldo de caja, intenciones `anular`/`corregir`. Contratos para cotejar con el gateway al final de `docs/handoff-post-reunion6-2026-10-09.md` |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
@@ -119,6 +120,21 @@ Dónde está cada cosa (el porqué, en el handoff de la conversación del 9/10):
   dólares (`RE_SIN_CONVERSION`). `caja_de_obra` también encuentra «Caja obra X USD».
 - **Razones sociales completas** (`resolver.contratista_por_razon_social`): «Marcelo
   Alfredo Maragano Guerr» es Marcelo Maragaño. La ñ ya la plegaba `normalizar` (NFKD).
+
+### Lo de después de la reunión 6 (9/10, v1.9)
+
+Detalle y contratos al final de `docs/handoff-post-reunion6-2026-10-09.md`.
+
+- **Contratista nuevo** (§5.6 v1.9): la pregunta «¿Quién es «X»?» solo ofrece parecidos con
+  WRatio ≥ 88 (`resolver.cercanos`). Sin parecidos, el token es un contratista nuevo
+  (`interpretar._contratista_nuevo`, `extras.contratista_nuevo`), con nombre y CUIT del
+  comprobante si lo hay; `/confirmar` lo da de alta (`confirmar._alta_contratista`,
+  `Libro.agregar_contratista`) y escribe el alias.
+- **Consulta `caja`** (`consultas.caja`): el saldo de la caja de obra en su moneda y los
+  últimos movimientos; `consultas.dinero` pone «US$».
+- **Intenciones `anular` y `corregir`** con `InterpretarOut.id_mov` (`RE_ID_MOV`,
+  `RE_BORRAR`, `RE_CORREGIR`); las consultas claras (`RE_CONSULTA_CLARA`) se reconocen
+  aunque venga `contexto_previo`.
 
 ### Endpoints
 
@@ -627,6 +643,11 @@ anotadas al final de `docs/handoff-tanda-6-2026-09-25.md`):
 - **Inactivos**: la pregunta `inactivo` («¿lo reactivo?») se contesta con `respuestas`; si
   dijo «Reactivar», la ficha trae `extras.reactivar` y `/confirmar` lo reactiva.
 - **Arranque escalonado** (§5.13): primero solo Gabriel; Petrus después de la primera semana.
+
+Lo nuevo después de la reunión 6 (contratos completos al final de
+`docs/handoff-post-reunion6-2026-10-09.md`): `extras.contratista_nuevo` y
+`ConfirmarOut.contratista_creado`; `consulta = "caja"`; `intencion = "anular" | "corregir"`
+con `id_mov`. El gateway tiene que devolver `extras` sin tocar en `/confirmar`.
 
 Lo nuevo del 9/10 (motor; lo del gateway está en su propio handoff):
 

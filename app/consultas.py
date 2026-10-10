@@ -3,6 +3,7 @@
 - «¿Cuántos pagos se le hicieron a X por la obra Y?»
 - «¿Cuánto va gastado en cada obra, de mano de obra y de materiales?»
 - «¿El comitente pagó todas las certificaciones?»
+- «¿Cuánto hay en la caja chica de Lennon?» (§5.12 v1.9): el saldo de la caja de obra, en su moneda.
 
 Cada respuesta trae los números (`datos`) y un `texto` listo para WhatsApp. Solo lee.
 
@@ -18,11 +19,13 @@ from app.filtros import es_cierre_semanal, sin_anulados
 from app.libro import Libro
 from app.maestros import Maestros, Usuario, normalizar, numero
 from app.models import ConsultarIn, ConsultarOut, Pregunta
-from app.saldos import como_dicts
+from app.saldos import como_dicts, en_moneda_de_la_cuenta, saldo_obra
 
 TIPOS_PAGO = ("EGRESO", "PASANTE")
 MAX_LINEAS = 15  # detalle en el texto de WhatsApp; el resto va en `datos`
-CONSULTAS = {"pagos": "Pagos a un contratista", "gasto": "Gasto por obra", "certificaciones": "Certificaciones"}
+CONSULTAS = {"pagos": "Pagos a un contratista", "gasto": "Gasto por obra", "certificaciones": "Certificaciones",
+             "caja": "Saldo de la caja de obra"}
+ULTIMOS_DE_CAJA = 5
 
 # Quién puso la plata de un gasto. El comitente se muestra aparte: es costo de la obra aunque
 # no sea plata del estudio (§5.8, §5.9).
@@ -49,10 +52,19 @@ def _dia(valor) -> str:
         return str(valor or "s/f")
 
 
+def dinero(v: float, moneda: str = "ARS") -> str:
+    """§5.8 v1.9: un importe en dólares siempre dice «US$»."""
+    return pesos(v) if (moneda or "ARS") == "ARS" else "US" + pesos(v)
+
+
 def inferir_consulta(texto: str) -> str | None:
     n = normalizar(texto)
     if re.search(r"certific|\bcobr", n):
         return "certificaciones"
+    # «¿cuánto hay en la caja chica de Lennon?», «el saldo de la caja»; «¿cuánto le pagué de la
+    # caja?» sigue siendo de pagos.
+    if re.search(r"\bsaldo\b|\bcuant[oa]s? (?:hay|queda)\b", n) or (re.search(r"\bcaja\b", n) and not re.search(r"\bpag", n)):
+        return "caja"
     if re.search(r"gast|mano de obra|material", n):
         return "gasto"
     if re.search(r"\bpag", n):
@@ -116,6 +128,8 @@ def consultar(req: ConsultarIn, libro: Libro, libro_personal: Libro | None) -> C
         return pagos(_visibles(libro, libro_personal, usuario), contratista.nombre, obra.nombre if obra else None)
     if consulta == "gasto":
         return gasto(_visibles(libro, libro_personal, usuario), m, obra.nombre if obra else None)
+    if consulta == "caja":
+        return caja(_visibles(libro, libro_personal, usuario), m, obra.nombre if obra else None)
     return certificaciones(libro, obra.nombre if obra else None)
 
 
@@ -206,6 +220,60 @@ def gasto(movs: list[dict], m: Maestros, obra: str | None) -> ConsultarOut:
             lineas.append(f"• {nombre}: {pesos(r['total'])}{partes(r)}")
     return ConsultarOut(consulta="gasto", texto="\n".join(lineas), datos={"obra": obra, "obras": salida},
                         advertencias=sorted(set(advertencias)))
+
+
+def caja(movs: list[dict], m: Maestros, obra: str | None) -> ConsultarOut:
+    """§5.12 v1.9: el saldo de la caja de obra, en su moneda (ingresado, pagado, por rendir), y
+    sus últimos movimientos. Sin obra: si una sola caja tiene movimientos, esa; si no, se
+    pregunta cuál."""
+    def de_caja(mov: dict) -> bool:
+        cuenta = m.cuenta(mov.get("cuenta"), incluir_inactivas=True)
+        return cuenta is not None and cuenta.tipo == "caja_obra"
+
+    if obra is None:
+        con_movs = sorted({o.nombre for mov in movs if de_caja(mov) and (o := m.obra_de_caja(mov.get("cuenta")))})
+        if len(con_movs) != 1:
+            opciones = con_movs or [o.nombre for o in m.obras if m.caja_de_obra(o.nombre)]
+            p = Pregunta(campo="obra", texto="¿La caja de qué obra?", opciones=opciones[:10])
+            return ConsultarOut(consulta="caja", texto=p.texto, preguntas=[p])
+        obra = con_movs[0]
+    cuenta = m.caja_de_obra(obra)
+    if cuenta is None:
+        return ConsultarOut(consulta="caja", texto=f"{obra} no tiene caja de obra.", datos={"obra": obra, "caja": None})
+
+    saldo, advertencias = saldo_obra(movs, obra, m)
+    caja_obra = saldo.caja_obra
+    moneda = cuenta.moneda
+    propios = [mov for mov in movs if normalizar(mov.get("cuenta")) == normalizar(cuenta.nombre)]
+    ultimos = sorted(propios, key=lambda mv: (str(mv.get("fecha") or ""), str(mv.get("ts") or "")))[-ULTIMOS_DE_CAJA:]
+    detalle = []
+    for mov in ultimos:
+        importe = en_moneda_de_la_cuenta(mov, moneda)
+        entra = mov.get("tipo") == "INGRESO" or (mov.get("tipo") == "TRASPASO" and numero(mov.get("importe")) > 0)
+        detalle.append({"id_mov": mov.get("id_mov"), "fecha": str(mov.get("fecha") or ""), "tipo": mov.get("tipo"),
+                        "importe": abs(importe) if importe is not None else None, "moneda": moneda, "entra": entra,
+                        "importe_original": abs(numero(mov.get("importe"))), "moneda_original": mov.get("moneda") or "ARS",
+                        "contratista": mov.get("contratista") or "", "cargado_por": mov.get("cargado_por") or ""})
+
+    titulo = f"*Caja de obra {obra}* (en {'dólares' if moneda == 'USD' else moneda})"
+    if caja_obra is None:
+        return ConsultarOut(consulta="caja", texto=f"{titulo}\nNo tiene movimientos cargados.", advertencias=advertencias,
+                            datos={"obra": obra, "caja": cuenta.nombre, "moneda": moneda, "ingresado": 0.0, "pagado": 0.0,
+                                   "por_rendir": 0.0, "ultimos": []})
+    lineas = [titulo, f"Por rendir: *{dinero(caja_obra.por_rendir, moneda)}*",
+              f"Entró {dinero(caja_obra.ingresado, moneda)} · salió {dinero(caja_obra.pagado, moneda)}"]
+    if caja_obra.por_rendir < 0:
+        lineas.append("En negativo: se pagó más de lo que entró (el arquitecto puso plata propia, §5.8).")
+    if detalle:
+        lineas.append(f"\nÚltimos {len(detalle)}:")
+        for d in detalle:
+            monto = "?" if d["importe"] is None else dinero(d["importe"], moneda)
+            original = f" ({dinero(d['importe_original'], d['moneda_original'])})" if d["moneda_original"] != moneda else ""
+            lineas.append(f"• {_dia(d['fecha'])} · {'+' if d['entra'] else '−'}{monto}{original}"
+                          f"{' · ' + d['contratista'] if d['contratista'] else ''}")
+    return ConsultarOut(consulta="caja", texto="\n".join(lineas), advertencias=advertencias, datos={
+        "obra": obra, "caja": cuenta.nombre, "moneda": moneda, "ingresado": caja_obra.ingresado,
+        "pagado": caja_obra.pagado, "por_rendir": caja_obra.por_rendir, "ultimos": detalle})
 
 
 def certificaciones(libro: Libro, obra: str | None) -> ConsultarOut:

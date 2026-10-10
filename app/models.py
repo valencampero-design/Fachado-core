@@ -182,6 +182,7 @@ class ConfirmarOut(BaseModel):
     certificado: EstadoCertificado | None = None
     alias_escrito: bool = False
     contratista_reactivado: bool = False  # §5.6: la ficha traía extras.reactivar
+    contratista_creado: str | None = None  # §5.6 v1.9: el alta de extras.contratista_nuevo
     etapa_activada: bool = False  # §5.15: la etapa era futura o terminada y el usuario dijo que sí
     ya_existia: bool = False  # el msg_id ya estaba: se devuelve la fila que había
     libro: Literal["estudio", "personal", "certificados"] = "estudio"  # §5.14: dónde quedó escrito
@@ -228,14 +229,14 @@ class ConsultarIn(BaseModel):
     """Las tres preguntas del arquitecto (handoff del 25/09). `consulta`, `obra` y
     `contratista` pueden venir explícitos; si no, se sacan de `texto`."""
     telefono: str = Field(min_length=1)
-    consulta: Literal["pagos", "gasto", "certificaciones"] | None = None
+    consulta: Literal["pagos", "gasto", "certificaciones", "caja"] | None = None
     texto: str = ""
     obra: str | None = None
     contratista: str | None = None
 
 
 class ConsultarOut(BaseModel):
-    consulta: Literal["pagos", "gasto", "certificaciones"] | None = None
+    consulta: Literal["pagos", "gasto", "certificaciones", "caja"] | None = None
     datos: dict[str, Any] = Field(default_factory=dict)
     texto: str  # listo para mandar por WhatsApp
     preguntas: list[Pregunta] = Field(default_factory=list)  # si falta algo para contestar
@@ -246,8 +247,10 @@ class InterpretarOut(BaseModel):
     # movimiento: hay fichas. consulta: el gateway llama a /consultar con el mismo texto.
     # otro: charla, una foto de obra; fichas y preguntas vacías, y el gateway responde el acuse
     # corto (§5.12). Ante la duda, movimiento.
-    intencion: Literal["movimiento", "consulta", "otro"] = "movimiento"
+    intencion: Literal["movimiento", "consulta", "otro", "anular", "corregir"] = "movimiento"
     fichas: list[Ficha]
     preguntas: list[Pregunta] = Field(default_factory=list)
     requiere_confirmacion: bool = True  # true si alguna ficha lo requiere
     diagnostico: dict[str, Any] = Field(default_factory=dict)
+    # anular · corregir (§5.12 v1.9): el movimiento que nombra el texto, ya normalizado (M-000014).
+    id_mov: str | None = None

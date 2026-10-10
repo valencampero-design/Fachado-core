@@ -706,8 +706,9 @@ def main() -> int:
     check(f"una obra sin caja ({sin_caja}): «efectivo» sigue siendo el Efectivo del estudio", c["cuenta"] == "Efectivo",
           (c["obra"], c["cuenta"]))
     r, f, c = leer("Lennon/Juan Perez $1.000")
-    check("«Juan Perez» no se parte en palabras: sigue siendo un contratista desconocido", c["contratista"] is None
-          and campos_de(r, "contratista"), (c["contratista"], [p.campo for p in r.preguntas]))
+    check("«Juan Perez» no se parte en palabras: es un contratista nuevo (§5.6 v1.9), no Miguel ni otro",
+          c["contratista"] == "Juan Perez" and f.extras.get("contratista_nuevo", {}).get("nombre") == "Juan Perez"
+          and not campos_de(r, "contratista"), (c["contratista"], [p.campo for p in r.preguntas]))
 
     print("\nConversación · G caja de obra en dólares (§5.8 v1.8)")
     from app.maestros import numero
@@ -772,6 +773,97 @@ def main() -> int:
     r1 = responder(r0, ("tipo_cambio", "no hay tipo de cambio"))
     check("… pero si la cuenta está en pesos, «no hay tipo de cambio» no vale: se vuelve a preguntar",
           campos_de(r1, "tipo_cambio"), [p.campo for p in r1.preguntas])
+
+    # ── Después de la reunión 6 (handoff post-reunión 6, v1.9) ─────────────────
+    print("\nPost-reunión 6 · M1 contratista nuevo (§5.6 v1.9, captura 1)")
+    pdf_galicia = Adjunto(url="https://drive.google.com/file/d/LR7DGWQ530xxxxxxxxxxxxxxxx/view", mime="application/pdf",
+                          nombre="LR7DGWQ530.pdf")
+    leido_elias = dict(importe=350000, fecha="2026-10-09", razon_social="PEREZ, ELIAS DANIEL", cuit="20-28123456-7",
+                       medio_pago="Transferencia", tipo_comprobante="Transferencia")
+    r, f = leer_con("Lennon/elias/zingueria", adjuntos=[pdf_galicia], lector=lector_con(**leido_elias))
+    c, nuevo = f.campos, f.extras.get("contratista_nuevo") or {}
+    check("captura 1: PDF + «Lennon/elias/zingueria» → contratista nuevo con nombre y CUIT del comprobante, rubro "
+          "Zinguería, alias «elias», cero preguntas",
+          (nuevo.get("nombre"), nuevo.get("cuit"), nuevo.get("rubro_habitual_2"), nuevo.get("alias"))
+          == ("Elias Daniel Perez", "20-28123456-7", "Zinguería", "elias")
+          and c["contratista"] == "Elias Daniel Perez" and c["rubro_2"] == "Zinguería" and not r.preguntas,
+          (nuevo, c["contratista"], [(p.campo, p.texto, p.opciones) for p in r.preguntas]))
+    check("… la ficha lo avisa: «Elias Daniel Perez es nuevo: lo agrego como contratista · Zinguería»",
+          "Elias Daniel Perez es nuevo: lo agrego como contratista · Zinguería" in f.extras.get("advertencias", []),
+          f.extras.get("advertencias"))
+    check("… y nunca propone parecidos lejanos (Ibañez, Mathias Flores, Mariela Escribana)",
+          not any("Ibañez" in o or "Mathias" in o for p in r.preguntas for o in p.opciones), [p.opciones for p in r.preguntas])
+    r, f, c = leer("Lennon/elias/zingueria $50.000")
+    check("sin comprobante: el nombre como lo escribió, capitalizado («Elias»), y sin alias (es el mismo)",
+          (f.extras.get("contratista_nuevo") or {}).get("nombre") == "Elias" and c["contratista"] == "Elias"
+          and not (f.extras.get("contratista_nuevo") or {}).get("alias") and not r.preguntas,
+          (f.extras.get("contratista_nuevo"), [p.campo for p in r.preguntas]))
+    r0, f0, _ = leer("Lennon/elias $50.000")
+    r1 = responder(r0, ("rubro", "Zinguería"))
+    f1 = r1.fichas[0]
+    check("sin rubro en el texto: una sola pregunta (el rubro); contestada, el alta lleva ese rubro habitual",
+          [p.campo for p in r0.preguntas] == ["rubro"] and not r1.preguntas
+          and (f1.extras.get("contratista_nuevo") or {}).get("rubro_habitual_2") == "Zinguería"
+          and f1.campos["contratista"] == "Elias",
+          ([p.campo for p in r0.preguntas], [p.campo for p in r1.preguntas], f1.extras.get("contratista_nuevo")))
+    r1 = responder(r0, ("contratista", "Miguel Soto"))
+    check("… y si el usuario dice que es otro (Miguel Soto), ya no hay alta",
+          r1.fichas[0].campos["contratista"] == "Miguel Soto" and "contratista_nuevo" not in r1.fichas[0].extras,
+          (r1.fichas[0].campos["contratista"], r1.fichas[0].extras.get("contratista_nuevo")))
+    r, f, c = leer("Lennon/marce $1.000")
+    check("un apodo ambiguo de verdad («marce») sigue preguntando, con sus candidatos", campos_de(r, "contratista")
+          and c["contratista"] is None and "contratista_nuevo" not in f.extras, [(p.campo, p.opciones) for p in r.preguntas])
+
+    print("\nPost-reunión 6 · M2 consulta del saldo de caja (captura 3)")
+    ficha_pendiente = interpretar(InterpretarIn(texto="Lennon/Miguel", fecha_mensaje="2026-10-09T20:13:00Z",
+                                                telefono=titular.telefono)).fichas[0].model_dump()
+    for texto in ("En cuanto esta el saldo de la caja chica de lennon", "Quieto saber el saldo actual de la caja chica",
+                  "¿cuánto hay en la caja chica de Lennon?"):
+        for previa in (None, ficha_pendiente):
+            r = interpretar(InterpretarIn(texto=texto, fecha_mensaje="2026-10-09T20:15:00Z", telefono=titular.telefono,
+                                          contexto_previo=previa))
+            check(f"«{texto}»{' con una pregunta pendiente' if previa else ''} → consulta, nunca «¿A quién se le pagó?»",
+                  r.intencion == "consulta" and not r.preguntas, (r.intencion, [p.texto for p in r.preguntas]))
+    from app.consultas import inferir_consulta
+    check("… y /consultar la reconoce como «caja»; «¿cuánto le pagué a Miguel de la caja?» sigue siendo de pagos",
+          inferir_consulta("En cuanto esta el saldo de la caja chica de lennon") == "caja"
+          and inferir_consulta("Quieto saber el saldo actual de la caja chica") == "caja"
+          and inferir_consulta("¿cuánto le pagué a Miguel de la caja?") == "pagos",
+          [inferir_consulta(t) for t in ("saldo de la caja chica", "¿cuánto le pagué a Miguel de la caja?")])
+
+    print("\nPost-reunión 6 · M3 pagos en dólares desde la caja en dólares (§5.8 v1.9)")
+    with cuenta_en_moneda("Caja obra Lennon", "USD"):
+        for texto in ("Lennon/Miguel caja USD 2.000", "Lennon/Miguel 2000 dólares de la caja"):
+            r, f = leer_con(texto, estudio=con_historia)
+            c = f.campos
+            check(f"«{texto}» → egreso US$ 2.000 de Caja obra Lennon, sin tc, cero preguntas (test 6)",
+                  (c["tipo"], c["importe"], c["moneda"], c["cuenta"]) == ("EGRESO", 2000, "USD", "Caja obra Lennon")
+                  and c["tc"] in (None, "") and not r.preguntas,
+                  ({k: c[k] for k in ("tipo", "importe", "moneda", "cuenta", "tc")}, [p.campo for p in r.preguntas]))
+
+    print("\nPost-reunión 6 · M4 «eliminar M 0014» no es un movimiento (captura 3)")
+    for texto, intencion in (("A nadie' el M 0014 ESTA MAL HAY QUE ELIMINARLO", "anular"),
+                             ("borrá el M-0014", "anular"), ("anular m14", "anular"), ("eliminar P-000003", "anular"),
+                             ("el M 0014 está mal", "corregir")):
+        for previa in (None, ficha_pendiente):
+            r = interpretar(InterpretarIn(texto=texto, fecha_mensaje="2026-10-09T20:14:00Z", telefono=titular.telefono,
+                                          contexto_previo=previa))
+            esperado = "P-000003" if "P-" in texto else "M-000014"
+            check(f"«{texto}»{' con una pregunta pendiente' if previa else ''} → {intencion} {esperado}, sin preguntas",
+                  (r.intencion, r.id_mov) == (intencion, esperado) and not r.preguntas and not r.fichas,
+                  (r.intencion, r.id_mov, [p.texto for p in r.preguntas]))
+
+    print("\nPost-reunión 6 · M5 la moneda en una corrección (captura 4)")
+    with cuenta_en_moneda("Caja obra Lennon", "USD"):
+        r0 = interpretar(InterpretarIn(texto="Ingreso Lennon caja $15.000", fecha_mensaje="2026-10-09T20:00:00Z",
+                                       telefono=titular.telefono))
+        for texto in ("15000 dólares", "15000 usd"):
+            r1 = interpretar(InterpretarIn(texto=texto, fecha_mensaje="2026-10-09T20:04:00Z", telefono=titular.telefono,
+                                           contexto_previo=r0.fichas[0].model_dump()))
+            c = r1.fichas[0].campos
+            check(f"«{texto}» como corrección de «¿Qué cambio?» → US$ 15.000 en la caja de Lennon, sin tc ni preguntas",
+                  (c["importe"], c["moneda"], c["cuenta"]) == (15000, "USD", "Caja obra Lennon") and not r1.preguntas,
+                  ({k: c[k] for k in ("importe", "moneda", "cuenta", "tc")}, [p.campo for p in r1.preguntas]))
 
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"ninguna ficha devolvió un faltante sin su pregunta ({len(rotas_invariante)} con problemas)",

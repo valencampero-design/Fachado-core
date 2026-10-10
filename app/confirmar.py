@@ -162,7 +162,9 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
 
     etapa = validar_etapa(obra, c.get("etapa"), req.ficha.extras, m)
 
-    if not _vacio(c.get("contratista")) and m.contratista(c["contratista"]) is None:
+    nuevo = req.ficha.extras.get("contratista_nuevo") or {}
+    if not _vacio(c.get("contratista")) and m.contratista(c["contratista"]) is None \
+            and normalizar(nuevo.get("nombre")) != normalizar(c["contratista"]):
         advertencias.append(f"«{c['contratista']}» no está en CONTRATISTAS")
 
     # Un informal (§5.17) nunca concilia contra el banco.
@@ -307,6 +309,8 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
             logger.exception("No se pudo escribir el alias")
             advertencias.append(f"El movimiento quedó escrito pero el alias no ({type(e).__name__})")
 
+    contratista_creado = await _alta_contratista(libro, m, fila, req.ficha.extras.get("contratista_nuevo"), advertencias)
+
     # §5.6: el usuario contestó «Reactivar» a un contratista inactivo. Como el alias: si falla,
     # el movimiento ya quedó escrito y vuelve una advertencia.
     reactivado = False
@@ -346,9 +350,37 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
 
     return ConfirmarOut(id_mov=fila["id_mov"], fila=numero_fila, comprobante_url=comprobante_url, obra=saldo,
                         certificado=estado, alias_escrito=alias_escrito, contratista_reactivado=reactivado,
+                        contratista_creado=contratista_creado,
                         etapa_activada=etapa_activada,
                         ya_existia=ya_existia, libro=destino,
                         cargado_por=str(fila.get("cargado_por") or usuario.nombre), advertencias=advertencias)
+
+
+async def _alta_contratista(libro: Libro, m: Maestros, fila: dict, nuevo: dict | None,
+                            advertencias: list[str]) -> str | None:
+    """§5.6 v1.9: el contratista nuevo de la ficha se da de alta en CONTRATISTAS (activo, con
+    su rubro habitual y su CUIT) y lo que escribió el usuario queda como alias. Solo si el
+    movimiento lo usa y todavía no existe. Como el alias: si falla, el movimiento ya quedó
+    escrito y vuelve una advertencia. Devuelve el nombre dado de alta."""
+    if not nuevo or not nuevo.get("nombre") or normalizar(nuevo["nombre"]) != normalizar(fila.get("contratista")) \
+            or m.contratista(nuevo["nombre"]) is not None:
+        return None
+    try:
+        creado = await asyncio.to_thread(libro.agregar_contratista, {
+            "contratista": nuevo["nombre"], "cuit": nuevo.get("cuit") or "",
+            "rubro_habitual_1": nuevo.get("rubro_habitual_1") or fila.get("rubro_1") or "",
+            "rubro_habitual_2": nuevo.get("rubro_habitual_2") or fila.get("rubro_2") or "",
+            "estado": "activo", "notas": f"Alta desde WhatsApp con {fila.get('id_mov')} (§5.6 v1.9)"})
+        alias = normalizar(nuevo.get("alias"))
+        if creado and alias and alias != normalizar(nuevo["nombre"]):
+            await asyncio.to_thread(libro.agregar_alias, [alias, nuevo["nombre"], "contratista"])
+        maestros.invalidar()
+        return nuevo["nombre"] if creado else None
+    except Exception as e:  # noqa: BLE001
+        logger.exception("No se pudo dar de alta a %s", nuevo["nombre"])
+        advertencias.append(f"El movimiento quedó escrito pero {nuevo['nombre']} no se dio de alta en CONTRATISTAS "
+                            f"({type(e).__name__})")
+        return None
 
 
 async def _activar_etapa(libro: Libro, m: Maestros, obra: str | None, etapa: str | None, extras: dict,

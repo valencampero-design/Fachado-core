@@ -48,6 +48,11 @@ class Libro(Protocol):
         """Pone `estado = en curso` en la fila de ETAPAS (§5.15). True si cambió algo."""
         ...
 
+    def agregar_contratista(self, valores: dict) -> bool:
+        """Da de alta un contratista nuevo en CONTRATISTAS (§5.6 v1.9), por nombre de columna.
+        False si ya había uno con ese nombre: nunca se duplica."""
+        ...
+
     def escribir_certificado(self, numero: int, valores: list) -> None:
         ...
 
@@ -91,6 +96,19 @@ class LibroSheets:
                 sheets.escribir_rango(self.sheet_id, f"CONTRATISTAS!{sheets.columna_a_letra(est + 1)}{n}", [["activo"]])
                 cambio = True
         return cambio
+
+    def agregar_contratista(self, valores: dict) -> bool:
+        filas = sheets.leer_rango(self.sheet_id, "CONTRATISTAS!A:Z", formato="FORMATTED_VALUE")
+        encabezado = [str(x) for x in (filas[0] if filas else [])]
+        claves = [normalizar(x) for x in encabezado]
+        if "contratista" not in claves:
+            raise ValueError("CONTRATISTAS no tiene la columna «contratista»")
+        col = claves.index("contratista")
+        if any(len(f) > col and normalizar(f[col]) == normalizar(valores.get("contratista")) for f in filas[1:]):
+            return False
+        fila = [str(valores.get(c, "")) for c in claves]
+        sheets.agregar_filas(self.sheet_id, f"CONTRATISTAS!A:{sheets.columna_a_letra(len(fila))}", [fila])
+        return True
 
     def activar_etapa(self, obra: str, etapa: str) -> bool:
         filas = sheets.leer_rango(self.sheet_id, "ETAPAS!A:Z", formato="FORMATTED_VALUE")

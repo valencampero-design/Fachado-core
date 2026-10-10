@@ -738,6 +738,69 @@ async def _correr() -> int:
                   caja.get("moneda") == "USD" and caja.get("ingresado") == 20000 and caja.get("pagado") == 1000
                   and caja.get("por_rendir") == 19000, caja)
 
+            # ── Post-reunión 6 · M3 y M2 ──────────────────────────────────────
+            print("\nPost-reunión 6 · M3 pago en dólares desde la caja en dólares, y M2 la consulta de su saldo")
+            r = await confirmar("wamid.M3", ficha(importe=2000, moneda="USD", tc=None, contratista="Miguel Soto",
+                                                  **{**base, "fecha": "2026-10-09"}))
+            fila = libro.movimientos()[-1]
+            caja = (r.json().get("obra") or {}).get("caja_obra") or {}
+            check("US$ 2.000 a Miguel desde la caja en dólares: sin tc ni importe_ars, descuenta US$ directo (19.000 → 17.000)",
+                  r.status_code == 200 and (fila["moneda"], fila["tc"], fila["importe_ars"]) == ("USD", "", "")
+                  and caja.get("por_rendir") == 17000, (r.status_code, r.text[:200], caja))
+            r = (await consultar(texto="En cuanto esta el saldo de la caja chica de lennon")).json()
+            check("«En cuanto esta el saldo de la caja chica de lennon» → el saldo de la caja de Lennon en US$ y los últimos",
+                  r.get("consulta") == "caja" and r["datos"].get("por_rendir") == 17000 and r["datos"].get("moneda") == "USD"
+                  and "US$17.000" in r["texto"] and len(r["datos"]["ultimos"]) == 3 and not r["preguntas"], r)
+            r = (await consultar(texto="Quieto saber el saldo actual de la caja chica")).json()
+            check("sin obra y con más de una caja con movimientos (Lennon, Moreno) → pregunta cuál, con esas dos",
+                  r.get("consulta") == "caja" and r["preguntas"] and {"Lennon", "Moreno"} <= set(r["preguntas"][0]["opciones"]), r)
+            r = (await consultar(consulta="caja", obra="Tonga")).json()
+            check("la caja de una obra sin movimientos lo dice, sin inventar un saldo",
+                  r.get("consulta") == "caja" and "No tiene movimientos" in r["texto"], r)
+
+    # ── Post-reunión 6 · M1 el alta del contratista nuevo al confirmar ───────────
+    print("\nPost-reunión 6 · M1 el contratista nuevo se da de alta al confirmar (§5.6 v1.9)")
+    async with httpx.AsyncClient(transport=transporte, base_url="http://motor",
+                                 headers={"X-API-Key": "test-local"}, timeout=60) as cli:
+        async def confirmar(msg_id, f, telefono=titular.telefono, **extra):
+            return await cli.post("/confirmar", json={"msg_id": msg_id, "telefono": telefono, "ficha": f, **extra})
+
+        nuevo = {"nombre": "Elias Daniel Perez", "cuit": "20-28123456-7", "rubro_habitual_1": "Materiales",
+                 "rubro_habitual_2": "Zinguería", "alias": "elias"}
+        f = ficha(contratista="Elias Daniel Perez", rubro_1="Materiales", rubro_2="Zinguería", cuenta="Banco")
+        f["extras"] = {"contratista_nuevo": nuevo}
+        libro, _ = preparar()
+        r = await confirmar("wamid.M1", f)
+        cuerpo = r.json()
+        check("se escribe el movimiento y se da de alta en CONTRATISTAS: activo, con CUIT y rubro habitual",
+              r.status_code == 200 and cuerpo.get("contratista_creado") == "Elias Daniel Perez"
+              and libro.contratistas_nuevos == [{"contratista": "Elias Daniel Perez", "cuit": "20-28123456-7",
+                                                 "rubro_habitual_1": "Materiales", "rubro_habitual_2": "Zinguería",
+                                                 "estado": "activo", "notas": libro.contratistas_nuevos[0]["notas"]}],
+              (r.status_code, cuerpo, libro.contratistas_nuevos))
+        check("… lo que escribió el usuario («elias») queda como alias, y no avisa «no está en CONTRATISTAS»",
+              ["elias", "Elias Daniel Perez", "contratista"] in libro.alias
+              and not any("no está en CONTRATISTAS" in a for a in cuerpo.get("advertencias", [])),
+              (libro.alias[-2:], cuerpo.get("advertencias")))
+        r = await confirmar("wamid.M1", f)
+        check("un reintento con el mismo msg_id no da de alta dos veces",
+              r.json().get("ya_existia") and len(libro.contratistas_nuevos) == 1, (r.json(), libro.contratistas_nuevos))
+        libro, _ = preparar()
+
+        def falla(valores):
+            raise ConnectionError("Sheets caído (simulado)")
+        libro.agregar_contratista = falla
+        r = await confirmar("wamid.M1b", f)
+        check("si falla el alta, el movimiento queda escrito y vuelve una advertencia (no un error)",
+              r.status_code == 200 and r.json().get("contratista_creado") is None
+              and any("no se dio de alta" in a for a in r.json().get("advertencias", [])), r.text[:300])
+        libro, _ = preparar()
+        f_otro = ficha(contratista="Miguel Soto")
+        f_otro["extras"] = {"contratista_nuevo": nuevo}
+        r = await confirmar("wamid.M1c", f_otro)
+        check("si la ficha terminó con otro contratista, no hay alta", r.status_code == 200
+              and not libro.contratistas_nuevos and r.json().get("contratista_creado") is None, r.text[:300])
+
     app.dependency_overrides.clear()
 
     # ── Reintentos ante errores transitorios de Google ────────────────────────
