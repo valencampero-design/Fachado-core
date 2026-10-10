@@ -234,6 +234,14 @@ _SYSTEM_COMPROBANTE = [{
 }]
 
 
+def version_lector() -> str:
+    """Identifica lo que hace el lector: modelo, instrucciones y esquema. Es parte de la clave de
+    la caché de comprobantes: si cambia el prompt, la lectura vieja no se reusa."""
+    import hashlib
+    base = json.dumps([settings().llm_modelo_comprobante, _SYSTEM_COMPROBANTE, ESQUEMA_COMPROBANTE], sort_keys=True)
+    return f"{settings().llm_modelo_comprobante}:{hashlib.sha256(base.encode()).hexdigest()[:10]}"
+
+
 def extraer_comprobante(contenido: bytes | None, mime: str, texto_pdf: str | None) -> tuple[dict | None, dict]:
     if texto_pdf:
         content: list[dict] = [{"type": "text", "text": f"Texto extraído del PDF:\n\n{texto_pdf[:20000]}"}]

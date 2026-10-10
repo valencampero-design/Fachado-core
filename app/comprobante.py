@@ -263,7 +263,7 @@ def leer_bytes(contenido: bytes, nombre: str, mime: str, datos: DatosComprobante
     if not llm.disponible():
         return datos
     # El mismo archivo leído por el mismo modelo no se paga dos veces (caché en disco, opcional).
-    clave = f"{datos.sha256}:{settings().llm_modelo_comprobante}"
+    clave = f"{datos.sha256}:{llm.version_lector()}"
     extraido = _cache_leer(clave)
     if extraido is not None:
         uso = {"tipo": "comprobante", "modelo": settings().llm_modelo_comprobante, "cache_local": True,

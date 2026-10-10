@@ -853,6 +853,12 @@ def main() -> int:
                   (r.intencion, r.id_mov) == (intencion, esperado) and not r.preguntas and not r.fichas,
                   (r.intencion, r.id_mov, [p.texto for p in r.preguntas]))
 
+    for texto, intencion in (("el pago de Miguel de ayer está mal, borralo", "otro"), ("anulá el de Marcelo", "otro"),
+                             ("Lennon/Miguel sacá 2.000 de la caja", "movimiento")):
+        r = interpretar(InterpretarIn(texto=texto, fecha_mensaje="2026-10-09T20:14:00Z", telefono=titular.telefono))
+        check(f"«{texto}» → {intencion} (borrar sin id no inventa un id; «sacá» de la caja es un pago)",
+              r.intencion == intencion and r.id_mov is None, (r.intencion, r.id_mov))
+
     print("\nPost-reunión 6 · M5 la moneda en una corrección (captura 4)")
     with cuenta_en_moneda("Caja obra Lennon", "USD"):
         r0 = interpretar(InterpretarIn(texto="Ingreso Lennon caja $15.000", fecha_mensaje="2026-10-09T20:00:00Z",

@@ -163,6 +163,7 @@ ACUSES = {"ok", "oka", "okey", "dale", "gracias", "muchas gracias", "listo", "si
 # como M 0014, M-0014, M14, M-000014 (y P- igual).
 RE_ID_MOV = re.compile(r"(?<![a-z0-9])([mp])\s*-?\s*(\d{1,6})(?![0-9])", re.I)
 RE_BORRAR = re.compile(r"\b(?:elimin|borr|anul|sac[aá]|quit|dar de baja|dalo de baja)")
+RE_BORRAR_FUERTE = re.compile(r"\b(?:elimin|borr|anul)")  # sin «sacá»: «sacá 2.000 de la caja» es un movimiento
 RE_CORREGIR = re.compile(r"\b(?:corregi|correg|esta mal|estan mal|cambia)")
 # Una consulta que se reconoce aunque no lleve «?»: «En cuanto esta el saldo de la caja chica».
 RE_CONSULTA_CLARA = re.compile(r"\bsaldo\b|\bcuant[oa]s?\b.*\b(?:hay|queda|tengo|va|van|esta)\b|"
@@ -192,6 +193,11 @@ def _intencion(req: InterpretarIn, texto: str, segmentos: list[Segmento], compro
             return "anular"
         if RE_CORREGIR.search(normalizar(texto)):
             return "corregir"
+    # «el pago de Miguel de ayer está mal, borralo»: pide borrar algo ya cargado pero no dice
+    # cuál. No es un movimiento nuevo; el id no se inventa (contrato con el gateway, 9/10).
+    if not comprobantes and RE_BORRAR_FUERTE.search(normalizar(texto)) \
+            and not any(seg.importe is not None for seg in segmentos):
+        return "otro"
     if not comprobantes and "/" not in texto and (RE_CONSULTA_CLARA.search(normalizar(texto)) or "?" in texto) \
             and consultas.inferir_consulta(texto) and not any(seg.importe is not None for seg in segmentos):
         return "consulta"
