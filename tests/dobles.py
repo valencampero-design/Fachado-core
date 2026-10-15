@@ -24,6 +24,7 @@ class LibroMemoria:
         from app.models import COLUMNAS_BANCO
         self.banco: list[list] = [list(COLUMNAS_BANCO)]  # BANCO_RAW (§5.20)
         self.conciliados: list[tuple[int, dict]] = []  # escrituras de id_banco / estado_conc
+        self.hojas: dict[str, list[list]] = {}  # VISTA_* y CC_* (§5.21)
         self.demora = demora
         self.escrituras = 0  # llamadas de escritura a MOVIMIENTOS: un traspaso tiene que ser una
         self.reactivados: list[str] = []  # contratistas que /confirmar reactivó en el maestro
@@ -97,6 +98,10 @@ class LibroMemoria:
             while len(fila) <= i:
                 fila.append("")
             fila[i] = valor
+
+    def escribir_hoja(self, hoja, filas):
+        assert hoja.startswith(("VISTA_", "CC_")), f"«{hoja}» no es una hoja derivada"
+        self.hojas[hoja] = [list(f) for f in filas]
 
     def banco_dicts(self) -> list[dict]:
         return [dict(zip(self.banco[0], f)) for f in self.banco[1:]]

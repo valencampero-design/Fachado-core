@@ -73,6 +73,10 @@ class Libro(Protocol):
         `estado_conc`, por columna: el hecho no cambia, cambia si ya se lo vio en el banco."""
         ...
 
+    def escribir_hoja(self, hoja: str, filas: list[list]) -> None:
+        """§5.21: reescribe una hoja derivada entera (VISTA_*, CC_*). Nunca MOVIMIENTOS."""
+        ...
+
 
 class LibroSheets:
     """El Sheet maestro de verdad, con la service account."""
@@ -172,3 +176,7 @@ class LibroSheets:
             raise ValueError("Conciliar solo escribe id_banco y estado_conc (§5.20)")
         encabezado = (sheets.leer_rango(self.sheet_id, "MOVIMIENTOS!1:1", formato="FORMATTED_VALUE") or [[]])[0]
         self._escribir_celdas("MOVIMIENTOS", encabezado, [(numero_fila, valores)])
+
+    # ── §5.21: hojas derivadas (VISTA_*, CC_*), se reescriben enteras ────────────
+    def escribir_hoja(self, hoja: str, filas: list[list]) -> None:
+        sheets.reemplazar_hoja(self.sheet_id, hoja, filas)

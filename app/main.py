@@ -10,7 +10,7 @@ import logging
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from app import conciliar, maestros
+from app import conciliar, maestros, vistas
 from app.anular import anular, movimiento
 from app.archivo import Archivador, ArchivadorDrive
 from app.cierre import cierre_semanal
@@ -206,3 +206,13 @@ async def post_conciliar_lote(req: ConciliarLoteIn, libro: Libro = Depends(obten
         return await conciliar.lote(req.telefono, req.tipo, req.hash_ids, req.id_mov, libro, libro_personal, archivador)
     except conciliar.ErrorConciliar as e:
         raise _http_conciliar(e)
+
+
+# ─── Vistas del tablero (§5.21) ────────────────────────────────────────────────
+
+@app.post("/vistas/recalcular", dependencies=[Depends(verificar_api_key)])
+def post_vistas_recalcular(libro: Libro = Depends(obtener_libro),
+                           libro_personal: Libro | None = Depends(obtener_libro_personal)) -> dict:
+    """Reescribe las hojas derivadas del tablero (VISTA_*, CC_<OBRA>; VISTA_PERSONAL en el libro
+    personal). Nunca toca MOVIMIENTOS. Lo dispara un cron cada noche (scripts/recalcular_vistas.py)."""
+    return vistas.recalcular(libro, libro_personal)

@@ -154,6 +154,30 @@ def modificar(sheet_id: str, requests: list[dict]) -> dict:
 
 # ─── Drive ─────────────────────────────────────────────────────────────────────
 
+def reemplazar_hoja(sheet_id: str, hoja: str, valores: list[list]) -> None:
+    """Reescribe una hoja derivada entera (VISTA_*, CC_*): la crea si falta, agranda la grilla
+    si hace falta, la vacía y escribe. Nunca para MOVIMIENTOS ni para un maestro."""
+    if not (hoja.startswith("VISTA_") or hoja.startswith("CC_")):
+        raise ValueError(f"«{hoja}» no es una hoja derivada: solo se reescriben VISTA_* y CC_*")
+    filas, columnas = max(len(valores), 1), max((len(f) for f in valores), default=1)
+    hojas = estructura(sheet_id)
+    if hoja not in hojas:
+        modificar(sheet_id, [{"addSheet": {"properties": {"title": hoja, "gridProperties": {
+            "rowCount": filas + 100, "columnCount": max(columnas, 10)}}}}])
+    else:
+        g, pedidos = hojas[hoja], []
+        if filas > g["filas"]:
+            pedidos.append({"appendDimension": {"sheetId": g["id"], "dimension": "ROWS", "length": filas - g["filas"] + 100}})
+        if columnas > g["columnas"]:
+            pedidos.append({"appendDimension": {"sheetId": g["id"], "dimension": "COLUMNS", "length": columnas - g["columnas"]}})
+        if pedidos:
+            modificar(sheet_id, pedidos)
+    _ejecutar(_valores().clear(spreadsheetId=sheet_id, range=f"'{hoja}'", body={}))
+    if valores:
+        ancho = [list(f) + [""] * (columnas - len(f)) for f in valores]
+        escribir_rango(sheet_id, f"'{hoja}'!A1:{columna_a_letra(columnas)}{filas}", ancho)
+
+
 def _drive():
     return _cliente("drive", "v3").files()
 
