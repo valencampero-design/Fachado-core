@@ -120,6 +120,8 @@ def saldo_obra(movs: list[dict], obra: str, m: Maestros) -> tuple[SaldoObra, lis
         caja_obra=CajaObra(ingresado=round(caja_in, 2), pagado=round(caja_out, 2),
                            por_rendir=round(caja_in - caja_out, 2), moneda=moneda_caja) if hay_caja else None,
     )
+    if hay_caja:
+        saldo.monedas["caja_obra"] = moneda_caja
     return saldo, advertencias
 
 

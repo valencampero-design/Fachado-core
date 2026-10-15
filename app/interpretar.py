@@ -159,6 +159,8 @@ def _origen_semilla(semilla: dict, campo: str) -> str:
 # Acuses sueltos: no son un movimiento aunque tengan menos de tres palabras.
 ACUSES = {"ok", "oka", "okey", "dale", "gracias", "muchas gracias", "listo", "si", "no", "bueno", "perfecto",
           "genial", "joya", "barbaro", "hola", "buen dia", "buenas", "buenas tardes", "buenas noches", "de nada"}
+# §5.6 v1.10: el valor del botón «Es nuevo» en la pregunta de contratista (contrato con el gateway).
+OPCION_NUEVO = "__nuevo__"
 # §5.12 v1.9 (captura 3 del 9/10): «el M 0014 ESTA MAL HAY QUE ELIMINARLO». El id se acepta
 # como M 0014, M-0014, M14, M-000014 (y P- igual).
 RE_ID_MOV = re.compile(r"(?<![a-z0-9])([mp])\s*-?\s*(\d{1,6})(?![0-9])", re.I)
@@ -263,6 +265,14 @@ def _aplicar_respuestas(contexto: dict, respuestas: list, m: Maestros, diag: dic
                 fijar("obra", o.nombre)
             else:
                 libre.append(valor)
+        elif campo == "contratista" and valor == OPCION_NUEVO:
+            # §5.6 v1.10: «Es nuevo» → el alta, con el nombre como lo escribió el usuario.
+            escrito = extras.get("contratista_escrito")
+            if escrito:
+                extras["contratista_nuevo"] = _contratista_nuevo(escrito, None, m)
+                fijar("contratista", extras["contratista_nuevo"]["nombre"])
+            else:
+                diag["advertencias"].append("«Es nuevo» sin un nombre escrito en la ficha anterior: se vuelve a preguntar")
         elif campo == "contratista":
             c = m.contratista(valor)
             fijar("contratista", c.nombre) if c else libre.append(valor)
@@ -424,6 +434,21 @@ def _id_mov_nombrado(texto: str) -> str | None:
     """«M 0014», «M-0014», «M14», «m-000014» → «M-000014»; lo mismo con P-. None si no hay."""
     mt = RE_ID_MOV.search(texto or "")
     return f"{mt.group(1).upper()}-{int(mt.group(2)):06d}" if mt else None
+
+
+def _desempatar(candidatos: list[str], personal: bool, obra, m: Maestros) -> str | None:
+    """§7 v1.10: «Retiro» → el candidato cuyo rubro habitual es personal; una obra de
+    estructura (Austral, el estudio) → el de estructura. Uno solo, o nada: si no, se pregunta."""
+    def afecta(nombre: str) -> str | None:
+        c = m.contratista(nombre)
+        r = m.rubro(c.rubro_1, c.rubro_2) if c and c.rubro_1 and c.rubro_2 else None
+        return r.afecta if r else None
+
+    lado = "personal" if personal else "estructura" if obra is not None and obra.tipo == "estructura" else None
+    if lado is None:
+        return None
+    del_lado = [c for c in candidatos if afecta(c) == lado]
+    return del_lado[0] if len(del_lado) == 1 else None
 
 
 def _puede_ser_un_nombre(token: str) -> bool:
@@ -815,12 +840,27 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         if semilla.get("clasificacion") == "personal" and not (seg.primero("obra") or seg.primero("contratista")):
             marcador_personal = True
 
+    # §7 v1.10 (las dos «Sofi»): un apodo que apunta a dos contratistas se desempata por el
+    # contexto antes de preguntar. El comprobante ya puso el suyo arriba (CUIT o nombre).
+    for r in list(seg.de("ambiguo")):
+        candidatos = [o.split(": ", 1)[1] for o in r.opciones if o.startswith("contratista: ")]
+        if len(candidatos) != len(r.opciones):
+            continue
+        if campos["contratista"] in candidatos:
+            seg.resueltos.remove(r)  # lo resolvió el comprobante
+            continue
+        elegido = None if campos["contratista"] else _desempatar(candidatos, marcador_personal, m.obra(campos["obra"]), m)
+        if elegido:
+            poner("contratista", elegido, "texto")
+            seg.resueltos.remove(r)
+
     # ── 4. Derivados de los maestros ───────────────────────────────────────────
     poner("tipo", campos["tipo"] or "EGRESO", origen.get("tipo", "inferido"))
     tipo = campos["tipo"]
     obra = m.obra(campos["obra"])
     contratista = m.contratista(campos["contratista"])
-    if campos["contratista"] and not contratista:
+    if campos["contratista"] and not contratista \
+            and campos["contratista"] != (extras.get("contratista_nuevo") or {}).get("nombre"):
         advertencias.append(f"«{campos['contratista']}» no está en CONTRATISTAS (viene de ALIAS)")
     # §5.6: un inactivo llega acá solo por nombre exacto, alias exacto o CUIT. Se pregunta si
     # se reactiva; si el usuario dijo «Es otro», se descarta y se pregunta a quién.
@@ -1010,6 +1050,10 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             if campos["importe"] is not None:
                 poner("importe_ars", campos["importe"], "inferido")
     else:
+        # §5.8 v1.10: si el comprobante dice el tc («US$ 2.000 × 1535»), ese es el del pago y no
+        # se pregunta. Lo que dijo el usuario le gana.
+        if comp is not None and comp.tc and campos["tc"] in (None, "", 1) and origen.get("tc") != "texto":
+            poner("tc", comp.tc, "comprobante")
         if campos["moneda"] == "ARS" and campos["tc"] in (None, "", 1) and cuenta_elegida:
             campos["tc"] = None
             # La fecha del mensaje se pone más abajo: si el texto no trae fecha, es esa.
@@ -1080,6 +1124,11 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             opciones = resolver.cercanos(token, seg.candidatos.get(token) or resolver.candidatos(token, m, "contratista"))
             # Con la obra preguntada, el token suelto puede ser la obra mal escrita: no se da de alta.
             if opciones or not _puede_ser_un_nombre(token) or any(p.campo == "obra" for p in preguntas):
+                # §5.6 v1.10: con parecidos cercanos, siempre un botón «Es nuevo». Lo escrito
+                # viaja en extras para darlo de alta si lo eligen.
+                if opciones and _puede_ser_un_nombre(token):
+                    opciones = opciones + [OPCION_NUEVO]
+                    extras["contratista_escrito"] = token
                 preguntas.append(Pregunta(campo="contratista", texto=f"¿Quién es «{token}»?", opciones=opciones))
             else:
                 nuevo = _contratista_nuevo(token, comp, m)

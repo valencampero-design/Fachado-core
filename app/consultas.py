@@ -24,7 +24,7 @@ from app.saldos import como_dicts, en_moneda_de_la_cuenta, saldo_obra
 TIPOS_PAGO = ("EGRESO", "PASANTE")
 MAX_LINEAS = 15  # detalle en el texto de WhatsApp; el resto va en `datos`
 CONSULTAS = {"pagos": "Pagos a un contratista", "gasto": "Gasto por obra", "certificaciones": "Certificaciones",
-             "caja": "Saldo de la caja de obra"}
+             "caja": "Saldo de la caja de obra", "obra": "Saldo de una obra"}
 ULTIMOS_DE_CAJA = 5
 
 # Quién puso la plata de un gasto. El comitente se muestra aparte: es costo de la obra aunque
@@ -63,8 +63,11 @@ def inferir_consulta(texto: str) -> str | None:
         return "certificaciones"
     # «¿cuánto hay en la caja chica de Lennon?», «el saldo de la caja»; «¿cuánto le pagué de la
     # caja?» sigue siendo de pagos.
-    if re.search(r"\bsaldo\b|\bcuant[oa]s? (?:hay|queda)\b", n) or (re.search(r"\bcaja\b", n) and not re.search(r"\bpag", n)):
+    if re.search(r"\bcaja\b", n) and not re.search(r"\bpag", n):
         return "caja"
+    # 15/10: «¿cómo está Lennon?», «saldo de la obra Moreno», «¿cuánto queda en Lennon?».
+    if re.search(r"\bsaldo\b|\bcuant[oa]s? (?:hay|queda)\b|\bcomo (?:esta|viene|va)\b", n):
+        return "obra"
     if re.search(r"gast|mano de obra|material", n):
         return "gasto"
     if re.search(r"\bpag", n):
@@ -130,6 +133,12 @@ def consultar(req: ConsultarIn, libro: Libro, libro_personal: Libro | None) -> C
         return gasto(_visibles(libro, libro_personal, usuario), m, obra.nombre if obra else None)
     if consulta == "caja":
         return caja(_visibles(libro, libro_personal, usuario), m, obra.nombre if obra else None)
+    if consulta == "obra":
+        if obra is None:
+            p = Pregunta(campo="obra", texto="¿De qué obra?", opciones=[
+                o.nombre for o in m.obras if o.estado != "cerrada" and o.tipo in ("obra_terceros", "obra_propia")][:10])
+            return ConsultarOut(consulta="obra", texto=p.texto, preguntas=[p])
+        return saldo_de_obra(_visibles(libro, libro_personal, usuario), m, obra.nombre)
     return certificaciones(libro, obra.nombre if obra else None)
 
 
@@ -220,6 +229,25 @@ def gasto(movs: list[dict], m: Maestros, obra: str | None) -> ConsultarOut:
             lineas.append(f"• {nombre}: {pesos(r['total'])}{partes(r)}")
     return ConsultarOut(consulta="gasto", texto="\n".join(lineas), datos={"obra": obra, "obras": salida},
                         advertencias=sorted(set(advertencias)))
+
+
+def saldo_de_obra(movs: list[dict], m: Maestros, obra: str) -> ConsultarOut:
+    """15/10: el saldo de una obra, lo mismo que `ConfirmarOut.obra`, en texto para WhatsApp
+    (§5.8 y §5.9: lo que pagó el comitente directo se informa aparte y no mueve el saldo)."""
+    saldo, advertencias = saldo_obra(movs, obra, m)
+    lineas = [f"*{obra}*",
+              f"Aportes del comitente: {dinero(saldo.adelantado)}",
+              f"Pagado con plata del estudio: {dinero(saldo.pagado_con_plata_del_estudio)}",
+              f"Pagado por el comitente: {dinero(saldo.pagado_por_el_comitente)}",
+              f"Saldo: *{dinero(saldo.saldo)}*"]
+    if saldo.saldo < 0:
+        lineas.append("En negativo: el estudio está financiando la obra.")
+    if saldo.caja_obra:
+        c = saldo.caja_obra
+        lineas.append(f"Caja de obra: por rendir *{dinero(c.por_rendir, c.moneda)}* "
+                      f"(entró {dinero(c.ingresado, c.moneda)} · salió {dinero(c.pagado, c.moneda)})")
+    return ConsultarOut(consulta="obra", texto="\n".join(lineas), advertencias=advertencias,
+                        datos={"obra": obra, **saldo.model_dump()})
 
 
 def caja(movs: list[dict], m: Maestros, obra: str | None) -> ConsultarOut:

@@ -157,6 +157,11 @@ class SaldoObra(BaseModel):
     pagado_por_el_comitente: float
     saldo: float
     caja_obra: CajaObra | None = None
+    # Contrato del 15/10: cada total con su moneda. Los cuatro de arriba van en pesos (los
+    # movimientos en dólares entran por su importe_ars); la caja de obra, en la suya.
+    moneda: str = "ARS"
+    monedas: dict[str, str] = Field(default_factory=lambda: {
+        "adelantado": "ARS", "pagado_con_plata_del_estudio": "ARS", "pagado_por_el_comitente": "ARS", "saldo": "ARS"})
 
 
 class EstadoCertificado(BaseModel):
@@ -229,14 +234,14 @@ class ConsultarIn(BaseModel):
     """Las tres preguntas del arquitecto (handoff del 25/09). `consulta`, `obra` y
     `contratista` pueden venir explícitos; si no, se sacan de `texto`."""
     telefono: str = Field(min_length=1)
-    consulta: Literal["pagos", "gasto", "certificaciones", "caja"] | None = None
+    consulta: Literal["pagos", "gasto", "certificaciones", "caja", "obra"] | None = None
     texto: str = ""
     obra: str | None = None
     contratista: str | None = None
 
 
 class ConsultarOut(BaseModel):
-    consulta: Literal["pagos", "gasto", "certificaciones", "caja"] | None = None
+    consulta: Literal["pagos", "gasto", "certificaciones", "caja", "obra"] | None = None
     datos: dict[str, Any] = Field(default_factory=dict)
     texto: str  # listo para mandar por WhatsApp
     preguntas: list[Pregunta] = Field(default_factory=list)  # si falta algo para contestar

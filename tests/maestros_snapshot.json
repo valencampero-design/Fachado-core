@@ -608,10 +608,10 @@
     [
       "Sofia Cervera",
       "",
-      "",
-      "",
+      "Estructura del estudio",
+      "Sueldos y cargas sociales",
       "activo",
-      "DUAL: mezcla trabajos de obra y personales. El bot siempre pregunta"
+      "Trabaja para el estudio: lo que se le paga es estructura (Austral), nunca personal (§7 v1.10, 15/10). Hasta el 15/10 se preguntaba si era de obra o personal"
     ],
     [
       "Tucu",
@@ -782,6 +782,14 @@
       "Maderas",
       "activo",
       "Él escribe «Lalo». Es una maderera, distinta de Maderera Misiones"
+    ],
+    [
+      "Sofía Fachado",
+      "27-47181632-4",
+      "Personal",
+      "Familia",
+      "activo",
+      "Hija de Gabriel. Gasto personal (§7 v1.10). En las transferencias, «FACHADO, SOFIA»"
     ]
   ],
   "RUBROS": [
@@ -1542,6 +1550,11 @@
       "gessel",
       "Gessel",
       "obra"
+    ],
+    [
+      "sofi",
+      "Sofía Fachado",
+      "contratista"
     ]
   ],
   "USUARIOS": [

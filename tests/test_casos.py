@@ -424,7 +424,8 @@ def main() -> int:
     r3 = responder(r0, ("obra", "lenon"))
     check("texto libre en vez de una opción: se resuelve con el diccionario («lenon» → Lennon)",
           r3.fichas[0].campos["obra"] == "Lennon", r3.fichas[0].campos["obra"])
-    r0 = interpretar(InterpretarIn(texto="Austral/Sofi", fecha_mensaje="2026-09-25T12:00:00Z"))
+    # v1.10: Sofía Cervera ya no es dual (§7); el dual que queda es Juan Manuel.
+    r0 = interpretar(InterpretarIn(texto="Austral/Juanma", fecha_mensaje="2026-09-25T12:00:00Z"))
     check("dual con obra: pregunta clasificación", campos_de(r0, "clasificacion"), [p.campo for p in r0.preguntas])
     rp, ro = responder(r0, ("clasificacion", "Personal")), responder(r0, ("clasificacion", "Obra"))
     check("… «Personal» → personal; «Obra» → el tipo de Austral (estructura)",
@@ -673,8 +674,9 @@ def main() -> int:
     r, f = leer_con("Retiro/Sofi", adjuntos=[transf_sofi],
                     lector=lector_con(importe=184000, fecha="2026-09-30", medio_pago="Transferencia"))
     c = f.campos
-    check("captura 1: «Retiro/Sofi» + comprobante → personal, sin obra, rubro Familia (supuesto), cero preguntas",
-          (c["tipo_gasto"], c["obra"], c["rubro_2"], f.origen_campo.get("rubro_2")) == ("personal", None, "Familia", "supuesto")
+    check("captura 1: «Retiro/Sofi» + comprobante → Sofía Fachado (§7 v1.10), personal, sin obra, rubro Familia "
+          "(su habitual), cero preguntas",
+          (c["contratista"], c["tipo_gasto"], c["obra"], c["rubro_2"]) == ("Sofía Fachado", "personal", None, "Familia")
           and not r.preguntas, (c, [p.campo for p in r.preguntas]))
     r0 = interpretar(InterpretarIn(texto="Retiro/Sofi", fecha_mensaje="2026-09-30T19:17:00Z"))
     r1 = responder(r0, ("importe", "184000"))
@@ -870,6 +872,71 @@ def main() -> int:
             check(f"«{texto}» como corrección de «¿Qué cambio?» → US$ 15.000 en la caja de Lennon, sin tc ni preguntas",
                   (c["importe"], c["moneda"], c["cuenta"]) == (15000, "USD", "Caja obra Lennon") and not r1.preguntas,
                   ({k: c[k] for k in ("importe", "moneda", "cuenta", "tc")}, [p.campo for p in r1.preguntas]))
+
+    # ── Cierre de la propuesta (handoff del 15/10, v1.10) ──────────────────────
+    print("\n15/10 · M1.1 las dos «Sofi» (§7 v1.10)")
+    r, f, c = leer("Retiro/sofi $80.000")
+    check("«Retiro/sofi» → Sofía Fachado, personal, Personal › Familia, cero preguntas",
+          (c["contratista"], c["tipo_gasto"], c["rubro_2"]) == ("Sofía Fachado", "personal", "Familia") and not r.preguntas,
+          (c["contratista"], c["tipo_gasto"], c["rubro_2"], [p.campo for p in r.preguntas]))
+    r, f, c = leer("Sofi/Austral $300.000")
+    check("«Sofi/Austral» → Sofía Cervera, estructura, sin preguntar obra o personal (ya no es dual)",
+          (c["contratista"], c["tipo_gasto"]) == ("Sofia Cervera", "estructura") and not r.preguntas,
+          (c["contratista"], c["tipo_gasto"], [p.campo for p in r.preguntas]))
+    r, f, c = leer("sofi $1.000")
+    sofi_p = [p for p in r.preguntas if p.motivo == "apodo_ambiguo"]
+    check("«sofi» sin ninguna señal → pregunta con las dos",
+          sofi_p and set(sofi_p[0].opciones) == {"Sofia Cervera", "Sofía Fachado"}, [(p.campo, p.opciones) for p in r.preguntas])
+    r, f = leer_con("Lennon/Sofi", adjuntos=[transf_sofi],
+                    lector=lector_con(importe=184000, fecha="2026-09-30", medio_pago="Transferencia",
+                                      razon_social="FACHADO, SOFIA", cuit="27-47181632-4"))
+    check("el CUIT del comprobante manda: «FACHADO, SOFIA» (27-47181632-4) es Sofía Fachado, sin preguntar cuál",
+          f.campos["contratista"] == "Sofía Fachado" and not any(p.motivo == "apodo_ambiguo" for p in r.preguntas),
+          (f.campos["contratista"], [(p.campo, p.motivo) for p in r.preguntas]))
+
+    print("\n15/10 · M1.2 «Es nuevo» y M1.3 personal desconocido (§5.6 v1.10)")
+    r0, f0, _ = leer("Lennon/Rodri $1.000")
+    p0 = next((p for p in r0.preguntas if p.campo == "contratista"), None)
+    check("«Rodri» con un parecido cercano (Rodrigo Sanitarista) → la pregunta suma «__nuevo__»",
+          p0 and p0.opciones == ["Rodrigo Sanitarista", "__nuevo__"], p0 and p0.opciones)
+    r1 = responder(r0, ("contratista", "__nuevo__"))
+    f1 = r1.fichas[0]
+    check("… respondida «__nuevo__» → contratista nuevo «Rodri», con el nombre como lo escribió",
+          f1.campos["contratista"] == "Rodri" and (f1.extras.get("contratista_nuevo") or {}).get("nombre") == "Rodri"
+          and not any(p.campo == "contratista" for p in r1.preguntas),
+          (f1.campos["contratista"], f1.extras.get("contratista_nuevo"), [p.campo for p in r1.preguntas]))
+    r1 = responder(r0, ("contratista", "Rodrigo Sanitarista"))
+    check("… y si elige el parecido, es ese, sin alta", r1.fichas[0].campos["contratista"] == "Rodrigo Sanitarista"
+          and "contratista_nuevo" not in r1.fichas[0].extras, r1.fichas[0].campos["contratista"])
+    r, f, c = leer("Retiro/Fulano $5.000")
+    check("«Retiro/Fulano» → personal, sin alta: «Fulano» va a la descripción",
+          c["tipo_gasto"] == "personal" and c["contratista"] is None and "contratista_nuevo" not in f.extras
+          and "Fulano" in (c["descripcion"] or ""), (c["contratista"], c["descripcion"], f.extras.get("contratista_nuevo")))
+
+    print("\n15/10 · M1.4 el tc del recibo (§5.8 v1.10)")
+    from app.comprobante import tipo_de_cambio
+    for texto, tc in (("US$ 2000 x $1535 = 3.070.000", 1535), ("USD 6.600 × 1515 ≈ 10.000.000", 1515),
+                      ("U$S 400 x 1425", 1425), ("Total $ 1.000", None)):
+        check(f"tipo_de_cambio({texto!r}) → {tc}", tipo_de_cambio(texto) == tc, tipo_de_cambio(texto))
+    recibo_usd = Adjunto(url="https://drive.google.com/file/d/RECIBO1535xxxxxxxxxxxxxxx/view", mime="image/jpeg",
+                         nombre="r.jpg")
+    with cuenta_en_moneda("Caja obra Lennon", "USD"):
+        r, f = leer_con("Lennon/Miguel", estudio=con_historia, adjuntos=[recibo_usd],
+                        lector=lector_con(importe=2302500, moneda="ARS", tc=1535, fecha="2026-10-14",
+                                          razon_social="Miguel Soto", medio_pago="Efectivo", tipo_comprobante="Recibo"))
+        c = f.campos
+        check("un recibo de Miguel (US$ 1.500 × 1535) → pago en pesos desde la caja en dólares con tc 1535 del "
+              "comprobante, sin preguntar el tc",
+              (c["cuenta"], c["moneda"], numero(c["tc"]), f.origen_campo.get("tc")) == ("Caja obra Lennon", "ARS", 1535,
+                                                                                        "comprobante")
+              and not r.preguntas, ({k: c[k] for k in ("cuenta", "moneda", "tc")}, f.origen_campo.get("tc"),
+                                    [p.campo for p in r.preguntas]))
+
+    print("\n15/10 · M1.5 la consulta «obra»")
+    for texto in ("¿cómo está Lennon?", "saldo de la obra Moreno"):
+        r = interpretar(InterpretarIn(texto=texto, fecha_mensaje="2026-10-15T12:00:00Z", telefono=titular.telefono))
+        check(f"«{texto}» → consulta, y /consultar la reconoce como «obra»",
+              r.intencion == "consulta" and inferir_consulta(texto) == "obra", (r.intencion, inferir_consulta(texto)))
 
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"ninguna ficha devolvió un faltante sin su pregunta ({len(rotas_invariante)} con problemas)",

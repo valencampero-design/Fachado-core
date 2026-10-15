@@ -743,7 +743,8 @@ async def _correr() -> int:
             r = await confirmar("wamid.M3", ficha(importe=2000, moneda="USD", tc=None, contratista="Miguel Soto",
                                                   **{**base, "fecha": "2026-10-09"}))
             fila = libro.movimientos()[-1]
-            caja = (r.json().get("obra") or {}).get("caja_obra") or {}
+            obra_m3 = r.json().get("obra") or {}
+            caja = caja_m3 = obra_m3.get("caja_obra") or {}
             check("US$ 2.000 a Miguel desde la caja en dólares: sin tc ni importe_ars, descuenta US$ directo (19.000 → 17.000)",
                   r.status_code == 200 and (fila["moneda"], fila["tc"], fila["importe_ars"]) == ("USD", "", "")
                   and caja.get("por_rendir") == 17000, (r.status_code, r.text[:200], caja))
@@ -757,6 +758,20 @@ async def _correr() -> int:
             r = (await consultar(consulta="caja", obra="Tonga")).json()
             check("la caja de una obra sin movimientos lo dice, sin inventar un saldo",
                   r.get("consulta") == "caja" and "No tiene movimientos" in r["texto"], r)
+
+            # ── 15/10 · M1.5 ──────────────────────────────────────────────────
+            print("\n15/10 · M1.5 cada total con su moneda y la consulta «obra»")
+            check("ConfirmarOut.obra: los totales en pesos y la caja de Lennon en dólares (monedas)",
+                  caja_m3.get("moneda") == "USD" and obra_m3.get("moneda") == "ARS"
+                  and obra_m3.get("monedas") == {"adelantado": "ARS", "pagado_con_plata_del_estudio": "ARS",
+                                                 "pagado_por_el_comitente": "ARS", "saldo": "ARS", "caja_obra": "USD"},
+                  obra_m3)
+            r = (await consultar(texto="¿cómo está Lennon?")).json()
+            check("«¿cómo está Lennon?» → /consultar «obra»: aportes, pagado, saldo y la caja en US$",
+                  r.get("consulta") == "obra" and "*Lennon*" in r["texto"] and "Pagado por el comitente" in r["texto"]
+                  and "US$17.000" in r["texto"] and r["datos"].get("monedas", {}).get("caja_obra") == "USD", r)
+            r = (await consultar(consulta="obra")).json()
+            check("sin obra → «¿De qué obra?»", r.get("preguntas") and r["preguntas"][0]["campo"] == "obra", r)
 
     # ── Post-reunión 6 · M1 el alta del contratista nuevo al confirmar ───────────
     print("\nPost-reunión 6 · M1 el contratista nuevo se da de alta al confirmar (§5.6 v1.9)")

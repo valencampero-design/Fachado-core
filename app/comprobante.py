@@ -24,7 +24,7 @@ from app.resolver import parsear_importe
 logger = logging.getLogger(__name__)
 
 CAMPOS = ["fecha", "fecha_pago", "importe", "moneda", "razon_social", "cuit", "cuenta_destino",
-          "id_operacion", "numero_cheque", "medio_pago", "tipo_comprobante", "cuit_originante"]
+          "id_operacion", "numero_cheque", "medio_pago", "tipo_comprobante", "cuit_originante", "tc"]
 
 
 @dataclass
@@ -43,6 +43,7 @@ class DatosComprobante:
     medio_pago: str | None = None
     tipo_comprobante: str | None = None
     cuit_originante: str | None = None
+    tc: float | None = None          # §5.8 v1.10: «US$ 2.000 × 1535» → 1535
     sha256: str | None = None        # del archivo: la referencia más fuerte para duplicados (§5.16)
     fuente: dict[str, str] = field(default_factory=dict)  # campo → nombre_archivo | pdf_texto | vision
     uso_llm: bool = False
@@ -134,6 +135,20 @@ def _fecha_iso(d: str, m: str, a: str) -> str | None:
         return None
 
 
+# §5.8 v1.10: «US$ 2.000 × $ 1535 = 3.070.000» (los recibos de Miguel). El segundo número es
+# el tipo de cambio del pago.
+RE_TC_RECIBO = re.compile(r"(?:u\$[sd]|us\$|usd)\s*(\d[\d.,]*)\s*[x×*]\s*\$?\s*(\d[\d.,]*)", re.I)
+
+
+def tipo_de_cambio(texto: str | None) -> float | None:
+    """El tc que dice el comprobante («US$ X × TC»), o None. Solo valores plausibles."""
+    m = RE_TC_RECIBO.search(texto or "")
+    if not m:
+        return None
+    tc = parsear_importe(m.group(2).strip(".,"))
+    return tc if tc and 50 <= tc <= 100000 else None
+
+
 def parsear_texto(texto: str) -> dict:
     if not texto:
         return {}
@@ -154,6 +169,9 @@ def parsear_texto(texto: str) -> dict:
         datos["importe"] = parsear_importe(m.group(1))
     if re.search(r"u\$s|usd|d[oó]lares", plano, re.I):
         datos["moneda"] = "USD"
+    tc = tipo_de_cambio(plano)
+    if tc:
+        datos["tc"] = tc
 
     m = re.search(r"(?:destinatario|beneficiario|cuit\s*/?\s*cuil\s*(?:del\s*)?destino|cuit destino)[^\d\n]{0,40}(\d{2}-?\d{8}-?\d)", plano, re.I)
     cuits = [formatear_cuit(c) for c in RE_CUIT_SUELTO.findall(plano)]
@@ -278,6 +296,7 @@ def leer_bytes(contenido: bytes, nombre: str, mime: str, datos: DatosComprobante
         extraido["razon_social"] = extraido.get("razon_social_destinatario")
         extraido["cuit"] = formatear_cuit(extraido.get("cuit_destinatario"))
         extraido["cuit_originante"] = formatear_cuit(extraido.get("cuit_originante"))
+        extraido["tc"] = extraido.get("tipo_cambio")
         datos.completar(extraido, "vision" if not texto else "pdf_llm")
     else:
         datos.error = uso.get("error")

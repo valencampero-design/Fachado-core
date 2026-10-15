@@ -217,10 +217,12 @@ ESQUEMA_COMPROBANTE = {
         "cuit_originante": {"type": ["string", "null"]},
         "id_operacion": {"type": ["string", "null"]},
         "numero_cheque": {"type": ["string", "null"]},
+        "tipo_cambio": {"type": ["number", "null"],
+                        "description": "Si dice «US$ 2.000 × 1535», el 1535: pesos por dólar del pago"},
     },
     "required": ["es_comprobante", "tipo_comprobante", "medio_pago", "fecha", "fecha_pago", "importe", "moneda",
                  "razon_social_destinatario", "cuit_destinatario", "cuenta_destino", "razon_social_originante",
-                 "cuit_originante", "id_operacion", "numero_cheque"],
+                 "cuit_originante", "id_operacion", "numero_cheque", "tipo_cambio"],
     "additionalProperties": False,
 }
 
@@ -233,7 +235,8 @@ _SYSTEM_COMPROBANTE = [{
             "`fecha_pago` la de pago. Una captura de una planilla o de un registro de movimientos (una fila "
             "con fecha, nombre, importe y concepto, por ejemplo «12-03-26 · Pérez · $ 150.000,00 · "
             "Anticipo · Depósito») también es un comprobante: extraé esos datos igual; el nombre de "
-            "la fila va como destinatario y el concepto como tipo de comprobante.",
+            "la fila va como destinatario y el concepto como tipo de comprobante. Un recibo en pesos que "
+            "dice «US$ 2.000 × 1535 = 3.070.000» es de $ 3.070.000 (moneda ARS) con tipo_cambio 1535.",
 }]
 
 
