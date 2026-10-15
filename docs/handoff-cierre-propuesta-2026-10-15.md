@@ -244,3 +244,193 @@ el gateway contesta «No reconocí ese archivo como un extracto del banco».
 Debajo de esta línea, cada sesión deja su resultado con el formato de siempre: qué quedó
 (con commits), qué no y por qué, decisiones tomadas, cambios de contrato, y los pasos de
 deploy para Valen en orden.
+
+---
+
+# Resultado — motor (`fachado-core`), 15/10
+
+M1, M2, M3 y M4 hechos, en orden, cada uno commiteado **sin pushear**. Nada se trabó más de
+30 minutos. Ningún test ni script escribió en los Sheets reales: los simulacros contra el
+Master fueron de solo lectura. Los cinco archivos de tests dan TODO OK: `test_casos`,
+`test_reglas`, `test_confirmar`, `test_conciliar` (nuevo, 33 checks) y `test_vistas`
+(nuevo, 21 checks).
+
+| Commit | Qué |
+|---|---|
+| `15ec9e8` | CONTEXTO v1.10 y este handoff, tal como llegaron |
+| `68a81f2` | **M1** · las dos Sofía, «Es nuevo», personal desconocido, tc del recibo, monedas en `ConfirmarOut.obra`, consulta `obra` (+ los 4 extractos en `tests/fixtures/`) |
+| `12ca23e` | **M2** · conciliación con el banco: parser, BANCO_RAW, matcheo, lotes, fichas, resumen, endpoints |
+| `4c44efa` | M2 · `lotes[].detalle` (lo pidió el gateway para «Ver detalle») |
+| `5f6ee97` | **M3** · vistas del tablero, `CC_<OBRA>`, `POST /vistas/recalcular`, scripts del cron y de las CC |
+| `d5d305f` | M3 · `docs/tablero-looker.md` |
+| (este) | **M4** · handoffs |
+
+## Qué quedó
+
+**M1**
+- **Las dos «Sofi»**: migración `2026_10_15_sofias.py` (simulacro; aplicada solo al snapshot).
+  En el motor, un apodo que apunta a dos contratistas se desempata así:
+  - **el comprobante manda**: CUIT 27-47181632-4 o «FACHADO, SOFIA» → Sofía Fachado;
+  - **«Retiro»** → la que tiene rubro personal (Sofía Fachado);
+  - **Austral** (una obra de estructura) → la de rubro de estructura (Sofía Cervera);
+  - **sin señal** → pregunta con las dos.
+- **«Es nuevo»**: con parecidos cercanos, la pregunta suma `"__nuevo__"`. Respondida, la ficha
+  pasa a `extras.contratista_nuevo` con el nombre como lo escribió el usuario.
+- **Personal con destinatario desconocido**: «Retiro/Fulano» no da de alta; el nombre va a la
+  descripción.
+- **TC del recibo**: «US$ 2.000 × 1535» → `tc` 1535 con origen `comprobante`, sin preguntar.
+  Funciona por texto de PDF y por el lector, que tiene un campo nuevo `tipo_cambio`.
+- **`ConfirmarOut.obra`**: suma `moneda` y `monedas` (cada total con su moneda). Se cruzó con
+  el gateway.
+- **`/consultar` con `consulta = "obra"`**: el saldo de una obra en texto para WhatsApp.
+
+**M2 · Conciliación (§5.20)**
+- `app/extracto.py` lee los cuatro formatos de muestra (CA $, CC $, CA U$S y la CA $ de
+  Gabriel): 162 líneas, todas con `hash_id` distinto.
+- `app/conciliar.py`:
+  - importa a BANCO_RAW, **idempotente** (reimportar no cambia nada);
+  - antes de `CONCILIACION_DESDE` las líneas quedan `ANTERIOR`, sin preguntas;
+  - matchea fuerte, probable, ambiguo o sin cargar, contra los dos libros;
+  - arma los lotes (gastos bancarios, MeLi personal) y una ficha por línea sin cargar
+    (`interpretar()` con la línea como comprobante: **sin LLM, costo cero**);
+  - devuelve el resumen libro contra banco y lo del libro que no aparece en el banco hace más
+    de una semana.
+- **Escritura sobre filas existentes**: solo `id_banco` y `estado_conc`
+  (`Libro.marcar_conciliado`, que se niega a escribir otra columna).
+- **Endpoints de §3**:
+  - `POST /conciliar/extracto`, `GET /conciliar/pendientes`, `POST /conciliar/lote`;
+  - `/confirmar` con `extras.id_banco` escribe la fila ya conciliada y marca la línea;
+  - `/cierre-semanal` suma `resumen_banco`.
+- **Columnas**: `CUENTAS.fecha_apertura` y BANCO_RAW ampliada, con `preparar_sheet.py`.
+
+**M3 · Tablero (§5.21)**
+- **`app/vistas.py`**: VISTA_SALDOS, VISTA_OBRAS (con capital propio inmovilizado y
+  semáforo), VISTA_RUBROS, VISTA_PROVEEDORES, VISTA_DETALLE; VISTA_PERSONAL en el libro
+  personal.
+- **`CC_<OBRA>`** para Lennon, Moreno, Moquehue, Gonzalo, Hua Huan, Grigera Galpón y Tres
+  Cerros, **armadas desde VISTA_OBRAS y VISTA_DETALLE**.
+- **`POST /vistas/recalcular`** y `scripts/recalcular_vistas.py` para el cron.
+- **`scripts/crear_cc_obras.py`**: simulacro por defecto. Contra el Master real crea 5 hojas y
+  reemplaza CC_LENNON y CC_GONZALO.
+- **`docs/tablero-looker.md`**: las fuentes, los tipos de campo, las tres páginas y el informe
+  personal aparte.
+
+## Qué no y por qué
+
+- **La métrica con `--adjuntos` no se corrió**: gasta plata (unos USD 0,20) y la regla es
+  pedir el OK antes, sin nadie para darlo esta mañana. Se corrió la versión gratis (abajo).
+  Además, el prompt del lector cambió (campo `tipo_cambio`), así que la próxima corrida con
+  adjuntos vuelve a leer los 24 comprobantes (no usa la caché).
+- **Un `.xls` (Excel viejo) no se lee**: `openpyxl` solo abre `.xlsx`, y el banco exporta
+  `.xlsx`. Un `.xls` vuelve con 422 «No reconocí ese archivo como un extracto».
+- **Los saldos de apertura** (valores) los carga Valen el 1/11. **El cron de vistas** lo crea
+  Valen (instrucciones abajo).
+
+## Decisiones tomadas (técnicas o supuestos conservadores, todos marcados en el código)
+
+1. **Rubro de Sofía Cervera**: `Estructura del estudio › Sueldos y cargas sociales`, el rubro
+   que el maestro ya tiene para el personal del estudio. **A confirmar.**
+2. **Las cuatro cuentas del banco** (CA $ y CC $ del estudio, CA U$S, y la CA $ 48-69556582-001
+   de Gabriel):
+   - las de pesos van a la cuenta `Banco` del motor y la de dólares a `Banco USD`, porque §5.7
+     dice una sola cuenta bancaria y conciliación global;
+   - la cuenta original queda en `cuenta_banco`;
+   - lo personal se cruza contra el libro personal.
+3. **Matcheo**:
+   - fuerte = mismo importe y (ref de operación o CUIT), con ±10 días. El CUIT puede ser del
+     contratista (maestro), del comitente de la obra (Cerro Bayo) o estar en el ref o la
+     descripción del movimiento;
+   - probable = mismo importe y ±3 días;
+   - un movimiento conciliado no se usa para otra línea.
+4. **Lotes solo en pesos**: una línea en dólares necesita tipo de cambio, así que va como ficha.
+5. **Gastos bancarios** → Austral, `Impuestos y tasas › Bancarios`, estructura. Los créditos
+   (intereses) entran como INGRESO con el mismo rubro.
+6. **MeLi sin comprobante** → libro personal, `Personal › Consumos`. Es el rubro personal más
+   genérico que hay; §5.6 dice «gasto personal sin clasificar» y no existe un rubro así.
+   **A confirmar.**
+7. **Saldo según el libro** de Banco:
+   - es la apertura más los movimientos de **los dos libros** desde `fecha_apertura`, sin la
+     línea semanal (lo personal también sale del banco);
+   - el total de arriba es en pesos; Banco USD va en `por_cuenta`.
+8. **Las CC_<OBRA> se escriben como valores** en cada recálculo nocturno, no con fórmulas
+   sobre las vistas. Las fórmulas tipo QUERY son frágiles y lentas, y escribir valores repite
+   cero lógica. Una obra nueva tiene su hoja al día siguiente.
+9. **VISTA_OBRAS**:
+   - el ejecutado va en pesos (lo que tiene `importe_ars`) y aparte lo que está en dólares
+     sin convertir (la caja de Lennon);
+   - el capital propio inmovilizado sigue la definición de §5.21;
+   - el semáforo da rojo si la caja está en negativo o, en una de terceros, si el capital
+     propio es mayor que cero.
+10. **Lo personal en las vistas del Master**: solo la línea semanal (origen `CIERRE`). Una fila
+    personal que se haya colado en el Master no entra.
+
+## Cambios de contrato (todos aditivos; ninguno rompe §3; cruzados con el gateway)
+
+- `/conciliar/extracto` y `/pendientes`:
+  - `sin_banco_detalle` (los id_mov del conteo `sin_banco`);
+  - `resumen.moneda`, `resumen.conteos`, `resumen.por_cuenta[]`;
+  - `lotes[].detalle` (una línea corta por movimiento).
+- `/conciliar/lote`: `advertencias` (líneas que `/confirmar` rechazó). Errores 403
+  (`telefono`) y 404 (`hash_ids` / `id_mov`) además del 422 de §3.
+- `ConfirmarOut.obra`: los números siguen pelados, con `moneda: "ARS"` y
+  `monedas: {clave: moneda}`. `caja_obra` lleva la suya.
+- El gateway **no llama a `/cierre-semanal`**: no es de solo lectura (escribe la línea
+  semanal). El resumen del lunes lo arma con `GET /conciliar/pendientes`.
+
+## Preguntas abiertas (no están en v1.10)
+
+1. **Privacidad de BANCO_RAW**: los extractos de la CA $ de Gabriel (su cuenta personal) quedan
+   en BANCO_RAW del **Master**, con descripciones personales. §5.14 separa lo personal en otro
+   libro. ¿Se importa esa cuenta en el libro personal? Hoy los dos usuarios tienen
+   `ve_personal`, así que el bot no muestra nada indebido, pero el Sheet sí lo tiene.
+2. El rubro de Sofía Cervera (decisión 1) y el de MeLi (decisión 6).
+3. El **capital propio inmovilizado** está marcado «a validar con Gabriel» en §5.21.
+4. Las líneas en **dólares** de gastos bancarios (intereses de la CA U$S de centavos) van como
+   ficha una por una. ¿Lote con un tc fijo?
+
+## La métrica de siempre (gratis: `test_corpus --sin-llm --historia`)
+
+| | Antes (`15ec9e8`) | Después |
+|---|---|---|
+| Obra/destino sin preguntar | 42/50 (84 %) | **45/50 (90 %)** |
+| Con las preguntas de diseño | 45/50 (90 %) · 4 duales + 8 apodos | 45/50 (90 %) · **1 dual + 6 apodos** |
+| Preguntas por movimiento | 1,63 | **1,54** |
+| Con obra + contratista + comprobante | 1,21 | **1,11** |
+| Qué se pregunta | importe 51, etapa 13, contratista 9, obra 6, rubro 5, clasificación 4 | importe 51, etapa 13, **contratista 7**, obra 6, rubro 5, **clasificación 1** |
+| Invariante | 0 de 59 | 0 de 59 |
+
+Lo que se mueve son las dos Sofía: «Sofia/Austral» y «Austral/Sofi» ya no preguntan «¿obra o
+personal?». Sin leer los comprobantes, casi todo mensaje con adjunto pregunta el importe:
+ese número no es el real. El real sale con `--adjuntos` (unos USD 0,20), cuando Valen lo
+autorice.
+
+## Deploy, en orden (para Valen)
+
+1. **Antes de desplegar**, las columnas: `python scripts/preparar_sheet.py` (simulacro:
+   `CUENTAS.fecha_apertura` y 9 columnas al final de BANCO_RAW) y después con `--aplicar`. El
+   motor viejo convive con ellas porque escribe por nombre de columna.
+2. **Pushear `fachado-core`** → Railway despliega `web` → `curl.exe <URL>/salud`. Instala
+   `openpyxl` (`requirements.txt`).
+3. Las dos Sofía:
+   - `python scripts/migraciones/2026_10_15_sofias.py` (simulacro), después con `--aplicar`;
+   - `POST /maestros/recargar`;
+   - `python scripts/snapshot_maestros.py` y commitear el snapshot. El snapshot del repo ya la
+     tiene aplicada, así que el diff debería ser solo de las otras filas que haya tocado Valen.
+4. Las cuentas corrientes: `python scripts/crear_cc_obras.py` (simulacro), después con
+   `--aplicar`. **Reemplaza CC_LENNON y CC_GONZALO.** Si hay algo a mano en esas hojas que
+   haya que guardar, copiarlo antes.
+5. **El cron de vistas** en Railway: un servicio nuevo desde el mismo repo con start command
+   `python scripts/recalcular_vistas.py`, cron `0 6 * * *`, variables `MOTOR_URL` y
+   `MOTOR_API_KEY`. Correrlo una vez a mano y verificar que aparezcan las `VISTA_*`.
+6. **El gateway**, según su parte de este handoff (en `chatbot-contable`): con ensayo primero.
+   Ojo: el extracto de muestra es de **agosto**, y con `CONCILIACION_DESDE = 2026-11-01` todo
+   entra como `ANTERIOR`. La prueba de punta a punta en producción muestra «todo anterior, nada
+   para conciliar», que es lo correcto. El circuito completo (lotes, ambiguas, fichas) está
+   probado en `tests/test_conciliar.py`. **No bajar `CONCILIACION_DESDE` en Railway** para
+   probar: las líneas quedarían conciliadas o pendientes de verdad.
+7. **Looker Studio**: `docs/tablero-looker.md`.
+8. **El 1/11**: cargar en CUENTAS `saldo_apertura` y `fecha_apertura` (31/10) de Banco, Banco
+   USD, Efectivo y cada caja de obra, y mandar el primer extracto de noviembre.
+
+Lo de antes sigue pendiente igual: el script de correcciones del 9/10 (preguntas a Gabriel) y
+**no** correrlo con `--con-ingreso-usd` (el ingreso de US$ 20.000 ya está cargado como M-000015).

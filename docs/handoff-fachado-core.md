@@ -24,7 +24,8 @@
 | ✅ Tanda 6 | Desplegada el 25/09: PASANTE, TRASPASO, contraasiento, `intencion` / `respuestas` / `texto_compartido`, contratistas inactivos, el nombre de quien escribe en el prompt. Columnas `vinculo` y `anula` en los dos libros. Verificado en producción con `/interpretar`: un texto del corpus, una charla (`otro`) y un comprobante solo (un recibo manuscrito, leído por el modelo) |
 | ✅ Fix del arranque (30/09) | Desplegado el 30/09 con sus migraciones aplicadas: la cuenta se decide o se pregunta (origen `supuesto`), una sola lista de obligatorios, etapas con estado, tipo de cambio en dólares, Gessel |
 | ✅ Conversación del 9/10 (D, E, F, G, H, ñ) | Desplegado el 9/10; `Caja obra Lennon` en USD en el Sheet y snapshot regenerado. Falta, cuando Valen lo decida, el script de correcciones (§8). Detalle y métrica al final de `docs/handoff-conversacion-2026-10-09.md` |
-| ⏳ Post-reunión 6 (M1 a M5) | Commiteado **sin pushear**: contratista nuevo con alta al confirmar, consulta del saldo de caja, intenciones `anular`/`corregir`. Contratos para cotejar con el gateway al final de `docs/handoff-post-reunion6-2026-10-09.md` |
+| ✅ Post-reunión 6 (M1 a M5) | Desplegado el 9/10: contratista nuevo con alta al confirmar, consulta del saldo de caja, intenciones `anular`/`corregir`. Contratos al final de `docs/handoff-post-reunion6-2026-10-09.md` |
+| ⏳ Cierre de la propuesta (15/10) | Commiteado **sin pushear**: las dos Sofía, «Es nuevo», tc del recibo, consulta `obra`; **conciliación con el banco** (§5.20); **vistas del tablero y CC_<obra>** (§5.21). Detalle, decisiones y orden de deploy al final de `docs/handoff-cierre-propuesta-2026-10-15.md` |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
@@ -135,6 +136,23 @@ Detalle y contratos al final de `docs/handoff-post-reunion6-2026-10-09.md`.
 - **Intenciones `anular` y `corregir`** con `InterpretarOut.id_mov` (`RE_ID_MOV`,
   `RE_BORRAR`, `RE_CORREGIR`); las consultas claras (`RE_CONSULTA_CLARA`) se reconocen
   aunque venga `contexto_previo`.
+
+### Lo del 15/10: conciliación, tablero y ajustes (v1.10)
+
+- **Las dos «Sofi»** (§7): `interpretar._desempatar` resuelve un apodo que apunta a dos
+  contratistas por el comprobante (CUIT/nombre), «Retiro» (el de rubro personal) o una obra de
+  estructura (el de rubro de estructura); si no, pregunta. Maestro:
+  `scripts/migraciones/2026_10_15_sofias.py`.
+- **«Es nuevo»** (§5.6): la pregunta de contratista con parecidos suma `"__nuevo__"`
+  (`interpretar.OPCION_NUEVO`); lo escrito viaja en `extras.contratista_escrito`.
+- **TC del recibo** (§5.8): `comprobante.tipo_de_cambio` («US$ 2.000 × 1535») y el campo
+  `tipo_cambio` del lector → `tc` con origen `comprobante`.
+- **Conciliación** (§5.20): `app/extracto.py` (el Excel del banco → líneas con `hash_id`) y
+  `app/conciliar.py` (importar a BANCO_RAW, matchear, lotes, fichas, resumen). **La única
+  escritura sobre una fila ya escrita de MOVIMIENTOS** es `Libro.marcar_conciliado`: solo
+  `id_banco` y `estado_conc`, por columna.
+- **Vistas** (§5.21): `app/vistas.py` (VISTA_*, CC_<OBRA>); `Libro.escribir_hoja` →
+  `sheets.reemplazar_hoja`, que solo acepta hojas `VISTA_*` y `CC_*`.
 
 ### Endpoints
 
@@ -534,6 +552,7 @@ Railway, al lado del gateway, desde GitHub. `nixpacks.toml` fija Python 3.11 y a
 | `ANTHROPIC_API_KEY` | |
 | `LLM_MODELO` · `LLM_EFFORT` | Default `claude-opus-5-5` y `low` (desde el 9/10; antes `claude-opus-5`). La resolución de tokens. **El effort se manda siempre**: en Opus 5.5 el default es `medium` y el costo subiría |
 | `LLM_MODELO_COMPROBANTE` | Default `claude-sonnet-5-5`. El lector de comprobantes (imagen/PDF), la llamada más cara: extracción estructurada, no necesita Opus. Se mueve aparte de `LLM_MODELO`; para volver a Opus solo en el lector, `claude-opus-5-5` sin deploy |
+| `CONCILIACION_DESDE` | Default `2026-11-01` (§5.20). Las líneas del extracto anteriores se importan como `ANTERIOR` y no se concilian ni se preguntan. Para probar con extractos viejos, bajarla en el entorno de prueba, nunca en Railway |
 | `CACHE_COMPROBANTES` | Ruta de un JSON con lo que el modelo leyó de cada archivo (sha256 + modelo). Vacía en Railway; `test_corpus` la usa siempre (`%LOCALAPPDATA%\fachado-core\cache_comprobantes.json`; `--sin-cache` para medir una lectura limpia) |
 | `MAESTROS_TTL_SEGUNDOS` · `LEER_ADJUNTOS` · `UTC_OFFSET_HORAS` | Default 300 · true · -3 |
 | `MAESTROS_SNAPSHOT` | Solo para correr offline; en Railway va vacía |
@@ -572,6 +591,15 @@ python scripts/preparar_sheet.py --personal 1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw
 Después del deploy (6.8 del handoff de la tanda): `/salud` y una llamada real a
 `/interpretar` —que nunca escribe— con un texto del corpus y con un comprobante solo. **Nunca
 un `/confirmar` ni un `/anular` de prueba contra el Sheet real.**
+
+**El cron de las vistas (15/10).** Un tercer servicio en Railway, igual que el del cierre:
+
+- start command `python scripts/recalcular_vistas.py`;
+- cron schedule `0 6 * * *` (todos los días a las 3:00 de Argentina, en UTC);
+- variables `MOTOR_URL` y `MOTOR_API_KEY`.
+
+Llama a `POST /vistas/recalcular`, que reescribe las hojas derivadas (VISTA_*, CC_<OBRA>, y
+VISTA_PERSONAL en el libro personal). Idempotente; nunca toca MOVIMIENTOS.
 
 **El cron del cierre semanal.** Un segundo servicio en Railway, desde el mismo repo, con:
 
@@ -656,6 +684,13 @@ anotadas al final de `docs/handoff-tanda-6-2026-09-25.md`):
   dijo «Reactivar», la ficha trae `extras.reactivar` y `/confirmar` lo reactiva.
 - **Arranque escalonado** (§5.13): primero solo Gabriel; Petrus después de la primera semana.
 
+Lo nuevo del 15/10 (contratos fijos en §3 de `docs/handoff-cierre-propuesta-2026-10-15.md`;
+lo que el motor sumó, al final de ese archivo): `"__nuevo__"` en la pregunta de contratista;
+`consulta = "obra"`; `ConfirmarOut.obra.moneda` / `.monedas`; `POST /conciliar/extracto`,
+`GET /conciliar/pendientes`, `POST /conciliar/lote`; `/confirmar` con `extras.id_banco` y
+`msg_id = "banco:<hash_id>"`; `/cierre-semanal` suma `resumen_banco` (el gateway no lo llama:
+lo dispara el cron); `POST /vistas/recalcular` (lo llama el cron, no el gateway).
+
 Lo nuevo después de la reunión 6 (contratos completos al final de
 `docs/handoff-post-reunion6-2026-10-09.md`): `extras.contratista_nuevo` y
 `ConfirmarOut.contratista_creado`; `consulta = "caja"`; `intencion = "anular" | "corregir"`
@@ -696,6 +731,10 @@ manda mensajes repetidos** con un segundo de diferencia.
 - [x] ~~**Desplegar el fix del 30/09 y correr sus cuatro migraciones**~~ — 30/09.
 - [x] ~~**Desplegar lo del 9/10**, la caja de Lennon en USD y el snapshot~~ — 9/10,
       verificado en producción con `/interpretar`.
+- [ ] **Desplegar lo del 15/10** (orden y pruebas al final de
+      `docs/handoff-cierre-propuesta-2026-10-15.md`), crear el cron de vistas y armar el
+      Looker Studio con `docs/tablero-looker.md`.
+- [ ] **El 1/11**: saldos de apertura en CUENTAS y el primer extracto de noviembre.
 - [ ] **Las correcciones del 9/10**, después de que Gabriel conteste las preguntas 1 a 3 del
       guion del 9/10, y con el tc de M-000005 confirmado por Valen (preguntas abiertas 1 y 2 del
       handoff del 9/10 antes): `FACHADO_PERSONAL_SHEET_ID` en el entorno y
@@ -743,6 +782,18 @@ manda mensajes repetidos** con un segundo de diferencia.
 --aplicar`, CUENTAS fila 9; no tenía movimientos) y el snapshot se regeneró. Los tests fijan
 la caja de Lennon en pesos y los de G la pasan a dólares (`tests/dobles.cuenta_en_moneda`):
 no dependen de la moneda del snapshot.
+
+**Pendiente del 15/10** (simulacro por defecto; lo aplica Valen, en este orden):
+
+1. `python scripts/preparar_sheet.py --aplicar`: `CUENTAS.fecha_apertura` y las nueve columnas
+   nuevas de BANCO_RAW (al final; las ocho viejas no se mueven).
+2. `python scripts/migraciones/2026_10_15_sofias.py --aplicar`: Sofía Fachado, Sofía Cervera a
+   estructura, «sofi» a las dos. El snapshot de los tests ya la tiene aplicada.
+3. `python scripts/crear_cc_obras.py --aplicar`: crea CC_MORENO, CC_MOQUEHUE, CC_HUA_HUAN,
+   CC_GRIGERA_GALPON, CC_TRES_CERROS y **reemplaza** CC_LENNON y CC_GONZALO (las fórmulas
+   viejas no conocen cajas de obra, dólares ni anulados). Después las reescribe el cron.
+4. **El 1/11**: cargar en CUENTAS `saldo_apertura` y `fecha_apertura` (31/10) de Banco, Banco
+   USD, Efectivo y cada caja de obra (§5.20).
 
 **Pendiente del 9/10** (simulacro por defecto; lo decide Valen):
 
