@@ -168,6 +168,9 @@ async def _correr() -> int:
         check("gastos bancarios e impuestos en un lote; MercadoLibre sin comprobante en otro",
               "gastos_bancarios" in lotes and "meli_personal" in lotes and lotes["meli_personal"]["cantidad"] >= 1
               and "gastos bancarios por $" in lotes["gastos_bancarios"]["texto"], {k: v["texto"] for k, v in lotes.items()})
+        check("… cada lote trae «detalle»: una línea corta por movimiento, para «Ver detalle»",
+              all(len(x["detalle"]) == x["cantidad"] and " · " in x["detalle"][0] for x in r["lotes"]),
+              lotes["gastos_bancarios"]["detalle"][:2])
         pend = r["pendientes"]
         check("el resto: una ficha por línea, «Vi un pago de $ … que no tengo cargado.», con su interpretación",
               pend and all(p["texto"].startswith(("Vi un pago de $", "Vi un ingreso de $")) and p["interpretacion"]["fichas"]

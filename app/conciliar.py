@@ -483,7 +483,11 @@ def pendientes(telefono: str, libro: Libro, libro_personal: Libro | None, _m: Ma
         "sin_banco": len(sin_banco),
         "lotes": [{"tipo": tipo, "cantidad": len(xs), "total": round(sum(numero(x.get("debito")) - numero(x.get("credito"))
                                                                         for x in xs), 2),
-                   "hash_ids": [x["hash_id"] for x in xs], "texto": texto_lote(tipo, xs)}
+                   "hash_ids": [x["hash_id"] for x in xs], "texto": texto_lote(tipo, xs),
+                   # para el botón «Ver detalle» del gateway: una línea corta por movimiento
+                   "detalle": [f"{_dia(x.get('fecha'))} · "
+                               f"{'−' if numero(x.get('debito')) else '+'}{_dinero(numero(x.get('debito')) or numero(x.get('credito')))}"
+                               f" · {str(x.get('descripcion') or '').strip()}" for x in xs]}
                   for tipo, xs in sorted(lotes.items())],
         "ambiguas": ambiguas,
         "pendientes": pendientes_,
