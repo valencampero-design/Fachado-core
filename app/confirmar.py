@@ -183,8 +183,10 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
         "cuenta": cuenta.nombre,
         "origen": "WHATSAPP",
         "concilia": "VERDADERO" if concilia else "FALSO",
-        "id_banco": "",
-        "estado_conc": "PENDIENTE" if concilia else "SOLO_CAJA",
+        # §5.20: una línea del extracto que no estaba cargada se carga ya conciliada (la fila es
+        # nueva: no es editar). La línea de BANCO_RAW se marca después de escribir.
+        "id_banco": str(req.ficha.extras.get("id_banco") or ""),
+        "estado_conc": "CONCILIADO" if req.ficha.extras.get("id_banco") else "PENDIENTE" if concilia else "SOLO_CAJA",
         "cargado_por": usuario.nombre,
         "ts": _ahora_local(),
         "tipo_gasto": tipo_gasto or "",
@@ -308,6 +310,15 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
         except Exception as e:  # noqa: BLE001
             logger.exception("No se pudo escribir el alias")
             advertencias.append(f"El movimiento quedó escrito pero el alias no ({type(e).__name__})")
+
+    if req.ficha.extras.get("id_banco") and not ya_existia:
+        from app import conciliar
+        try:
+            if not await asyncio.to_thread(conciliar.marcar_linea, libro, str(req.ficha.extras["id_banco"]), fila["id_mov"]):
+                advertencias.append("La línea del banco no está en BANCO_RAW: no se marcó conciliada")
+        except Exception as e:  # noqa: BLE001 — el movimiento ya quedó escrito
+            logger.exception("No se pudo marcar la línea del banco")
+            advertencias.append(f"Quedó escrito pero la línea del banco no se marcó conciliada ({type(e).__name__})")
 
     contratista_creado = await _alta_contratista(libro, m, fila, req.ficha.extras.get("contratista_nuevo"), advertencias)
 

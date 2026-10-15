@@ -1,4 +1,4 @@
-"""El libro: MOVIMIENTOS, ALIAS y CERTIFICADOS en el Sheet maestro.
+"""El libro: MOVIMIENTOS, ALIAS, CERTIFICADOS y BANCO_RAW en el Sheet maestro.
 
 Es una interfaz chica a propósito. /confirmar solo necesita leer MOVIMIENTOS, escribir una
 fila y agregar un alias; con eso, los tests usan un libro en memoria y **nunca escriben en
@@ -13,6 +13,7 @@ from app.maestros import normalizar
 # Hasta qué columna se lee MOVIMIENTOS. Holgado: las columnas nuevas van siempre al final.
 _RANGO_MOVIMIENTOS = "MOVIMIENTOS!A:AZ"
 _RANGO_CERTIFICADOS = "CERTIFICADOS!A:Z"
+_RANGO_BANCO = "BANCO_RAW!A:Z"
 
 
 class Libro(Protocol):
@@ -54,6 +55,22 @@ class Libro(Protocol):
         ...
 
     def escribir_certificado(self, numero: int, valores: list) -> None:
+        ...
+
+    def leer_banco(self) -> list[list]:
+        """BANCO_RAW (§5.20), la primera fila es el encabezado. Solo en el Master."""
+        ...
+
+    def agregar_banco(self, filas: list[list]) -> None:
+        ...
+
+    def actualizar_banco(self, cambios: list[tuple[int, dict]]) -> None:
+        """(número de fila, {columna: valor}): cambia esas celdas de BANCO_RAW, por columna."""
+        ...
+
+    def marcar_conciliado(self, numero_fila: int, valores: dict) -> None:
+        """§5.20: la única escritura sobre una fila ya escrita de MOVIMIENTOS. Solo `id_banco` y
+        `estado_conc`, por columna: el hecho no cambia, cambia si ya se lo vio en el banco."""
         ...
 
 
@@ -128,3 +145,30 @@ class LibroSheets:
     def escribir_certificado(self, numero: int, valores: list) -> None:
         ultima = sheets.columna_a_letra(len(valores))
         sheets.escribir_rango(self.sheet_id, f"CERTIFICADOS!A{numero}:{ultima}{numero}", [valores])
+
+    # ── §5.20: BANCO_RAW y las columnas de control de MOVIMIENTOS ────────────────
+    def leer_banco(self) -> list[list]:
+        return sheets.leer_rango(self.sheet_id, _RANGO_BANCO, formato="FORMATTED_VALUE")
+
+    def agregar_banco(self, filas: list[list]) -> None:
+        if filas:
+            sheets.agregar_filas(self.sheet_id, f"BANCO_RAW!A:{sheets.columna_a_letra(max(len(f) for f in filas))}", filas)
+
+    def _escribir_celdas(self, hoja: str, encabezado: list, cambios: list[tuple[int, dict]]) -> None:
+        nombres = [str(x) for x in encabezado]
+        for numero, valores in cambios:
+            for columna, valor in valores.items():
+                if columna not in nombres:
+                    raise ValueError(f"{hoja} no tiene la columna «{columna}»: correr scripts/preparar_sheet.py")
+                letra = sheets.columna_a_letra(nombres.index(columna) + 1)
+                sheets.escribir_rango(self.sheet_id, f"{hoja}!{letra}{numero}", [[valor]])
+
+    def actualizar_banco(self, cambios: list[tuple[int, dict]]) -> None:
+        encabezado = (sheets.leer_rango(self.sheet_id, "BANCO_RAW!1:1", formato="FORMATTED_VALUE") or [[]])[0]
+        self._escribir_celdas("BANCO_RAW", encabezado, cambios)
+
+    def marcar_conciliado(self, numero_fila: int, valores: dict) -> None:
+        if set(valores) - {"id_banco", "estado_conc"}:
+            raise ValueError("Conciliar solo escribe id_banco y estado_conc (§5.20)")
+        encabezado = (sheets.leer_rango(self.sheet_id, "MOVIMIENTOS!1:1", formato="FORMATTED_VALUE") or [[]])[0]
+        self._escribir_celdas("MOVIMIENTOS", encabezado, [(numero_fila, valores)])

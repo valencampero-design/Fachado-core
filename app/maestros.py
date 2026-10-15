@@ -117,6 +117,8 @@ class Cuenta:
     concilia_contra_banco: bool
     saldo_apertura: float = 0.0
     activa: bool = True  # nada se borra de los maestros: lo que no corresponde pasa a inactiva
+    # §5.20: desde cuándo vale saldo_apertura (AAAA-MM-DD). Vacío: el saldo es la suma de todo.
+    fecha_apertura: str = ""
 
     @property
     def suma_al_saldo_del_estudio(self) -> bool:
@@ -285,6 +287,16 @@ def _registros(filas: list[list[str]]) -> list[dict[str, str]]:
     return salida
 
 
+def _fecha_iso(valor) -> str:
+    """«31/10/2026» o «2026-10-31» → «2026-10-31»; lo que no es una fecha, vacío."""
+    t = str(valor or "").strip()
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", t) or None
+    if m:
+        return m.group(0)
+    m = re.match(r"(\d{1,2})/(\d{1,2})/(\d{4})", t)
+    return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}" if m else ""
+
+
 def _es_dual(registro: dict[str, str]) -> bool:
     # Columna `dual` si la planilla la tiene; si no, la palabra DUAL en las notas.
     if normalizar(registro.get("dual")) in ("si", "sí", "true", "x", "1", "dual"):
@@ -344,7 +356,8 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
     cuentas = [Cuenta(r.get("cuenta", ""), normalizar(r.get("tipo")).replace(" ", "_"), r.get("moneda", "ARS"),
                       normalizar(r.get("concilia_contra_banco")) in ("si", "true", "verdadero"),
                       numero(r.get("saldo_apertura")),
-                      normalizar(r.get("estado")) not in ("inactiva", "inactivo", "cerrada"))
+                      normalizar(r.get("estado")) not in ("inactiva", "inactivo", "cerrada"),
+                      _fecha_iso(r.get("fecha_apertura")))
                for r in _registros(crudo.get("CUENTAS", [])) if r.get("cuenta")]
     for c in cuentas:
         if not c.activa:

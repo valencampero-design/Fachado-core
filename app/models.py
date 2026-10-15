@@ -22,6 +22,12 @@ COLUMNAS_MOVIMIENTOS: list[str] = [
 COLUMNAS_CERTIFICADOS: list[str] = [
     "obra", "etapa", "numero", "fecha", "saldo_a_cobrar", "fuente", "msg_id", "cargado_por", "comprobante_url",
 ]
+# §5.20: BANCO_RAW, una fila por línea del extracto. Las primeras ocho ya existían en el
+# Master; las demás las agrega scripts/preparar_sheet.py al final.
+COLUMNAS_BANCO: list[str] = [
+    "hash_id", "fecha", "descripcion", "debito", "credito", "saldo", "estado", "id_mov",
+    "cuenta_banco", "moneda", "cuit", "nombre", "ref", "candidatos", "lote", "orden", "importado_ts",
+]
 # Lo que describe una ficha de tipo CERTIFICADO (`campos["tipo"] == "CERTIFICADO"`).
 # §5.18: lo que describe una ficha de tipo TRASPASO. /confirmar la escribe como dos filas de
 # MOVIMIENTOS vinculadas (columna `vinculo`), una por cuenta.

@@ -21,6 +21,9 @@ class LibroMemoria:
         self.alias = [list(a) for a in alias]
         self.contratistas_nuevos: list[dict] = []  # altas de §5.6 v1.9
         self.certificados: list[list] = [list(ENCABEZADO_CERTIFICADOS)]
+        from app.models import COLUMNAS_BANCO
+        self.banco: list[list] = [list(COLUMNAS_BANCO)]  # BANCO_RAW (§5.20)
+        self.conciliados: list[tuple[int, dict]] = []  # escrituras de id_banco / estado_conc
         self.demora = demora
         self.escrituras = 0  # llamadas de escritura a MOVIMIENTOS: un traspaso tiene que ser una
         self.reactivados: list[str] = []  # contratistas que /confirmar reactivó en el maestro
@@ -69,6 +72,34 @@ class LibroMemoria:
 
     def escribir_certificado(self, numero, valores):
         _escribir(self.certificados, numero, valores)
+
+    def leer_banco(self):
+        return [list(f) for f in self.banco]
+
+    def agregar_banco(self, filas):
+        self.banco += [list(f) for f in filas]
+
+    def actualizar_banco(self, cambios):
+        for numero, valores in cambios:
+            fila = self.banco[numero - 1]
+            for columna, valor in valores.items():
+                i = self.banco[0].index(columna)
+                while len(fila) <= i:
+                    fila.append("")
+                fila[i] = valor
+
+    def marcar_conciliado(self, numero_fila, valores):
+        assert not set(valores) - {"id_banco", "estado_conc"}, "conciliar solo escribe id_banco y estado_conc"
+        self.conciliados.append((numero_fila, dict(valores)))
+        fila = self.filas[numero_fila - 1]
+        for columna, valor in valores.items():
+            i = self.encabezado.index(columna)
+            while len(fila) <= i:
+                fila.append("")
+            fila[i] = valor
+
+    def banco_dicts(self) -> list[dict]:
+        return [dict(zip(self.banco[0], f)) for f in self.banco[1:]]
 
     def movimientos(self) -> list[dict]:
         return [dict(zip(self.encabezado, f)) for f in self.filas[1:]]

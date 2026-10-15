@@ -65,6 +65,10 @@ class Settings:
     # Zona horaria del cliente para fechar mensajes (Argentina no tiene horario de verano)
     utc_offset_horas: int = field(default_factory=lambda: int(os.getenv("UTC_OFFSET_HORAS", "-3")))
 
+    # §5.20: la conciliación arranca el 1/11. Las líneas del extracto anteriores se importan
+    # como ANTERIOR y no se concilian ni se preguntan.
+    conciliacion_desde: str = field(default_factory=lambda: os.getenv("CONCILIACION_DESDE", "2026-11-01"))
+
     @property
     def tiene_oauth_google(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret and self.google_refresh_token)

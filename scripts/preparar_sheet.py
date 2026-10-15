@@ -20,7 +20,7 @@ import sys
 sys.path.insert(0, ".")
 from app import sheets  # noqa: E402
 from app.config import settings  # noqa: E402
-from app.models import COLUMNAS_CERTIFICADOS  # noqa: E402
+from app.models import COLUMNAS_BANCO, COLUMNAS_CERTIFICADOS  # noqa: E402
 from app.sheets import columna_a_letra as letra  # noqa: E402
 
 # Columnas que tienen que existir, en el orden en que se agregan al final si faltan.
@@ -29,7 +29,10 @@ COLUMNAS = {
     # contraasiento (§5.19). Las dos, también en el libro personal (--personal).
     "MOVIMIENTOS": ["msg_id", "certificado", "etapa", "informal", "ref_comprobante", "vinculo", "anula"],
     "USUARIOS": ["telefono", "nombre", "rol", "activo", "ve_personal", "auto_confirmar"],
-    "CUENTAS": ["estado"],
+    # §5.20: desde cuándo vale saldo_apertura (los valores los carga Valen el 1/11).
+    "CUENTAS": ["estado", "fecha_apertura"],
+    # §5.20: BANCO_RAW ya existe con las ocho primeras; el resto va al final.
+    "BANCO_RAW": COLUMNAS_BANCO,
     # §5.7 (v1.7), regla 3: la cuenta de los pagos de la obra cuando nada más la dice.
     "OBRAS": ["cuenta_habitual"],
     "CERTIFICADOS": COLUMNAS_CERTIFICADOS,
@@ -42,6 +45,8 @@ HOJAS_NUEVAS = {
     "ETAPAS": ["obra", "etapa", "descripcion", "estado"],
     # §5.11. Cada certificado emitido, como cuenta por cobrar. La escribe /confirmar.
     "CERTIFICADOS": COLUMNAS_CERTIFICADOS,
+    # §5.20. Una fila por línea del extracto; la escribe /conciliar/extracto.
+    "BANCO_RAW": COLUMNAS_BANCO,
 }
 
 
