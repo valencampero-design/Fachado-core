@@ -1,7 +1,7 @@
 {
   "_meta": {
     "fuente": "1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A",
-    "tomado": "2026-10-09",
+    "tomado": "2026-10-15",
     "nota": "Copia literal de las hojas maestras. Se regenera con scripts/snapshot_maestros.py."
   },
   "OBRAS": [
@@ -784,6 +784,14 @@
       "Él escribe «Lalo». Es una maderera, distinta de Maderera Misiones"
     ],
     [
+      "Elias Rodriguez",
+      "",
+      "Zinguería",
+      "Zinguería",
+      "activo",
+      "El escribe Elias"
+    ],
+    [
       "Sofía Fachado",
       "27-47181632-4",
       "Personal",
@@ -1172,6 +1180,11 @@
       "Servicios de obra",
       "Contenciones y gaviones",
       "obra"
+    ],
+    [
+      "Mano de obra",
+      "Zinguería",
+      "obra"
     ]
   ],
   "CUENTAS": [
@@ -1182,7 +1195,8 @@
       "concilia_contra_banco",
       "saldo_apertura",
       "notas",
-      "estado"
+      "estado",
+      "fecha_apertura"
     ],
     [
       "Banco",
@@ -1437,7 +1451,7 @@
       "obra"
     ],
     [
-      "sofi",
+      "Sofia",
       "Sofía Cervera",
       "contratista"
     ],
@@ -1550,6 +1564,16 @@
       "gessel",
       "Gessel",
       "obra"
+    ],
+    [
+      "Sofi",
+      "Sofia fachado",
+      "Personal"
+    ],
+    [
+      "sofi",
+      "Sofía Cervera",
+      "contratista"
     ],
     [
       "sofi",
