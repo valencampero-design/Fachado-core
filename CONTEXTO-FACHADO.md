@@ -8,7 +8,7 @@ que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico 
 - `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
   clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.9 · 9 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.10 · 15 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -177,6 +177,10 @@ transferencia) si lo hay; el rubro, del texto («zinguería» → `Zinguería`) 
 una sola pregunta. Lo que escribió el usuario («elias») queda como alias. Solo se ofrecen
 parecidos cuando son de verdad cercanos (los mismos umbrales de §5.5); si no, es nuevo.
 
+**Cuando sí hay parecidos cercanos**, la pregunta «¿Quién es X?» suma siempre un botón
+**«Es nuevo»** *(definido 15/10)*. **En un gasto personal** («Retiro/Fulano») un destinatario
+desconocido **no** se da de alta: queda en la descripción.
+
 **Contratistas inactivos** *(definido 25/09)*: en la carga diaria **no se proponen por
 parecido** (ni difuso, ni palabra única, ni LLM). Solo aparecen si el usuario escribe el
 nombre exacto, un alias exacto o el CUIT, y en ese caso el bot pregunta «X está inactivo,
@@ -259,6 +263,8 @@ equivalentes al tipo de cambio del momento del pago**. Por eso la caja de obra p
 moneda USD, y un pago en pesos desde una caja en dólares necesita su tipo de cambio.
 *Decisión de A&C para no preguntar de más:* el bot pide el tipo de cambio en el primer
 pago del día de esa caja y lo reutiliza el resto del día, mostrándolo en la ficha.
+**Si el comprobante trae el tipo de cambio** («US$ 2.000 × 1535»), **ese es el del pago** y
+no se pregunta *(definido 15/10)*.
 
 **Un pago en dólares desde una caja en dólares se descuenta directo en dólares**, sin tipo
 de cambio *(definido 9/10, reunión 6)*. **La palabra «caja» en el mensaje** («caja», «caja
@@ -483,7 +489,7 @@ número pegado al nombre de la obra: **`Lennon1`** es la etapa 1 de Lennon.
 | Moquehue, Gonzalo, Hua Huan, Grigera Galpón, Belleli, Gessel, Tres Cerros | Sin etapas |
 
 Moreno tiene dos etapas en curso, así que un pago a Moreno sin etapa se pregunta: «¿Etapa 1
-o extras?».
+o extras?». *Confirmado el 15/10: se sigue preguntando, no se asume.*
 
 ### 5.16 · El mismo movimiento cargado dos veces
 
@@ -532,6 +538,64 @@ cargó, quién lo corrigió y cuándo.
   `ve_personal`.
 - La conciliación ignora el par original + contraasiento y concilia la fila correcta.
 
+### 5.20 · Conciliación con el banco
+
+*Definido el 15/10.* Es lo que cierra el circuito de la propuesta: el extracto deja de ser
+una fuente de errores y pasa a ser el detector de lo que no se cargó.
+
+- **Arranca el 1/11.** Octubre es rodaje. El 1/11 se cargan los **saldos de apertura al
+  31/10** de cada cuenta (Banco, Banco USD, Efectivo y cada caja de obra) y **noviembre es el
+  primer mes que se cierra contra el banco**. Nada anterior al 1/11 se concilia.
+- **El extracto entra por el bot.** Gabriel o Petrus le mandan el Excel que exporta el banco
+  («CompartirDetalleMovimiento…»), una vez por semana o cuando quieran. Trae varias cuentas
+  del mismo banco: se concilia todo junto (§5.7). Los extractos se superponen; una línea ya
+  importada no se duplica.
+- **Lo que coincide se concilia solo**: mismo importe, fecha cercana y, si la línea lo trae,
+  el mismo CUIT o nombre o número de operación. Conciliar es **lo único que actualiza una fila
+  ya escrita**, y solo sus dos columnas de control (`id_banco`, `estado_conc`): el hecho no
+  cambia, cambia si ya se lo vio en el banco. Lo personal se cruza contra el libro
+  personal, fila por fila (§5.14), nunca contra la línea semanal.
+- **Lo que está en el banco y no en el libro se convierte en pregunta**, de a una, como un
+  movimiento más: «Vi un pago de $ 165.700 a Grimau el 25/10 que no tengo cargado. ¿A qué
+  obra?». La línea del banco hace de comprobante. Siempre con «Confirmar».
+- **Los gastos bancarios** (comisiones, impuestos, intereses, cruce de fondos) **van en un
+  solo lote** por extracto: «12 gastos bancarios por $ X, ¿los cargo?». Estructura del
+  estudio.
+- **Mercado Libre / Mercado Pago que no cruza con un comprobante queda como gasto personal
+  sin clasificar** (§5.6), también en lote.
+- **Lo que está en el libro y no aparece en el banco** después de una semana se avisa en el
+  resumen; no se pregunta uno por uno.
+- **Resumen después de cada extracto** (y el lunes, con el cierre semanal): saldo según el
+  libro, saldo según el banco, la diferencia, y cuántas líneas quedan pendientes. **Ese es el
+  control que hoy no existe.**
+
+### 5.21 · El tablero
+
+*Definido el 15/10.* En Looker Studio, abierto desde el celular. Tres vistas, como dice la
+propuesta: **consolidado** (saldo de caja por cuenta, resultado del mes por rubro, semáforo
+de obras), **por obra** (ejecución por rubro, aportes del comitente contra egresos, top de
+proveedores, detalle con link al comprobante) y **proveedores** (ranking por volumen y
+evolución de lo pagado).
+
+- Lee de **hojas de vistas** que el motor recalcula (no de MOVIMIENTOS crudo): así el
+  tablero no repite la lógica de anulados, cajas de obra, informales y personal.
+- **Sin presupuestos en esta etapa** *(definido 15/10)*: presupuesto contra ejecutado es
+  una etapa posterior, todavía no cotizada. El semáforo de obras usa lo que hay: caja de obra
+  en negativo o estudio financiando la obra en rojo, sin movimientos en 30 días en gris.
+- **Cuentas corrientes por obra en el Sheet** *(entregable de la propuesta)*: una hoja
+  `CC_<obra>` por cada obra que lleva cuenta corriente (§6), con la misma lógica que la
+  planilla actual de Gabriel —aportes, por contratista, por rubro, detalle cronológico con
+  el comprobante—, armada desde las mismas vistas que el tablero. Se crean solas cuando
+  aparece una obra nueva.
+- **Capital propio inmovilizado** *(definición de A&C, a validar con Gabriel)*: en una obra
+  propia, lo que el estudio puso menos lo que la obra devolvió (ventas); en una obra de
+  terceros, lo que el estudio pagó con su plata menos lo que el comitente adelantó, si es
+  positivo (el estudio está financiando la obra).
+- **Lo personal tiene su propio tablero** (§5.14), que solo ven los usuarios con
+  `ve_personal`.
+- La propuesta habla de «evolución de precios» por proveedor; sin cantidades en los
+  comprobantes, se muestra la evolución de lo pagado, no de precios unitarios.
+
 ---
 
 ## 6. Las quince obras
@@ -569,7 +633,9 @@ plata ahí, solo cobra honorarios.
 |---|---|
 | **Gabriel Fachado** | El arquitecto. Titular: escribe al bot y decide |
 | **Petrus** | Colaborador del estudio. **Se reincorpora en septiembre de 2026** y va a manejar gran parte de la administración por el bot. Ya trabajó en el estudio: en el histórico figura en 106 pagos, casi todos en efectivo por cuenta del estudio |
-| **Sofía Cervera · Juan Manuel** | Sus hijos. **Duales**: a veces contratistas, a veces gasto personal |
+| **Sofía Fachado** | Su hija (CUIT 27-47181632-4; en las transferencias, «FACHADO, SOFIA»). **Gasto personal** · `Personal › Familia` *(corregido 15/10)* |
+| **Sofía Cervera** | **Trabaja para el estudio.** Lo que se le paga es **estructura del estudio**, imputado a Austral. Nunca personal *(definido 15/10)* |
+| **Juan Manuel Fachado** | Su hijo. **Dual**: a veces contratista, a veces gasto personal |
 | **Valentín Campero** | A&C. Honorarios de consultoría → `estructura`, imputados a Austral |
 | **Miguel Soto** | Cobra también con el CUIT de **Alexis Matamala**. Para el estudio es el mismo proveedor |
 
@@ -585,6 +651,13 @@ plata ahí, solo cobra honorarios.
 preguntar.** Se implementa cargando varias filas de `ALIAS` con el mismo `como_lo_dice`
 (§5.5). Los apellidos sí son unívocos: `maragaño` → Marcelo Maragaño, `orellana` → Marcelo
 Orellana.
+
+### Las dos «Sofi» *(definido 15/10)*
+
+«Sofi» puede ser cualquiera de las dos. En orden: **el CUIT o el nombre del comprobante
+manda** (27-47181632-4 / «FACHADO, SOFIA» es la hija); **con «Retiro» es Sofía Fachado**
+(personal); **con Austral o el estudio es Sofía Cervera** (estructura). Sin ninguna de esas
+señales, el bot pregunta con dos botones.
 
 ### Otros alias confirmados
 
@@ -610,7 +683,11 @@ certificado, «Austral» es el emisor, nunca la obra.**
 
 ## 8. Estado y pendientes
 
-**Semana 6 de 8.** Primera semana de uso real (29/09–8/10): el bot carga, pero la
+**Semana 7 de 8 (15/10).** Gabriel y Petrus cargan por el bot. Lo que falta de la propuesta:
+**la conciliación con el banco (§5.20) y el tablero (§5.21)**, más la marcha blanca y el
+manual. La meta sigue siendo noviembre: primer mes cerrado contra el banco.
+
+**Semana 6.** Primera semana de uso real (29/09–8/10): el bot carga, pero la
 conversación resultó tediosa —demasiadas preguntas, preguntas que no aplican, respuestas que
 no siguen el hilo y bucles de error—. La v1.8 fija las reglas de §5.12 («Pocas preguntas» y
 «La conversación tiene que seguir el hilo») y la caja de obra (§5.8).
@@ -635,7 +712,7 @@ blanca.
 (§5.15), el depósito es un pasante (§5.17), las obras propias van en el libro del estudio
 (§6) y los certificados los paga el comitente (§5.11).
 
-**Ideas para una etapa futura, a presupuestar aparte:** cuentas por pagar a proveedores por
+**Ideas para una etapa futura, a presupuestar aparte:** presupuesto de obra contra ejecutado; cuentas por pagar a proveedores por
 obra, un reporte para pasarle al comitente con lo pendiente de pagar, y que el comprobante
 del pago lo cancele. Contesta «¿qué tengo pendiente de pagar en la obra X?».
 
