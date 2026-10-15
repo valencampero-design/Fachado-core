@@ -252,7 +252,7 @@ deploy para Valen en orden.
 M1, M2, M3 y M4 hechos, en orden, cada uno commiteado **sin pushear**. Nada se trabó más de
 30 minutos. Ningún test ni script escribió en los Sheets reales: los simulacros contra el
 Master fueron de solo lectura. Los cinco archivos de tests dan TODO OK: `test_casos`,
-`test_reglas`, `test_confirmar`, `test_conciliar` (nuevo, 33 checks) y `test_vistas`
+`test_reglas`, `test_confirmar`, `test_conciliar` (nuevo, 36 checks) y `test_vistas`
 (nuevo, 21 checks).
 
 | Commit | Qué |
