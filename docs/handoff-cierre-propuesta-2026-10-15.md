@@ -427,7 +427,13 @@ autorice.
    entra como `ANTERIOR`. La prueba de punta a punta en producción muestra «todo anterior, nada
    para conciliar», que es lo correcto. El circuito completo (lotes, ambiguas, fichas) está
    probado en `tests/test_conciliar.py`. **No bajar `CONCILIACION_DESDE` en Railway** para
-   probar: las líneas quedarían conciliadas o pendientes de verdad.
+   probar: las líneas quedarían conciliadas o pendientes de verdad, y **volver la variable a
+   2026-11-01 no lo deshace**. Esas líneas ya quedan importadas (mismo `hash_id`), así que
+   cuentan como repetidas y no se recalculan. Además quedan marcados `id_banco` y
+   `estado_conc` en filas reales de MOVIMIENTOS. Para ver el circuito completo con el
+   extracto de agosto: el motor **local** contra una **copia** del Master con
+   `CONCILIACION_DESDE=2026-08-01`, nunca el Master real. (Avisado también a la sesión del
+   gateway, que había escrito ese paso para producción.)
 7. **Looker Studio**: `docs/tablero-looker.md`.
 8. **El 1/11**: cargar en CUENTAS `saldo_apertura` y `fecha_apertura` (31/10) de Banco, Banco
    USD, Efectivo y cada caja de obra, y mandar el primer extracto de noviembre.
