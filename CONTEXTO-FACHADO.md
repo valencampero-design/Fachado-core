@@ -583,8 +583,8 @@ evolución de lo pagado).
   una etapa posterior, todavía no cotizada. El semáforo de obras usa lo que hay: caja de obra
   en negativo o estudio financiando la obra en rojo, sin movimientos en 30 días en gris.
 - **Cuentas corrientes por obra en el Sheet** *(entregable de la propuesta)*: una hoja
-  `CC_<obra>` por cada obra que lleva cuenta corriente (§6), con la misma lógica que la
-  planilla actual de Gabriel —aportes, por contratista, por rubro, detalle cronológico con
+  `CC_<obra>` por **cada obra** (§6) —las personales, en el libro personal—, con la misma
+  lógica que la planilla actual de Gabriel —aportes, por contratista, por rubro, detalle cronológico con
   el comprobante—, armada desde las mismas vistas que el tablero. Se crean solas cuando
   aparece una obra nueva.
 - **Capital propio inmovilizado** *(definición de A&C, a validar con Gabriel)*: en una obra
@@ -622,8 +622,9 @@ inversiones**, no consumo. El costo se sigue como **capital inmovilizado** y el 
 mide contra la venta. No van al circuito personal, y se quedan en el libro del estudio, no en el libro
 personal (§5.14; confirmado 29/09).
 
-**Las de «proyecto y dirección» no llevan cuenta corriente de costos**: el estudio no mueve
-plata ahí, solo cobra honorarios.
+**Todas las obras tienen cuenta corriente** *(definido 15/10)*: también las de «proyecto y
+dirección» (el estudio casi no mueve plata ahí; su cuenta muestra sobre todo los honorarios
+cobrados) y los inmuebles personales, cuya cuenta vive en el libro personal (§5.14).
 
 ---
 
