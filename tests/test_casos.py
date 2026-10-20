@@ -780,33 +780,33 @@ def main() -> int:
     print("\nPost-reunión 6 · M1 contratista nuevo (§5.6 v1.9, captura 1)")
     pdf_galicia = Adjunto(url="https://drive.google.com/file/d/LR7DGWQ530xxxxxxxxxxxxxxxx/view", mime="application/pdf",
                           nombre="LR7DGWQ530.pdf")
-    leido_elias = dict(importe=350000, fecha="2026-10-09", razon_social="PEREZ, ELIAS DANIEL", cuit="20-28123456-7",
+    leido_elias = dict(importe=350000, fecha="2026-10-09", razon_social="PEREZ, TEODORO DANIEL", cuit="20-28123456-7",
                        medio_pago="Transferencia", tipo_comprobante="Transferencia")
-    r, f = leer_con("Lennon/elias/zingueria", adjuntos=[pdf_galicia], lector=lector_con(**leido_elias))
+    r, f = leer_con("Lennon/teodoro/zingueria", adjuntos=[pdf_galicia], lector=lector_con(**leido_elias))
     c, nuevo = f.campos, f.extras.get("contratista_nuevo") or {}
-    check("captura 1: PDF + «Lennon/elias/zingueria» → contratista nuevo con nombre y CUIT del comprobante, rubro "
-          "Zinguería, alias «elias», cero preguntas",
+    check("captura 1: PDF + «Lennon/teodoro/zingueria» → contratista nuevo con nombre y CUIT del comprobante, rubro "
+          "Zinguería, alias «teodoro», cero preguntas",
           (nuevo.get("nombre"), nuevo.get("cuit"), nuevo.get("rubro_habitual_2"), nuevo.get("alias"))
-          == ("Elias Daniel Perez", "20-28123456-7", "Zinguería", "elias")
-          and c["contratista"] == "Elias Daniel Perez" and c["rubro_2"] == "Zinguería" and not r.preguntas,
+          == ("Teodoro Daniel Perez", "20-28123456-7", "Zinguería", "teodoro")
+          and c["contratista"] == "Teodoro Daniel Perez" and c["rubro_2"] == "Zinguería" and not r.preguntas,
           (nuevo, c["contratista"], [(p.campo, p.texto, p.opciones) for p in r.preguntas]))
-    check("… la ficha lo avisa: «Elias Daniel Perez es nuevo: lo agrego como contratista · Zinguería»",
-          "Elias Daniel Perez es nuevo: lo agrego como contratista · Zinguería" in f.extras.get("advertencias", []),
+    check("… la ficha lo avisa: «Teodoro Daniel Perez es nuevo: lo agrego como contratista · Zinguería»",
+          "Teodoro Daniel Perez es nuevo: lo agrego como contratista · Zinguería" in f.extras.get("advertencias", []),
           f.extras.get("advertencias"))
     check("… y nunca propone parecidos lejanos (Ibañez, Mathias Flores, Mariela Escribana)",
           not any("Ibañez" in o or "Mathias" in o for p in r.preguntas for o in p.opciones), [p.opciones for p in r.preguntas])
-    r, f, c = leer("Lennon/elias/zingueria $50.000")
-    check("sin comprobante: el nombre como lo escribió, capitalizado («Elias»), y sin alias (es el mismo)",
-          (f.extras.get("contratista_nuevo") or {}).get("nombre") == "Elias" and c["contratista"] == "Elias"
+    r, f, c = leer("Lennon/teodoro/zingueria $50.000")
+    check("sin comprobante: el nombre como lo escribió, capitalizado («Teodoro»), y sin alias (es el mismo)",
+          (f.extras.get("contratista_nuevo") or {}).get("nombre") == "Teodoro" and c["contratista"] == "Teodoro"
           and not (f.extras.get("contratista_nuevo") or {}).get("alias") and not r.preguntas,
           (f.extras.get("contratista_nuevo"), [p.campo for p in r.preguntas]))
-    r0, f0, _ = leer("Lennon/elias $50.000")
+    r0, f0, _ = leer("Lennon/teodoro $50.000")
     r1 = responder(r0, ("rubro", "Zinguería"))
     f1 = r1.fichas[0]
     check("sin rubro en el texto: una sola pregunta (el rubro); contestada, el alta lleva ese rubro habitual",
           [p.campo for p in r0.preguntas] == ["rubro"] and not r1.preguntas
           and (f1.extras.get("contratista_nuevo") or {}).get("rubro_habitual_2") == "Zinguería"
-          and f1.campos["contratista"] == "Elias",
+          and f1.campos["contratista"] == "Teodoro",
           ([p.campo for p in r0.preguntas], [p.campo for p in r1.preguntas], f1.extras.get("contratista_nuevo")))
     r1 = responder(r0, ("contratista", "Miguel Soto"))
     check("… y si el usuario dice que es otro (Miguel Soto), ya no hay alta",
@@ -897,8 +897,8 @@ def main() -> int:
     print("\n15/10 · M1.2 «Es nuevo» y M1.3 personal desconocido (§5.6 v1.10)")
     r0, f0, _ = leer("Lennon/Rodri $1.000")
     p0 = next((p for p in r0.preguntas if p.campo == "contratista"), None)
-    check("«Rodri» con un parecido cercano (Rodrigo Sanitarista) → la pregunta suma «__nuevo__»",
-          p0 and p0.opciones == ["Rodrigo Sanitarista", "__nuevo__"], p0 and p0.opciones)
+    check("«Rodri» con parecidos cercanos (Rodrigo Sanitarista…) → la pregunta suma «__nuevo__» al final",
+          p0 and p0.opciones[0] == "Rodrigo Sanitarista" and p0.opciones[-1] == "__nuevo__", p0 and p0.opciones)
     r1 = responder(r0, ("contratista", "__nuevo__"))
     f1 = r1.fichas[0]
     check("… respondida «__nuevo__» → contratista nuevo «Rodri», con el nombre como lo escribió",
