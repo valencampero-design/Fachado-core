@@ -27,6 +27,7 @@ COLUMNAS_CERTIFICADOS: list[str] = [
 COLUMNAS_BANCO: list[str] = [
     "hash_id", "fecha", "descripcion", "debito", "credito", "saldo", "estado", "id_mov",
     "cuenta_banco", "moneda", "cuit", "nombre", "ref", "candidatos", "lote", "orden", "importado_ts",
+    "origen",  # 20/10: banco_patagonia | mercado_pago
 ]
 # Lo que describe una ficha de tipo CERTIFICADO (`campos["tipo"] == "CERTIFICADO"`).
 # §5.18: lo que describe una ficha de tipo TRASPASO. /confirmar la escribe como dos filas de

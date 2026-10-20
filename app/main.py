@@ -162,6 +162,7 @@ class ConciliarLoteIn(BaseModel):
     tipo: str  # gastos_bancarios | meli_personal | asignar | ignorar
     hash_ids: list[str]
     id_mov: str | None = None  # solo con «asignar»
+    tipo_cambio: str | None = None  # 20/10: string; obligatorio si el lote está en dólares
 
 
 def obtener_descargador():
@@ -196,6 +197,16 @@ def get_conciliar_pendientes(telefono: str, libro: Libro = Depends(obtener_libro
         raise _http_conciliar(e)
 
 
+@app.get("/conciliar/estado", dependencies=[Depends(verificar_api_key)])
+def get_conciliar_estado(telefono: str, libro: Libro = Depends(obtener_libro)) -> dict:
+    """Qué llegó y qué falta de la semana, por fuente (las cuatro cuentas del banco y Mercado
+    Pago). Solo lee. Lo usa el gateway para el pedido semanal de extractos."""
+    try:
+        return conciliar.estado(telefono, libro)
+    except conciliar.ErrorConciliar as e:
+        raise _http_conciliar(e)
+
+
 @app.post("/conciliar/lote", dependencies=[Depends(verificar_api_key)])
 async def post_conciliar_lote(req: ConciliarLoteIn, libro: Libro = Depends(obtener_libro),
                               libro_personal: Libro | None = Depends(obtener_libro_personal),
@@ -203,7 +214,8 @@ async def post_conciliar_lote(req: ConciliarLoteIn, libro: Libro = Depends(obten
     """Confirma un lote (gastos bancarios, MeLi personal), asigna una ambigua a su movimiento
     o ignora líneas. Cada línea cargada usa /confirmar con msg_id «banco:<hash_id>»."""
     try:
-        return await conciliar.lote(req.telefono, req.tipo, req.hash_ids, req.id_mov, libro, libro_personal, archivador)
+        return await conciliar.lote(req.telefono, req.tipo, req.hash_ids, req.id_mov, libro, libro_personal, archivador,
+                                    req.tipo_cambio)
     except conciliar.ErrorConciliar as e:
         raise _http_conciliar(e)
 

@@ -30,7 +30,7 @@ COLUMNAS = {
     "MOVIMIENTOS": ["msg_id", "certificado", "etapa", "informal", "ref_comprobante", "vinculo", "anula"],
     "USUARIOS": ["telefono", "nombre", "rol", "activo", "ve_personal", "auto_confirmar"],
     # §5.20: desde cuándo vale saldo_apertura (los valores los carga Valen el 1/11).
-    "CUENTAS": ["estado", "fecha_apertura"],
+    "CUENTAS": ["estado", "fecha_apertura", "cuentas_banco"],  # cuentas_banco: §5.20 v1.11 (20/10)
     # §5.20: BANCO_RAW ya existe con las ocho primeras; el resto va al final.
     "BANCO_RAW": COLUMNAS_BANCO,
     # §5.7 (v1.7), regla 3: la cuenta de los pagos de la obra cuando nada más la dice.

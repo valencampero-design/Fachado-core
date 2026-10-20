@@ -1196,7 +1196,8 @@
       "saldo_apertura",
       "notas",
       "estado",
-      "fecha_apertura"
+      "fecha_apertura",
+      "cuentas_banco"
     ],
     [
       "Banco",
@@ -1205,7 +1206,9 @@
       "SÍ",
       "0,00",
       "Una sola cuenta. Caja de ahorro y cuenta corriente son tramos del mismo banco",
-      "activa"
+      "activa",
+      "",
+      "CA $ 273-125852351-000; CC $ 273-125852351-000; CA $ 48-69556582-001"
     ],
     [
       "Banco USD",
@@ -1214,7 +1217,9 @@
       "SÍ",
       "0,00",
       "Tramo en dólares de la misma cuenta",
-      "activa"
+      "activa",
+      "",
+      "CA U$S 273-125852351-000"
     ],
     [
       "Efectivo",
@@ -1238,10 +1243,12 @@
       "Mercado Pago",
       "billetera",
       "ARS",
-      "no",
+      "SÍ",
       "0,00",
       "",
-      "activa"
+      "activa",
+      "",
+      "Mercado Pago"
     ],
     [
       "Pagado por el comitente",

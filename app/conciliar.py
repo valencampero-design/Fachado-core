@@ -15,11 +15,21 @@ El extracto deja de ser una fuente de errores y pasa a ser el detector de lo que
 4. **Resumen**: saldo según el libro contra saldo según el banco, por cuenta y total.
 
 Los contratos (`/conciliar/extracto`, `/conciliar/pendientes`, `/conciliar/lote`) están en §3
-del handoff del 15/10. Ningún test escribe en el Sheet real.
+del handoff del 15/10; `/conciliar/estado`, el PDF de Mercado Pago, los traspasos entre cuentas
+propias y los lotes en dólares, en §3 del handoff del 20/10. Ningún test escribe en el Sheet
+real.
+
+**Traspasos entre cuentas propias** (20/10, §5.20 v1.11): con cinco fuentes, la misma plata
+aparece dos veces. Se emparejan **al armar lo pendiente** (el par puede completarse con el
+archivo siguiente), ±1 día hábil:
+- entre dos cuentas del banco que van a la misma cuenta del libro (CA $ → CC $): `INTERNA`,
+  concilia sola, sin movimiento (supuesto S4);
+- entre cuentas distintas del libro (Banco ↔ Mercado Pago, pesos ↔ dólares): **una ficha de
+  traspaso** con las dos líneas; entre monedas, el tc sale del par (pesos / dólares).
 """
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 from app import maestros
 from app.comprobante import DatosComprobante
@@ -35,6 +45,7 @@ from app.saldos import en_moneda_de_la_cuenta
 logger = logging.getLogger(__name__)
 
 ANTERIOR, CONCILIADO, A_REVISAR, SIN_CARGAR, IGNORADO = "ANTERIOR", "CONCILIADO", "A_REVISAR", "SIN_CARGAR", "IGNORADO"
+INTERNA = "INTERNA"    # 20/10: un pase entre dos cuentas del banco que van a la misma cuenta del libro
 ABIERTOS = (A_REVISAR, SIN_CARGAR)
 DIAS_PROBABLE = 3      # «mismo importe, fecha ±3 días» (handoff del 15/10)
 DIAS_FUERTE = 10       # con ref o CUIT alcanza una ventana más ancha: el banco acredita tarde
@@ -43,8 +54,13 @@ DIAS_SIN_BANCO = 7     # §5.20: lo del libro que no aparece en el banco despué
 # Gastos bancarios (§5.20: un solo lote por extracto, estructura del estudio).
 RE_GASTO_BANCARIO = re.compile(
     r"comisi|impuesto|imp\.?\s*db|db/cr|intereses|cruce de fondos|iva percep|percepci|retenci|sellos|"
-    r"mantenimiento|cargo\b|seguro de vida|com\.", re.I)
-RE_MELI = re.compile(r"mercado\s*libre|mercadolibre|mercado\s*pago|mercadopago|merpago", re.I)
+    r"mantenimiento|cargo\b|seguro de vida|com\.|rendimiento", re.I)
+# Compras de Mercado Libre. «Mercado Pago» a secas en el banco no: puede ser un pase a la cuenta
+# de Mercado Pago del estudio, que se empareja como traspaso (20/10).
+RE_MELI = re.compile(r"mercado\s*libre|mercadolibre|merpago", re.I)
+# Compra o venta de dólares entre la CA $ y la CA U$S (§5.7: traspaso entre monedas).
+RE_CAMBIO = re.compile(r"compra.?venta (?:de )?d[oó]lares|compra de d[oó]lares|venta de d[oó]lares|"
+                       r"compra.?venta (?:de )?moneda", re.I)
 RUBRO_BANCARIO = ("Impuestos y tasas", "Bancarios")
 # Supuesto (handoff del 15/10, «decisión de negocio que no está: la más conservadora»): lo de
 # Mercado Libre que no cruza es «gasto personal sin clasificar» (§5.6); el rubro personal más
@@ -98,6 +114,23 @@ def _cuenta_motor(moneda: str, m: Maestros):
     return next((c for c in m.cuentas if c.activa and c.tipo == "banco" and c.moneda == moneda), None)
 
 
+def _clave_cuenta_banco(texto: str) -> str:
+    return re.sub(r"\s+", "", str(texto or "")).lower()
+
+
+def cuenta_de_linea(linea: dict, m: Maestros):
+    """La cuenta del libro de una línea: la que nombra esa cuenta del banco en
+    `CUENTAS.cuentas_banco` (§5.20 v1.11); si no está configurada, Mercado Pago para el PDF de
+    Mercado Pago y Banco / Banco USD por la moneda para el banco."""
+    clave = _clave_cuenta_banco(linea.get("cuenta_banco"))
+    configurada = next((c for c in m.cuentas if c.activa and clave in {_clave_cuenta_banco(x) for x in c.cuentas_banco}), None)
+    if configurada:
+        return configurada
+    if linea.get("origen") == "mercado_pago" or clave == _clave_cuenta_banco("Mercado Pago"):
+        return next((c for c in m.cuentas if c.activa and c.tipo == "billetera" and c.moneda == "ARS"), None)
+    return _cuenta_motor(str(linea.get("moneda") or "ARS"), m)
+
+
 def _conciliables(movs: list[dict], m: Maestros, desde: str) -> list[dict]:
     salida = []
     for mov in para_conciliacion(movs):
@@ -149,13 +182,15 @@ def _cuits_del_mov(mov: dict, m: Maestros) -> set[str]:
 def _candidatos(linea: dict, movs: list[dict], m: Maestros, usados: set) -> tuple[list[dict], list[dict]]:
     """(fuertes, probables) para una línea del banco."""
     importe, moneda = numero(linea.get("credito")) - numero(linea.get("debito")), str(linea.get("moneda") or "ARS")
+    # Una línea de Mercado Pago se cruza con lo cargado en Mercado Pago; una del banco, con Banco.
+    destino = cuenta_de_linea(linea, m)
     fuertes, probables = [], []
     for mov in movs:
         clave = (mov["_libro"], mov["_fila"])
         if clave in usados:
             continue
         cuenta = m.cuenta(mov.get("cuenta"), incluir_inactivas=True)
-        if cuenta is None or cuenta.moneda != moneda:
+        if cuenta is None or cuenta.moneda != moneda or (destino is not None and cuenta.nombre != destino.nombre):
             continue
         valor = _importe_mov(mov, moneda)
         if valor is None or abs(valor - importe) > 0.01:
@@ -186,16 +221,73 @@ def _decidir(linea: dict, movs: list[dict], m: Maestros, usados: set) -> tuple[s
 
 
 def lote_de(linea: dict) -> str | None:
-    """Gastos bancarios y Mercado Libre van en lote. Solo en pesos: en dólares hace falta el
-    tipo de cambio, y eso va de a uno como ficha (supuesto conservador, anotado en el handoff)."""
-    if str(linea.get("moneda") or "ARS") != "ARS":
-        return None
+    """Gastos bancarios (también rendimientos, comisiones y retenciones de Mercado Pago: supuesto
+    S3) y compras de Mercado Libre van en lote. Los gastos en dólares van en un lote aparte, con
+    un tipo de cambio para todo el lote (supuesto S2, 20/10); Mercado Libre, solo en pesos."""
     desc = str(linea.get("descripcion") or "")
+    if RE_CAMBIO.search(desc):
+        return None  # compra o venta de dólares: es un traspaso entre monedas
     if RE_GASTO_BANCARIO.search(desc):
         return "gastos_bancarios"
-    if numero(linea.get("debito")) > 0 and RE_MELI.search(desc):
+    if str(linea.get("moneda") or "ARS") == "ARS" and numero(linea.get("debito")) > 0 and RE_MELI.search(desc):
         return "meli_personal"
     return None
+
+
+# ─── Traspasos entre cuentas propias (20/10) ───────────────────────────────────
+
+def _dias_habiles(a: str, b: str) -> int:
+    """Días hábiles entre dos fechas (lunes a viernes; los feriados no se cuentan aparte)."""
+    try:
+        d1, d2 = sorted((date.fromisoformat(str(a)[:10]), date.fromisoformat(str(b)[:10])))
+    except ValueError:
+        return 10_000
+    n, d = 0, d1
+    while d < d2:
+        d = date.fromordinal(d.toordinal() + 1)
+        if d.weekday() < 5:
+            n += 1
+    return n
+
+
+def emparejar(lineas: list[dict], m: Maestros) -> list[tuple[str, dict, dict]]:
+    """Los pares entre cuentas propias entre las líneas abiertas: (clase, sale, entra).
+    `interna`: mismo importe, dos cuentas del banco que van a la misma cuenta del libro.
+    `traspaso`: mismo importe entre cuentas distintas del libro (Banco ↔ Mercado Pago).
+    `cambio`: compra o venta de dólares, una línea en pesos y otra en dólares.
+    ±1 día hábil; cada línea en un solo par, el más cercano en fecha."""
+    sales = [x for x in lineas if numero(x.get("debito")) > 0]
+    entran = [x for x in lineas if numero(x.get("credito")) > 0]
+    pares, usadas = [], set()
+    for s in sorted(sales, key=lambda x: (str(x.get("fecha")), x["hash_id"])):
+        cs = cuenta_de_linea(s, m)
+        mejor = None
+        for e in entran:
+            if e["hash_id"] in usadas or e["hash_id"] == s["hash_id"] or e.get("cuenta_banco") == s.get("cuenta_banco"):
+                continue
+            if _dias_habiles(s.get("fecha"), e.get("fecha")) > 1:
+                continue
+            ce = cuenta_de_linea(e, m)
+            if cs is None or ce is None:
+                continue
+            misma_moneda = str(s.get("moneda") or "ARS") == str(e.get("moneda") or "ARS")
+            if misma_moneda and abs(numero(s.get("debito")) - numero(e.get("credito"))) <= 0.01:
+                clase = "interna" if cs.nombre == ce.nombre else "traspaso"
+            elif not misma_moneda and RE_CAMBIO.search(str(s.get("descripcion"))) and RE_CAMBIO.search(str(e.get("descripcion"))):
+                pesos, dolares = (numero(s.get("debito")), numero(e.get("credito"))) if s.get("moneda") == "ARS" \
+                    else (numero(e.get("credito")), numero(s.get("debito")))
+                if not dolares or not 50 <= pesos / dolares <= 100000:
+                    continue
+                clase = "cambio"
+            else:
+                continue
+            distancia = _dias(s.get("fecha"), e.get("fecha"))
+            if mejor is None or distancia < mejor[0]:
+                mejor = (distancia, clase, e)
+        if mejor:
+            usadas |= {s["hash_id"], mejor[2]["hash_id"]}
+            pares.append((mejor[1], s, mejor[2]))
+    return pares
 
 
 # ─── Texto ─────────────────────────────────────────────────────────────────────
@@ -236,11 +328,12 @@ def texto_ambigua(linea: dict, candidatos: list[str]) -> str:
             f"puede ser {lista}. ¿Cuál es?")
 
 
-def texto_lote(tipo: str, lineas: list[dict]) -> str:
+def texto_lote(tipo: str, lineas: list[dict], moneda: str = "ARS") -> str:
     total = sum(numero(x.get("debito")) - numero(x.get("credito")) for x in lineas)
     n = len(lineas)
     if tipo == "gastos_bancarios":
-        return f"{n} gasto{'s' if n != 1 else ''} bancario{'s' if n != 1 else ''} por {_dinero(total)}"
+        en = " en US$" if moneda == "USD" else ""
+        return f"{n} gasto{'s' if n != 1 else ''} bancario{'s' if n != 1 else ''}{en} por {_dinero(total, moneda)}"
     return (f"{n} compra{'s' if n != 1 else ''} de Mercado Libre / Mercado Pago sin comprobante por {_dinero(total)} "
             f"(gasto personal sin clasificar)")
 
@@ -272,12 +365,64 @@ def ficha_de_linea(linea: dict, telefono: str, libros: dict) -> dict:
     return salida.model_dump()
 
 
+# ─── La ficha de un traspaso entre cuentas propias (20/10) ─────────────────────
+
+def _formato_tc(tc: float) -> str:
+    entero, _, dec = f"{tc:,.2f}".partition(".")
+    entero = entero.replace(",", ".")
+    return entero if dec == "00" else f"{entero},{dec}"
+
+
+def _datos_traspaso(clase: str, sale: dict, entra: dict, m: Maestros) -> dict:
+    co, cd = cuenta_de_linea(sale, m), cuenta_de_linea(entra, m)
+    moneda = str(sale.get("moneda") or "ARS")
+    importe = numero(sale.get("debito"))
+    if clase == "cambio":
+        pesos, dolares = (importe, numero(entra.get("credito"))) if moneda == "ARS" else (numero(entra.get("credito")), importe)
+        tc = round(pesos / dolares, 4)
+    else:
+        pesos, dolares, tc = (importe if moneda == "ARS" else None), None, 1
+    return {"co": co, "cd": cd, "moneda": moneda, "importe": importe, "tc": tc, "pesos": pesos, "dolares": dolares}
+
+
+def texto_traspaso(clase: str, sale: dict, entra: dict, m: Maestros) -> str:
+    d = _datos_traspaso(clase, sale, entra, m)
+    if clase == "cambio":
+        que = "una compra" if d["moneda"] == "ARS" else "una venta"
+        return (f"Vi {que} de {_dinero(d['dolares'], 'USD')} por {_dinero(d['pesos'])} (TC {_formato_tc(d['tc'])}) "
+                f"el {_dia(sale.get('fecha'))}. ¿La cargo como traspaso?")
+    return (f"Vi que pasaste {_dinero(d['importe'], d['moneda'])} de {d['co'].nombre} a {d['cd'].nombre} "
+            f"el {_dia(sale.get('fecha'))}. ¿Lo cargo como traspaso?")
+
+
+def ficha_de_traspaso(clase: str, sale: dict, entra: dict, m: Maestros) -> dict:
+    """Una sola ficha TRASPASO con las dos líneas (no dos egresos sueltos). Entre monedas, el
+    tc sale del par, origen `comprobante`, y no se pregunta (§5.7). Se confirma con
+    `msg_id = "banco:<hash de la que sale>"` y `extras.ids_banco = [sale, entra]`."""
+    from app.models import CAMPOS_FICHA_TRASPASO, Ficha, InterpretarOut
+    d = _datos_traspaso(clase, sale, entra, m)
+    campos = {c: None for c in CAMPOS_FICHA_TRASPASO}
+    campos.update({"tipo": "TRASPASO", "fecha": str(sale.get("fecha"))[:10], "importe": d["importe"], "moneda": d["moneda"],
+                   "tc": d["tc"], "importe_ars": round(d["importe"] * (d["tc"] if d["moneda"] != "ARS" else 1), 2),
+                   "cuenta_origen": d["co"].nombre, "cuenta_destino": d["cd"].nombre,
+                   "descripcion": f"Extracto: {sale.get('descripcion')} / {entra.get('descripcion')}"})
+    origen = {k: "comprobante" for k, v in campos.items() if v not in (None, "")}
+    ficha = Ficha(campos=campos, origen_campo=origen, extras={"ids_banco": [sale["hash_id"], entra["hash_id"]]})
+    return InterpretarOut(intencion="movimiento", fichas=[ficha], preguntas=[], requiere_confirmacion=True,
+                          diagnostico={"origen": "conciliacion", "clase": clase}).model_dump()
+
+
+def lineas_por_hash(libro: Libro, hash_ids: list[str]) -> dict[str, dict]:
+    _, banco = _banco_con_fila(libro)
+    return {x["hash_id"]: x for x in banco if x["hash_id"] in set(hash_ids)}
+
+
 # ─── Resumen ───────────────────────────────────────────────────────────────────
 
-def _saldo_banco(banco: list[dict]) -> dict[str, tuple[float, str, str]]:
-    """{cuenta_banco: (saldo, fecha, moneda)} con la última línea de cada cuenta: la de fecha
-    más nueva y, el mismo día, la del extracto más reciente con menor orden (el banco lista del
-    más nuevo al más viejo)."""
+def _saldo_banco(banco: list[dict]) -> dict[str, tuple[float, str, str, str]]:
+    """{cuenta_banco: (saldo, fecha, moneda, origen)} con la última línea de cada cuenta: la de
+    fecha más nueva y, el mismo día, la del extracto más reciente con menor orden (orden 0 = la
+    más nueva del archivo)."""
     salida: dict[str, tuple] = {}
     for x in banco:
         if x.get("saldo") in ("", None):
@@ -285,7 +430,8 @@ def _saldo_banco(banco: list[dict]) -> dict[str, tuple[float, str, str]]:
         clave = (str(x.get("fecha"))[:10], str(x.get("importado_ts") or ""), -int(numero(x.get("orden"))))
         actual = salida.get(x["cuenta_banco"])
         if actual is None or clave > actual[0]:
-            salida[x["cuenta_banco"]] = (clave, numero(x.get("saldo")), str(x.get("fecha"))[:10], x.get("moneda") or "ARS")
+            salida[x["cuenta_banco"]] = (clave, numero(x.get("saldo")), str(x.get("fecha"))[:10], x.get("moneda") or "ARS",
+                                         x.get("origen") or "banco_patagonia")
     return {k: v[1:] for k, v in salida.items()}
 
 
@@ -304,39 +450,49 @@ def _saldo_libro(cuenta, movs: list[dict]) -> float:
 
 
 def resumen(banco: list[dict], movs: list[dict], m: Maestros) -> dict:
-    """Saldo según el libro contra saldo según el banco, por cuenta del motor (Banco, Banco
-    USD) y total en pesos; las cuentas del banco detalladas; conteos por estado."""
+    """Saldo según el libro contra saldo según el banco, por cuenta del libro (Banco, Banco USD,
+    Mercado Pago: la de cada cuenta del banco, `cuenta_de_linea`) y total en pesos (las cuentas
+    del libro en pesos: Banco + Mercado Pago); las cuentas del banco detalladas; conteos."""
     saldos = _saldo_banco(banco)
-    por_cuenta = []
-    for moneda in ("ARS", "USD"):
-        cuenta = _cuenta_motor(moneda, m)
-        del_banco = {k: v for k, v in saldos.items() if v[2] == moneda}
-        if cuenta is None or (not del_banco and moneda != "ARS"):
+    grupos: dict[str, dict] = {}
+    banco_ars = _cuenta_motor("ARS", m)
+    if banco_ars is not None:
+        grupos[banco_ars.nombre] = {"cuenta": banco_ars, "banco": {}}
+    for k, (saldo, fecha, moneda, origen) in saldos.items():
+        cuenta = cuenta_de_linea({"cuenta_banco": k, "moneda": moneda, "origen": origen}, m)
+        if cuenta is None:
             continue
+        grupos.setdefault(cuenta.nombre, {"cuenta": cuenta, "banco": {}})["banco"][k] = (saldo, fecha)
+    por_cuenta = []
+    for nombre, g in grupos.items():
+        cuenta = g["cuenta"]
         libro_ = _saldo_libro(cuenta, movs)
-        banco_ = round(sum(v[0] for v in del_banco.values()), 2)
-        por_cuenta.append({"cuenta": cuenta.nombre, "moneda": moneda, "saldo_libro": libro_, "saldo_banco": banco_,
+        banco_ = round(sum(v[0] for v in g["banco"].values()), 2)
+        por_cuenta.append({"cuenta": nombre, "moneda": cuenta.moneda, "saldo_libro": libro_, "saldo_banco": banco_,
                            "diferencia": round(banco_ - libro_, 2), "fecha_apertura": cuenta.fecha_apertura,
-                           "cuentas_banco": [{"cuenta_banco": k, "saldo": v[0], "al": v[1]} for k, v in sorted(del_banco.items())]})
-    ars = next((c for c in por_cuenta if c["moneda"] == "ARS"), {"saldo_libro": 0.0, "saldo_banco": 0.0, "diferencia": 0.0})
+                           "cuentas_banco": [{"cuenta_banco": k, "saldo": v[0], "al": v[1]} for k, v in sorted(g["banco"].items())]})
+    ars = [c for c in por_cuenta if c["moneda"] == "ARS"]
     conteos: dict[str, int] = {}
     for x in banco:
         conteos[x.get("estado") or ""] = conteos.get(x.get("estado") or "", 0) + 1
-    return {"saldo_libro": ars["saldo_libro"], "saldo_banco": ars["saldo_banco"], "diferencia": ars["diferencia"],
+    return {"saldo_libro": round(sum(c["saldo_libro"] for c in ars), 2),
+            "saldo_banco": round(sum(c["saldo_banco"] for c in ars), 2),
+            "diferencia": round(sum(c["diferencia"] for c in ars), 2),
             "moneda": "ARS", "por_cuenta": por_cuenta, "conteos": conteos}
 
 
 def _sin_banco(movs: list[dict], banco: list[dict], m: Maestros, desde: str) -> list[dict]:
     """§5.20: lo del libro que no apareció en el banco después de una semana (solo dentro de
     lo que el extracto cubre). Se avisa en el resumen, no se pregunta uno por uno."""
-    hasta_por_moneda: dict[str, str] = {}
+    hasta_por_cuenta: dict[str, str] = {}  # hasta dónde cubre el extracto cada cuenta del libro
     for x in banco:
-        hasta_por_moneda[x.get("moneda") or "ARS"] = max(hasta_por_moneda.get(x.get("moneda") or "ARS", ""),
-                                                        str(x.get("fecha"))[:10])
+        cuenta = cuenta_de_linea(x, m)
+        if cuenta is not None:
+            hasta_por_cuenta[cuenta.nombre] = max(hasta_por_cuenta.get(cuenta.nombre, ""), str(x.get("fecha"))[:10])
     salida = []
     for mov in _conciliables(movs, m, desde):
         cuenta = m.cuenta(mov.get("cuenta"), incluir_inactivas=True)
-        hasta = hasta_por_moneda.get(cuenta.moneda)
+        hasta = hasta_por_cuenta.get(cuenta.nombre)
         if hasta and _dias(mov.get("fecha"), hasta) >= DIAS_SIN_BANCO and str(mov.get("fecha"))[:10] <= hasta:
             salida.append(mov)
     return salida
@@ -378,7 +534,7 @@ def _fila_banco(linea: LineaBanco, estado: str, id_mov: str, candidatos: list[st
                "saldo": "" if linea.saldo is None else linea.saldo, "estado": estado, "id_mov": id_mov,
                "cuenta_banco": linea.cuenta_banco, "moneda": linea.moneda, "cuit": linea.cuit or "",
                "nombre": linea.nombre or "", "ref": linea.ref or "", "candidatos": ", ".join(candidatos),
-               "lote": lote or "", "orden": linea.orden, "importado_ts": ts}
+               "lote": lote or "", "orden": linea.orden, "importado_ts": ts, "origen": linea.origen}
     return valores
 
 
@@ -392,7 +548,7 @@ def procesar_extracto(contenido: bytes, telefono: str, libro: Libro, libro_perso
     except ExtractoNoReconocido as e:
         raise ErrorConciliar(422, "adjunto", f"No es un extracto del banco que conozca: {e}") from e
     desde = settings().conciliacion_desde
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = _ahora().strftime("%Y-%m-%d %H:%M:%S")  # hora de Argentina: Railway corre en UTC
     libros = _libros(libro, libro_personal, usuario)
     movs = _movs_con_fila(libros["estudio"], "estudio") + _movs_con_fila(libros["personal"], "personal")
     encabezado, banco = _banco_con_fila(libro)
@@ -443,7 +599,17 @@ def procesar_extracto(contenido: bytes, telefono: str, libro: Libro, libro_perso
     for mov, hash_id in marcas:
         libros[mov["_libro"]].marcar_conciliado(mov["_fila"], {"id_banco": hash_id, "estado_conc": CONCILIADO})
 
+    # S4 (20/10): un pase entre dos cuentas del banco que van a la misma cuenta del libro
+    # (CA $ → CC $) concilia solo, sin movimiento. Se busca entre todas las abiertas: el par puede
+    # haber llegado en un extracto anterior.
+    _, banco = _banco_con_fila(libro)
+    internas = [p for p in emparejar([x for x in banco if x.get("estado") == SIN_CARGAR], m) if p[0] == "interna"]
+    if internas:
+        libro.actualizar_banco([(x["_fila"], {"estado": INTERNA, "lote": "", "candidatos": ""})
+                                for _, a, b in internas for x in (a, b)])
+
     salida = pendientes(telefono, libro, libro_personal, _m=m)
+    salida.update({"origen": lineas[0].origen, "cuenta_banco": lineas[0].cuenta_banco, "internas": len(internas)})
     conteo = {CONCILIADO: 0, A_REVISAR: 0, SIN_CARGAR: 0}
     for f in nuevas_filas:
         if f["estado"] in conteo:
@@ -457,7 +623,8 @@ def procesar_extracto(contenido: bytes, telefono: str, libro: Libro, libro_perso
 
 def pendientes(telefono: str, libro: Libro, libro_personal: Libro | None, _m: Maestros | None = None) -> dict:
     """GET /conciliar/pendientes: la misma forma que /conciliar/extracto, solo lo que sigue
-    abierto (los conteos de importación en cero)."""
+    abierto (los conteos de importación en cero). Solo lee: los pares entre cuentas propias se
+    arman acá, pero solo `procesar_extracto` marca los `INTERNA`."""
     m = _m or maestros.cargar()
     usuario = _usuario(m, telefono)
     libros = {k: (_LeidoUnaVez(v) if v is not None else None) for k, v in _libros(libro, libro_personal, usuario).items()}
@@ -465,30 +632,33 @@ def pendientes(telefono: str, libro: Libro, libro_personal: Libro | None, _m: Ma
     _, banco = _banco_con_fila(libro)
     desde = settings().conciliacion_desde
 
-    lotes: dict[str, list[dict]] = {}
+    abiertas = [x for x in banco if x.get("estado") == SIN_CARGAR]
+    pares = [p for p in emparejar(abiertas, m) if p[0] != "interna"]
+    en_par = {h for _, a, b in pares for h in (a["hash_id"], b["hash_id"])}
+    lotes: dict[tuple[str, str], list[dict]] = {}
     ambiguas, pendientes_ = [], []
+    for clase, sale, entra in pares:
+        pendientes_.append({"tipo": "traspaso", "hash_id": sale["hash_id"], "hash_ids": [sale["hash_id"], entra["hash_id"]],
+                            "texto": texto_traspaso(clase, sale, entra, m),
+                            "interpretacion": ficha_de_traspaso(clase, sale, entra, m)})
     for x in sorted(banco, key=lambda x: (str(x.get("fecha")), -int(numero(x.get("orden"))))):
         if x.get("estado") == A_REVISAR:
             cands = [c.strip() for c in str(x.get("candidatos") or "").split(",") if c.strip()]
             ambiguas.append({"hash_id": x["hash_id"], "texto": texto_ambigua(x, cands), "candidatos": cands})
-        elif x.get("estado") == SIN_CARGAR and x.get("lote"):
-            lotes.setdefault(x["lote"], []).append(x)
-        elif x.get("estado") == SIN_CARGAR:
-            pendientes_.append({"hash_id": x["hash_id"], "texto": texto_pendiente(x),
+        elif x.get("estado") != SIN_CARGAR or x["hash_id"] in en_par:
+            continue
+        elif x.get("lote"):
+            lotes.setdefault((x["lote"], str(x.get("moneda") or "ARS")), []).append(x)
+        else:
+            pendientes_.append({"tipo": "linea", "hash_id": x["hash_id"], "texto": texto_pendiente(x),
                                 "interpretacion": ficha_de_linea(x, telefono, libros)})
     sin_banco = _sin_banco(movs, banco, m, desde)
     salida = {
-        "importadas": 0, "repetidas": 0, "anteriores": 0, "conciliadas": 0,
-        "a_revisar": len(ambiguas), "sin_cargar": len(pendientes_) + sum(len(v) for v in lotes.values()),
+        "importadas": 0, "repetidas": 0, "anteriores": 0, "conciliadas": 0, "internas": 0,
+        "a_revisar": len(ambiguas),
+        "sin_cargar": len(pendientes_) + sum(len(v) for v in lotes.values()),
         "sin_banco": len(sin_banco),
-        "lotes": [{"tipo": tipo, "cantidad": len(xs), "total": round(sum(numero(x.get("debito")) - numero(x.get("credito"))
-                                                                        for x in xs), 2),
-                   "hash_ids": [x["hash_id"] for x in xs], "texto": texto_lote(tipo, xs),
-                   # para el botón «Ver detalle» del gateway: una línea corta por movimiento
-                   "detalle": [f"{_dia(x.get('fecha'))} · "
-                               f"{'−' if numero(x.get('debito')) else '+'}{_dinero(numero(x.get('debito')) or numero(x.get('credito')))}"
-                               f" · {str(x.get('descripcion') or '').strip()}" for x in xs]}
-                  for tipo, xs in sorted(lotes.items())],
+        "lotes": [_lote_salida(tipo, moneda, xs, movs) for (tipo, moneda), xs in sorted(lotes.items())],
         "ambiguas": ambiguas,
         "pendientes": pendientes_,
         "resumen": resumen(banco, movs, m),
@@ -496,6 +666,28 @@ def pendientes(telefono: str, libro: Libro, libro_personal: Libro | None, _m: Ma
     }
     salida["texto"] = _texto_resumen(salida)
     return salida
+
+
+def _tc_sugerido(lineas: list[dict], movs: list[dict]) -> str | None:
+    """S2 (20/10): si el libro ya usó un tipo de cambio el día del lote (la última fecha), ese."""
+    fecha = max(str(x.get("fecha"))[:10] for x in lineas)
+    del_dia = [mv for mv in movs if str(mv.get("fecha") or "")[:10] == fecha and numero(mv.get("tc")) > 1]
+    if not del_dia:
+        return None
+    tc = numero(max(del_dia, key=lambda mv: str(mv.get("ts") or "")).get("tc"))
+    return str(int(tc)) if tc == int(tc) else f"{tc:.2f}"
+
+
+def _lote_salida(tipo: str, moneda: str, xs: list[dict], movs: list[dict]) -> dict:
+    requiere_tc = moneda != "ARS"
+    return {"tipo": tipo, "moneda": moneda, "cantidad": len(xs),
+            "total": round(sum(numero(x.get("debito")) - numero(x.get("credito")) for x in xs), 2),
+            "hash_ids": [x["hash_id"] for x in xs], "texto": texto_lote(tipo, xs, moneda),
+            "requiere_tc": requiere_tc, "tc_sugerido": _tc_sugerido(xs, movs) if requiere_tc else None,
+            # para el botón «Ver detalle» del gateway: una línea corta por movimiento
+            "detalle": [f"{_dia(x.get('fecha'))} · "
+                        f"{'−' if numero(x.get('debito')) else '+'}{_dinero(numero(x.get('debito')) or numero(x.get('credito')), moneda)}"
+                        f" · {str(x.get('descripcion') or '').strip()}" for x in xs]}
 
 
 def _texto_resumen(s: dict) -> str:
@@ -508,6 +700,9 @@ def _texto_resumen(s: dict) -> str:
                          if s.get("anteriores") else "") + ".")
     if s.get("conciliadas"):
         partes.append(f"{s['conciliadas']} conciliada{'s' if s['conciliadas'] != 1 else ''} sola{'s' if s['conciliadas'] != 1 else ''}.")
+    if s.get("internas"):
+        partes.append(f"{s['internas']} pase{'s' if s['internas'] != 1 else ''} entre cuentas propias del banco, "
+                      f"conciliado{'s' if s['internas'] != 1 else ''} solo{'s' if s['internas'] != 1 else ''}.")
     abiertas = s.get("a_revisar", 0) + len(s.get("pendientes", [])) + sum(x["cantidad"] for x in s.get("lotes", []))
     if abiertas:
         partes.append(f"Quedan {abiertas} para revisar: {len(s.get('pendientes', []))} sin cargar, "
@@ -529,16 +724,20 @@ def _obra_estructura(m: Maestros):
     return next((o for o in m.obras if o.tipo == "estructura" and o.estado != "cerrada"), None)
 
 
-def _ficha_lote(tipo: str, x: dict, m: Maestros) -> FichaConfirmada:
+def _ficha_lote(tipo: str, x: dict, m: Maestros, tc: float | None = None) -> FichaConfirmada:
     importe = numero(x.get("credito")) - numero(x.get("debito"))
+    cuenta = cuenta_de_linea(x, m)
+    moneda = str(x.get("moneda") or "ARS")
     base = {"fecha": str(x.get("fecha"))[:10], "tipo": "EGRESO" if importe < 0 else "INGRESO", "importe": abs(importe),
-            "moneda": "ARS", "tc": 1, "cuenta": "Banco", "origen": "BANCO", "item": x.get("nombre") or x.get("descripcion"),
+            "moneda": moneda, "tc": 1 if moneda == "ARS" else tc, "cuenta": cuenta.nombre if cuenta else "Banco",
+            "origen": "BANCO", "item": x.get("nombre") or x.get("descripcion"),
             "descripcion": f"Extracto: {x.get('descripcion')}", "tipo_comprobante": "Línea del extracto",
             "comprobante_url": None, "id_mov": None}
     if tipo == "gastos_bancarios":
         obra = _obra_estructura(m)
         base.update({"obra": obra.nombre if obra else None, "tipo_gasto": "estructura", "rubro_1": RUBRO_BANCARIO[0],
-                     "rubro_2": RUBRO_BANCARIO[1], "medio_pago": "Débito automático" if importe < 0 else "Otro"})
+                     "rubro_2": RUBRO_BANCARIO[1], "medio_pago": "Mercado Pago" if x.get("origen") == "mercado_pago"
+                     else "Débito automático" if importe < 0 else "Otro"})
     else:
         base.update({"obra": None, "tipo_gasto": "personal", "rubro_1": RUBRO_MELI[0], "rubro_2": RUBRO_MELI[1],
                      "medio_pago": "Transferencia", "item": "Mercado Libre"})
@@ -546,9 +745,10 @@ def _ficha_lote(tipo: str, x: dict, m: Maestros) -> FichaConfirmada:
 
 
 async def lote(telefono: str, tipo: str, hash_ids: list[str], id_mov: str | None, libro: Libro,
-               libro_personal: Libro | None, archivador) -> dict:
+               libro_personal: Libro | None, archivador, tipo_cambio: str | None = None) -> dict:
     """POST /conciliar/lote: confirma un lote (gastos bancarios o MeLi personal), asigna una
-    ambigua a uno de sus candidatos o ignora líneas."""
+    ambigua a uno de sus candidatos o ignora líneas. Un lote en dólares lleva `tipo_cambio`
+    (string, como lo escribió el usuario: «1.450»), uno para todo el lote (supuesto S2)."""
     m = maestros.cargar()
     usuario = _usuario(m, telefono)
     _, banco = _banco_con_fila(libro)
@@ -559,12 +759,18 @@ async def lote(telefono: str, tipo: str, hash_ids: list[str], id_mov: str | None
     escritos, conciliadas, avisos = [], [], []
 
     if tipo in ("gastos_bancarios", "meli_personal"):
+        tc = None
+        if any(str(por_hash[h].get("moneda") or "ARS") != "ARS" for h in hash_ids):
+            tc = numero(tipo_cambio) if tipo_cambio not in (None, "") else 0.0
+            if tc <= 1:
+                raise ErrorConciliar(422, "tipo_cambio", f"El lote está en dólares: hace falta el tipo de cambio "
+                                                         f"(llegó «{tipo_cambio or ''}»)")
         for h in hash_ids:
             x = por_hash[h]
             if x.get("estado") == CONCILIADO:
                 conciliadas.append(h)
                 continue
-            req = ConfirmarIn(msg_id=f"banco:{h}", telefono=telefono, ficha=_ficha_lote(tipo, x, m))
+            req = ConfirmarIn(msg_id=f"banco:{h}", telefono=telefono, ficha=_ficha_lote(tipo, x, m, tc))
             try:
                 out = await confirmar(req, libro, archivador, libro_personal)
                 escritos.append(out.id_mov)
@@ -609,6 +815,71 @@ def marcar_linea(libro: Libro, hash_id: str, id_mov: str) -> bool:
         return False
     libro.actualizar_banco([(x["_fila"], {"estado": CONCILIADO, "id_mov": id_mov, "candidatos": ""})])
     return True
+
+
+def _ahora() -> datetime:
+    return datetime.now(timezone(timedelta(hours=settings().utc_offset_horas)))
+
+
+def _rotulos(fuentes: list[str]) -> dict[str, str]:
+    """Rótulos cortos para la plantilla: «CA $ 273-125852351-000» → «CA $»; si dos quedan
+    iguales (las dos CA $), se les suma el primer número: «CA $ 273» y «CA $ 48»."""
+    def corto(cb: str) -> str:
+        m_ = re.match(r"\s*(\S+\s+\S+)\s+(\d+)", cb)
+        return m_.group(1) if m_ else cb.strip()
+    cortos = {cb: corto(cb) for cb in fuentes}
+    repetidos = {r for r in cortos.values() if list(cortos.values()).count(r) > 1}
+    salida = {}
+    for cb, r in cortos.items():
+        num = re.match(r"\s*\S+\s+\S+\s+(\d+)", cb)
+        salida[cb] = f"{r} {int(num.group(1))}" if r in repetidos and num else r
+    return salida
+
+
+def _y(partes: list[str]) -> str:
+    return partes[0] if len(partes) == 1 else ", ".join(partes[:-1]) + " y " + partes[-1]
+
+
+def estado(telefono: str, libro: Libro, hoy: date | None = None) -> dict:
+    """GET /conciliar/estado (20/10, solo lectura): qué llegó y qué falta de la semana, por
+    fuente. Las fuentes salen de CUENTAS (`cuentas_banco` de cada cuenta que concilia: las cuatro
+    del banco y Mercado Pago); si todavía no está configurado, de lo que ya hay en BANCO_RAW.
+    `al_dia` = hay líneas importadas con fecha dentro de la semana (desde el lunes)."""
+    m = maestros.cargar()
+    _usuario(m, telefono)
+    hoy = hoy or _ahora().date()
+    semana_desde = hoy - timedelta(days=hoy.weekday())
+    _, banco = _banco_con_fila(libro)
+    fuentes: list[tuple[str, str, str]] = []  # (cuenta_banco, cuenta del libro, origen)
+    for c in m.cuentas:
+        if c.activa and c.concilia_contra_banco:
+            for cb in c.cuentas_banco:
+                fuentes.append((cb, c.nombre, "mercado_pago" if c.tipo == "billetera" else "banco_patagonia"))
+    if not fuentes:
+        vistas: dict[str, tuple] = {}
+        for x in banco:
+            cuenta = cuenta_de_linea(x, m)
+            vistas.setdefault(x["cuenta_banco"], (x["cuenta_banco"], cuenta.nombre if cuenta else "",
+                                                   x.get("origen") or "banco_patagonia"))
+        fuentes = list(vistas.values())
+        mp = next((c for c in m.cuentas if c.activa and c.tipo == "billetera" and c.concilia_contra_banco), None)
+        if mp and not any(f[2] == "mercado_pago" for f in fuentes):
+            fuentes.append(("Mercado Pago", mp.nombre, "mercado_pago"))
+    rotulos = _rotulos([f[0] for f in fuentes])
+    offset = settings().utc_offset_horas
+    salida, faltan = [], []
+    for cb, cuenta, origen in fuentes:
+        propias = [x for x in banco if _clave_cuenta_banco(x.get("cuenta_banco")) == _clave_cuenta_banco(cb)]
+        ultima_imp = max((str(x.get("importado_ts") or "") for x in propias), default="")
+        ultima_fecha = max((str(x.get("fecha"))[:10] for x in propias), default="")
+        al_dia = bool(ultima_fecha) and ultima_fecha >= semana_desde.isoformat()
+        salida.append({"cuenta_banco": cb, "cuenta": cuenta, "origen": origen, "rotulo": rotulos[cb],
+                       "ultima_importacion": (ultima_imp.replace(" ", "T") + f"{offset:+03d}:00") if ultima_imp else None,
+                       "ultima_fecha_linea": ultima_fecha or None, "al_dia": al_dia})
+        if not al_dia:
+            faltan.append(rotulos[cb])
+    texto = f"Me faltan: {_y(faltan)}" if faltan else "Llegó todo lo de la semana."
+    return {"semana_desde": semana_desde.isoformat(), "fuentes": salida, "faltan": faltan, "texto": texto}
 
 
 def resumen_banco(libro: Libro, libro_personal: Libro | None) -> dict | None:

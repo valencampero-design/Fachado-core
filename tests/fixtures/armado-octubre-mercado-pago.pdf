@@ -1,0 +1,32 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Length 624 >>
+stream
+BT /F1 9 Tf 12 TL 30 560 Td (Mercado Pago) Tj T* (RESUMEN DE CUENTA) Tj T* (Periodo: 01-10-2026 al 31-10-2026) Tj T* (Fecha Descripción ID de la operación Valor Saldo) Tj T* (28-10-2026 Transferencia recibida de Gabriel Federico Fachado 81234567890 $ 300.000,00 $ 312.345,67) Tj T* (29-10-2026 Compra Mercado Libre 81234567891 $ -23.587,34 $ 288.758,33) Tj T* (30-10-2026 Rendimientos 81234567892 $ 1.234,56 $ 289.992,89) Tj T* (30-10-2026 Transferencia enviada a Grimau 81234567893 $ -165.700,00 $ 124.292,89) Tj T* (31-10-2026 Retención de IIBB 81234567894 $ -120,00 $ 124.172,89) Tj T* (Saldo final $ 124.172,89) Tj T* ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000338 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1013
+%%EOF

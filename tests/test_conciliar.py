@@ -202,8 +202,11 @@ async def _correr() -> int:
         check("Banco suma las tres cuentas en pesos del banco; Banco USD, la de dólares (US$ 11,01)",
               len(por_cuenta["Banco"]["cuentas_banco"]) == 3 and por_cuenta["Banco USD"]["saldo_banco"] == 11.01
               and por_cuenta["Banco USD"]["moneda"] == "USD", {k: (v["saldo_banco"], len(v["cuentas_banco"])) for k, v in por_cuenta.items()})
-        check("una línea en dólares sin cargar no va a un lote (necesita el tc): va como ficha",
-              not any(x["moneda"] == "USD" and x["lote"] for x in estudio.banco_dicts()))
+        usd = [x for x in r3["lotes"] if x["moneda"] == "USD"]
+        check("S2 (20/10): los gastos bancarios en dólares van en un lote aparte, con requiere_tc",
+              usd and all(x["tipo"] == "gastos_bancarios" and x["requiere_tc"] for x in usd)
+              and all(not x["requiere_tc"] and x["tc_sugerido"] is None for x in r3["lotes"] if x["moneda"] == "ARS"),
+              [(x["tipo"], x["moneda"], x["requiere_tc"], x["tc_sugerido"]) for x in r3["lotes"]])
         from app.conciliar import resumen_banco
         rb = resumen_banco(estudio, personal)
         check("el resumen del lunes (/cierre-semanal → resumen_banco): saldos por cuenta y cuánto queda pendiente",
@@ -260,6 +263,133 @@ async def _correr() -> int:
               all(x["hash_id"] != r8["pendientes"][0]["hash_id"]
                   for x in (await cli.get("/conciliar/pendientes", params={"telefono": titular.telefono})).json()["pendientes"]),
               r9)
+
+        # ── 8 · 20/10: Mercado Pago, traspasos entre cuentas propias, lote en US$, estado ──
+        print("\n8 · 20/10: el PDF de Mercado Pago, los pases entre cuentas propias y el lote en dólares")
+        os.environ["CONCILIACION_DESDE"] = "2026-10-01"
+        armados = {Path(f).name: Path(f).read_bytes() for f in glob.glob(str(RAIZ / "fixtures" / "armado-octubre-*"))}
+        estudio, personal = preparar()
+        # lo que el libro ya tiene: el pago a Grimau desde Mercado Pago (con el ID de la operación del
+        # comprobante) y un pago del 31/10 con tc 1460 (el tc sugerido del lote en dólares)
+        estudio.sembrar(id_mov="M-000009", fecha="2026-10-30", tipo="EGRESO", importe=165700, moneda="ARS", tc=1,
+                        importe_ars=165700, obra="Lennon", contratista="Miguel Soto", cuenta="Mercado Pago",
+                        ref_comprobante="op:81234567893", origen="WHATSAPP", cargado_por=titular.nombre,
+                        concilia="VERDADERO", estado_conc="PENDIENTE")
+        estudio.sembrar(id_mov="M-000010", fecha="2026-10-31", tipo="EGRESO", importe=1460000, moneda="ARS", tc=1460,
+                        importe_ars=1460000, obra="Lennon", contratista="Miguel Soto", cuenta="Caja obra Lennon",
+                        origen="WHATSAPP", cargado_por=titular.nombre, ts="2026-10-31 10:00:00")
+        montar(estudio, personal)
+        app.dependency_overrides[obtener_descargador] = lambda: (lambda adj: armados[adj.nombre])
+        rm = (await extracto("armado-octubre-mercado-pago.pdf")).json()
+        check("el PDF de Mercado Pago entra por /conciliar/extracto: origen mercado_pago, cuenta_banco «Mercado Pago»",
+              (rm.get("origen"), rm.get("cuenta_banco"), rm.get("importadas")) == ("mercado_pago", "Mercado Pago", 5), rm)
+        grimau = next(x for x in estudio.banco_dicts() if "Grimau" in x["descripcion"])
+        check("… el ID de la operación es el match fuerte contra el comprobante de Mercado Pago (M-000009)",
+              (grimau["estado"], grimau["id_mov"], grimau["ref"]) == ("CONCILIADO", "M-000009", "81234567893"), grimau)
+        lotes_mp = {(x["tipo"], x["moneda"]): x for x in rm["lotes"]}
+        check("S3: rendimientos y retenciones de Mercado Pago con los gastos bancarios; la compra de Mercado Libre a "
+              "meli_personal", lotes_mp.get(("gastos_bancarios", "ARS"), {}).get("cantidad") == 2
+              and lotes_mp.get(("meli_personal", "ARS"), {}).get("cantidad") == 1, list(lotes_mp))
+        check("… el pase del banco a Mercado Pago todavía no tiene par (falta el extracto del banco): queda como línea",
+              any(p["tipo"] == "linea" and "Fachado" in p["texto"] for p in rm["pendientes"]),
+              [(p["tipo"], p["texto"]) for p in rm["pendientes"]])
+        rx = {}
+        for nombre in ("armado-octubre-CC.xlsx", "armado-octubre-CA.xlsx", "armado-octubre-USD.xlsx"):
+            rx[nombre] = (await extracto(nombre)).json()
+        ca = (await cli.get("/conciliar/pendientes", params={"telefono": titular.telefono})).json()
+        internas = [x for x in estudio.banco_dicts() if x["estado"] == "INTERNA"]
+        check("S4: el pase CA → CC del mismo día queda INTERNA las dos líneas, sin movimiento ni pregunta",
+              len(internas) == 2 and {x["cuenta_banco"] for x in internas} == {"CA $ 273-125852351-000", "CC $ 273-125852351-000"}
+              and not any("PROPIAS" in p["texto"] for p in ca["pendientes"]), [(x["cuenta_banco"], x["estado"]) for x in internas])
+        check("… la respuesta del extracto que completó el par lo cuenta en «internas»; reimportar no lo vuelve a contar",
+              rx["armado-octubre-CA.xlsx"]["internas"] == 1
+              and rx["armado-octubre-CA.xlsx"]["cuenta_banco"] == "CA $ 273-125852351-000"
+              and (await extracto("armado-octubre-CA.xlsx")).json()["internas"] == 0,
+              {k: v.get("internas") for k, v in rx.items()})
+        traspasos = [p for p in ca["pendientes"] if p["tipo"] == "traspaso"]
+        mp_par = next((p for p in traspasos if "Mercado Pago" in p["texto"]), None)
+        check("Banco → Mercado Pago: una sola ficha de traspaso con las dos líneas (no dos movimientos sueltos)",
+              mp_par and len(mp_par["hash_ids"]) == 2 and mp_par["texto"].startswith("Vi que pasaste $ 300.000 de Banco a Mercado Pago")
+              and not any(p["tipo"] == "linea" and "300.000" in p["texto"] for p in ca["pendientes"]),
+              [(p["tipo"], p["texto"]) for p in ca["pendientes"]])
+        fm = mp_par["interpretacion"]["fichas"][0] if mp_par else {"campos": {}}
+        check("… la ficha: TRASPASO de Banco a Mercado Pago, $ 300.000, extras.ids_banco = [la que sale, la que entra]",
+              (fm["campos"].get("tipo"), fm["campos"].get("cuenta_origen"), fm["campos"].get("cuenta_destino"),
+               fm["campos"].get("importe")) == ("TRASPASO", "Banco", "Mercado Pago", 300000.0)
+              and fm.get("extras", {}).get("ids_banco") == mp_par["hash_ids"], fm["campos"])
+        cambio = next((p for p in traspasos if "US$" in p["texto"]), None)
+        fc = cambio["interpretacion"]["fichas"][0]["campos"] if cambio else {}
+        check("pesos → dólares: ficha de traspaso con el tc del par (145.000 / 100 = 1.450), sin preguntar",
+              cambio and (fc.get("cuenta_origen"), fc.get("cuenta_destino"), fc.get("tc"), fc.get("importe")) ==
+              ("Banco", "Banco USD", 1450.0, 145000.0) and "TC 1.450" in cambio["texto"]
+              and not cambio["interpretacion"]["preguntas"], (cambio and cambio["texto"], fc))
+        usd = next((x for x in ca["lotes"] if x["moneda"] == "USD"), None)
+        check("el lote en US$: requiere_tc, y el tc sugerido es el que el libro usó ese día (1460, string)",
+              usd and usd["requiere_tc"] and usd["tc_sugerido"] == "1460" and "US$" in usd["texto"], usd)
+
+        print("\n9 · 20/10: confirmar los traspasos y el lote en dólares")
+        rt = await cli.post("/confirmar", json={"msg_id": f"banco:{mp_par['hash_ids'][0]}", "telefono": titular.telefono,
+                                                "ficha": {"campos": fm["campos"], "extras": fm["extras"]}})
+        filas_t = [mv for mv in estudio.movimientos() if mv["id_mov"] in (rt.json().get("id_mov"), rt.json().get("id_mov_vinculado"))]
+        marcadas = [x for x in estudio.banco_dicts() if x["hash_id"] in mp_par["hash_ids"]]
+        check("/confirmar del traspaso (msg_id «banco:<a>», extras.ids_banco): dos filas, cada una con su id_banco, y las "
+              "dos líneas CONCILIADO",
+              rt.status_code == 200 and len(filas_t) == 2 and {mv["id_banco"] for mv in filas_t} == set(mp_par["hash_ids"])
+              and all(mv["estado_conc"] == "CONCILIADO" for mv in filas_t) and all(x["estado"] == "CONCILIADO" for x in marcadas),
+              (rt.status_code, rt.text[:300], [(mv["cuenta"], mv["id_banco"][:8]) for mv in filas_t]))
+        rcam = await cli.post("/confirmar", json={"msg_id": f"banco:{cambio['hash_ids'][0]}", "telefono": titular.telefono,
+                                                  "ficha": {"campos": fc, "extras": cambio["interpretacion"]["fichas"][0]["extras"]}})
+        dol = next((mv for mv in estudio.movimientos() if mv["id_mov"] == rcam.json().get("id_mov_vinculado")), {})
+        check("… el de pesos a dólares: la fila en Banco USD por US$ 100 con tc 1450",
+              rcam.status_code == 200 and (dol.get("cuenta"), dol.get("moneda"), dol.get("importe"), dol.get("tc"))
+              == ("Banco USD", "USD", 100.0, 1450.0), (rcam.status_code, rcam.text[:200], dol))
+        r_sin = await cli.post("/conciliar/lote", json={"telefono": titular.telefono, "tipo": "gastos_bancarios",
+                                                         "hash_ids": usd["hash_ids"]})
+        check("el lote en US$ sin tipo_cambio → 422 {campo: tipo_cambio}",
+              r_sin.status_code == 422 and r_sin.json()["detail"]["campo"] == "tipo_cambio", (r_sin.status_code, r_sin.text[:200]))
+        r_con = (await cli.post("/conciliar/lote", json={"telefono": titular.telefono, "tipo": "gastos_bancarios",
+                                                          "hash_ids": usd["hash_ids"], "tipo_cambio": "1.450"})).json()
+        filas_usd = [mv for mv in estudio.movimientos() if mv["id_mov"] in r_con.get("escritos", [])]
+        check("… con «1.450» (string): una fila por línea en Banco USD, con ese tc, conciliada",
+              len(filas_usd) == 2 and all((mv["cuenta"], mv["moneda"], mv["tc"], mv["estado_conc"]) ==
+                                          ("Banco USD", "USD", 1450.0, "CONCILIADO") for mv in filas_usd), (r_con, filas_usd[:1]))
+        antes = ([list(f) for f in estudio.banco], [list(f) for f in estudio.filas])
+        for nombre in armados:
+            await extracto(nombre)
+        check("reimportar los cuatro archivos armados no cambia nada", estudio.banco == antes[0] and estudio.filas == antes[1])
+
+        print("\n10 · 20/10: GET /conciliar/estado")
+        from datetime import date as _date
+        from app import conciliar as _c
+        est = _c.estado(titular.telefono, estudio, hoy=_date(2026, 10, 30))
+        check("semana desde el lunes 26/10; fuentes de CUENTAS (las cuatro del banco y Mercado Pago)",
+              est["semana_desde"] == "2026-10-26" and len(est["fuentes"]) == 5
+              and {f["rotulo"] for f in est["fuentes"]} == {"CA $ 273", "CC $", "CA $ 48", "CA U$S", "Mercado Pago"},
+              [(f["rotulo"], f["al_dia"]) for f in est["fuentes"]])
+        check("… falta solo la CA $ 48 (no llegó nada de la semana): «Me faltan: CA $ 48»",
+              est["faltan"] == ["CA $ 48"] and est["texto"] == "Me faltan: CA $ 48", (est["faltan"], est["texto"]))
+        re_ = await cli.get("/conciliar/estado", params={"telefono": titular.telefono})
+        check("el endpoint responde con la misma forma", re_.status_code == 200 and {"semana_desde", "fuentes", "faltan", "texto"}
+              <= set(re_.json()), re_.text[:200])
+        orden_inverso = LibroMemoria(encabezado)
+        app.dependency_overrides[obtener_libro] = lambda: orden_inverso
+        for nombre in ("armado-octubre-CA.xlsx", "armado-octubre-mercado-pago.pdf"):
+            await extracto(nombre)
+        ri = (await cli.get("/conciliar/pendientes", params={"telefono": titular.telefono})).json()
+        check("Banco → Mercado Pago en orden inverso (primero el banco, después Mercado Pago): la misma ficha de traspaso",
+              any(p["tipo"] == "traspaso" and "Mercado Pago" in p["texto"] for p in ri["pendientes"]),
+              [(p["tipo"], p["texto"]) for p in ri["pendientes"]])
+        muestra_real = Path("C:/Users/valen/OneDrive/Documentos/A&C/Fachado/Archivos Muestra/Muestra 3")
+        pdfs_reales = sorted(muestra_real.glob("*.pdf")) if muestra_real.exists() else []
+        if not pdfs_reales:
+            print("  SKIP   la muestra real de Mercado Pago (Archivos Muestra/Muestra 3/) todavía no está")
+        else:
+            try:
+                reales = leer_extracto(pdfs_reales[0].read_bytes())
+                check(f"la muestra real de Mercado Pago ({pdfs_reales[0].name}) se lee", reales and reales[0].origen == "mercado_pago",
+                      len(reales))
+            except ExtractoNoReconocido as e:
+                check(f"la muestra real de Mercado Pago ({pdfs_reales[0].name}) se lee", False, e)
 
         print("\n7 · Errores")
         app.dependency_overrides[obtener_descargador] = lambda: (lambda adj: b"no es un excel")

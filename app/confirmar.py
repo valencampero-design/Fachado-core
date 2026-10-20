@@ -510,6 +510,18 @@ async def confirmar_traspaso(req: ConfirmarIn, libro: Libro, archivador: Archiva
     Cada una lleva en `vinculo` el id_mov de la otra. Van siempre al libro del estudio."""
     salida, entrada = armar_traspaso(req, m, usuario)
     advertencias: list[str] = []
+    # 20/10: un traspaso entre cuentas propias que salió de la conciliación trae las dos líneas
+    # del banco (la que sale y la que entra): las dos filas se escriben ya conciliadas.
+    ids_banco = [str(h) for h in (req.ficha.extras.get("ids_banco") or []) if h]
+    lineas_banco: dict[str, dict] = {}
+    if ids_banco:
+        from app import conciliar
+        lineas_banco = await asyncio.to_thread(conciliar.lineas_por_hash, libro, ids_banco)
+        sale = next((h for h in ids_banco if numero(lineas_banco.get(h, {}).get("debito")) > 0), ids_banco[0])
+        entra = next((h for h in ids_banco if h != sale), None)
+        for fila_, h in ((salida, sale), (entrada, entra)):
+            if h:
+                fila_["id_banco"], fila_["estado_conc"] = h, "CONCILIADO"
 
     async with _lock:
         encabezado, filas, movs = await asyncio.to_thread(_leer_libro, libro, "estudio")
@@ -530,6 +542,17 @@ async def confirmar_traspaso(req: ConfirmarIn, libro: Libro, archivador: Archiva
                                     [[f.get(col, "") for col in encabezado] for f in (salida, entrada)])
             movs += [salida, entrada]
             ya_existia = False
+
+    if ids_banco and not ya_existia:
+        from app import conciliar
+        for fila_ in (salida, entrada):
+            if fila_.get("id_banco"):
+                try:
+                    if not await asyncio.to_thread(conciliar.marcar_linea, libro, fila_["id_banco"], fila_["id_mov"]):
+                        advertencias.append("Una línea del banco del traspaso no está en BANCO_RAW: no se marcó")
+                except Exception as e:  # noqa: BLE001 — el traspaso ya quedó escrito
+                    logger.exception("No se pudo marcar la línea del banco")
+                    advertencias.append(f"Quedó escrito pero una línea del banco no se marcó conciliada ({type(e).__name__})")
 
     comprobante_url = await _mover_comprobante(
         archivador, salida.get("comprobante_url") or None, archivo.carpetas({**salida, "obra": salida.get("obra") or entrada.get("obra")}),

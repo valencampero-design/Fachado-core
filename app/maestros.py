@@ -119,6 +119,10 @@ class Cuenta:
     activa: bool = True  # nada se borra de los maestros: lo que no corresponde pasa a inactiva
     # §5.20: desde cuándo vale saldo_apertura (AAAA-MM-DD). Vacío: el saldo es la suma de todo.
     fecha_apertura: str = ""
+    # §5.20 v1.11: las cuentas del banco (o la fuente) que se concilian contra esta cuenta del
+    # libro, como las escribe el extracto: «CA $ 273-125852351-000». Columna `cuentas_banco`,
+    # separadas por «;».
+    cuentas_banco: list[str] = field(default_factory=list)
 
     @property
     def suma_al_saldo_del_estudio(self) -> bool:
@@ -357,7 +361,8 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
                       normalizar(r.get("concilia_contra_banco")) in ("si", "true", "verdadero"),
                       numero(r.get("saldo_apertura")),
                       normalizar(r.get("estado")) not in ("inactiva", "inactivo", "cerrada"),
-                      _fecha_iso(r.get("fecha_apertura")))
+                      _fecha_iso(r.get("fecha_apertura")),
+                      [x.strip() for x in str(r.get("cuentas_banco") or "").split(";") if x.strip()])
                for r in _registros(crudo.get("CUENTAS", [])) if r.get("cuenta")]
     for c in cuentas:
         if not c.activa:

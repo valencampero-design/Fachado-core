@@ -37,6 +37,7 @@ class LineaBanco:
     ref: str | None
     orden: int             # posición en el archivo: 0 es la más nueva
     hash_id: str = ""
+    origen: str = "banco_patagonia"  # banco_patagonia | mercado_pago (§5.20 v1.11)
 
     @property
     def importe(self) -> float:
@@ -58,7 +59,8 @@ def _importe(valor) -> float | None:
     texto = str(valor).replace("\xa0", " ").strip()
     if not texto:
         return None
-    negativo = texto.startswith("-") or texto.endswith("-")
+    # «-$ 2,14», «$ -2,14», «US$ -200,00», «2,14-»
+    negativo = bool(re.match(r"^(?:US)?\$?\s*-", texto, re.I)) or texto.startswith("-") or texto.endswith("-")
     limpio = re.sub(r"[^\d,.]", "", texto)
     if not limpio:
         return None
@@ -78,7 +80,7 @@ def _fecha(valor) -> str | None:
         return valor.date().isoformat()
     if isinstance(valor, date):
         return valor.isoformat()
-    m = re.match(r"\s*(\d{1,2})/(\d{1,2})/(\d{2,4})", str(valor or ""))
+    m = re.match(r"\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})", str(valor or ""))
     if not m:
         return None
     d, mes, a = (int(x) for x in m.groups())
@@ -117,9 +119,63 @@ def hash_linea(cuenta_banco: str, fecha: str, descripcion: str, importe: float, 
     return hashlib.sha256(base.encode("utf-8")).hexdigest()
 
 
+# ─── Mercado Pago (§5.20 v1.11) ────────────────────────────────────────────────
+# El «resumen de cuenta» en PDF, con texto (no escaneado). Formato esperado (handoff del
+# 20/10), **todavía sin muestra real**: `Fecha | Descripción | ID de la operación | Valor |
+# Saldo`, importes «$ 1.234,56» con signo, fechas dd-mm-aaaa o dd/mm/aaaa. Si la muestra difiere,
+# gana la muestra: este parser se ajusta a ella.
+CUENTA_MERCADO_PAGO = "Mercado Pago"
+RE_FILA_MP = re.compile(
+    r"^\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(.+?)\s+(\d{6,})\s+"
+    r"(-?\s*\$\s*-?\s*[\d.]+,\d{2})\s+(-?\s*\$\s*-?\s*[\d.]+,\d{2})\s*$")
+RE_DESTINATARIO_MP = re.compile(r"\b(?:a|de|en)\s+(.+)$", re.I)
+
+
+def es_reporte_mercado_pago(texto: str) -> bool:
+    return bool(re.search(r"mercado\s*pago", texto or "", re.I)) and any(
+        RE_FILA_MP.match(linea) for linea in (texto or "").splitlines())
+
+
+def leer_mercado_pago(texto: str) -> list[LineaBanco]:
+    """Las filas del resumen de cuenta de Mercado Pago. El ID de la operación va a `ref` (el
+    match fuerte contra el comprobante de Mercado Pago); el destinatario, a `nombre`."""
+    crudas = []
+    for linea in (texto or "").splitlines():
+        m = RE_FILA_MP.match(linea)
+        if not m:
+            continue  # encabezados, totales, líneas partidas: sin muestra, no se adivinan
+        fecha = _fecha(m.group(1))
+        valor, saldo = _importe(m.group(4)), _importe(m.group(5))
+        if not fecha or valor is None:
+            continue
+        desc = " ".join(m.group(2).split())
+        d = RE_DESTINATARIO_MP.search(desc) if re.match(r"(?i)transferencia|pago|compra|cobro", desc) else None
+        cuit = RE_CUIT.search(desc)
+        crudas.append((fecha, desc, m.group(3), valor, saldo, d.group(1).strip() if d else None,
+                       cuit.group(1) if cuit else None))
+    if not crudas:
+        raise ExtractoNoReconocido("No tiene filas de un resumen de cuenta de Mercado Pago")
+    # El banco lista del más nuevo al más viejo (orden 0 = el más nuevo); Mercado Pago, al revés.
+    ascendente = crudas[0][0] <= crudas[-1][0]
+    lineas = []
+    for i, (fecha, desc, ref, valor, saldo, nombre, cuit) in enumerate(crudas):
+        orden = len(crudas) - 1 - i if ascendente else i
+        linea = LineaBanco(CUENTA_MERCADO_PAGO, "ARS", fecha, desc, round(max(-valor, 0.0), 2), round(max(valor, 0.0), 2),
+                           saldo, cuit, nombre, ref, orden, origen="mercado_pago")
+        linea.hash_id = hash_linea(CUENTA_MERCADO_PAGO, fecha, f"{desc} {ref}", linea.importe, saldo)
+        lineas.append(linea)
+    return lineas
+
+
 def leer_extracto(contenido: bytes) -> list[LineaBanco]:
-    """Todas las líneas de todas las hojas que tengan el encabezado de movimientos. Lanza
-    ExtractoNoReconocido si el archivo no es un Excel o no tiene ninguna."""
+    """El Excel de Banco Patagonia (todas las hojas con el encabezado de movimientos) o el PDF
+    de Mercado Pago. Lanza ExtractoNoReconocido si no es ninguno de los dos."""
+    if contenido[:5] == b"%PDF-":
+        from app.comprobante import texto_pdf
+        texto = texto_pdf(contenido)
+        if not es_reporte_mercado_pago(texto):
+            raise ExtractoNoReconocido("El PDF no es un resumen de cuenta de Mercado Pago")
+        return leer_mercado_pago(texto)
     try:
         import openpyxl
         libro = openpyxl.load_workbook(io.BytesIO(contenido), data_only=True, read_only=True)
