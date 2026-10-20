@@ -213,6 +213,7 @@ async def post_conciliar_lote(req: ConciliarLoteIn, libro: Libro = Depends(obten
 @app.post("/vistas/recalcular", dependencies=[Depends(verificar_api_key)])
 def post_vistas_recalcular(libro: Libro = Depends(obtener_libro),
                            libro_personal: Libro | None = Depends(obtener_libro_personal)) -> dict:
-    """Reescribe las hojas derivadas del tablero (VISTA_*, CC_<OBRA>; VISTA_PERSONAL en el libro
-    personal). Nunca toca MOVIMIENTOS. Lo dispara un cron cada noche (scripts/recalcular_vistas.py)."""
+    """Reescribe las hojas derivadas del tablero (VISTA_* y la CC_<OBRA> de cada obra en el
+    Master; VISTA_PERSONAL, VISTA_DETALLE y las CC_ de los inmuebles en el libro personal). Nunca
+    toca MOVIMIENTOS. Lo dispara un cron cada noche (scripts/recalcular_vistas.py)."""
     return vistas.recalcular(libro, libro_personal)

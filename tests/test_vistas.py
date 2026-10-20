@@ -88,11 +88,26 @@ def main() -> int:
         reg = lambda h: [dict(zip(master[h][0], f)) for f in master[h][1:]]  # noqa: E731
 
         print("\n§5.21 · Las vistas")
-        check("hojas: VISTA_SALDOS, VISTA_OBRAS, VISTA_RUBROS, VISTA_PROVEEDORES, VISTA_DETALLE y una CC_ por obra",
-              {"VISTA_SALDOS", "VISTA_OBRAS", "VISTA_RUBROS", "VISTA_PROVEEDORES", "VISTA_DETALLE"} <= set(master)
-              and {h for h in master if h.startswith("CC_")} == {"CC_LENNON", "CC_MORENO", "CC_MOQUEHUE", "CC_GONZALO",
-                                                                  "CC_HUA_HUAN", "CC_GRIGERA_GALPON", "CC_TRES_CERROS"},
+        cc_master = {h for h in master if h.startswith("CC_")}
+        cc_personal = {h for h in hojas["personal"] if h.startswith("CC_")}
+        check("hojas: VISTA_SALDOS, VISTA_OBRAS, VISTA_RUBROS, VISTA_PROVEEDORES, VISTA_DETALLE",
+              {"VISTA_SALDOS", "VISTA_OBRAS", "VISTA_RUBROS", "VISTA_PROVEEDORES", "VISTA_DETALLE"} <= set(master),
               sorted(master))
+        check("§5.21 v1.11: 13 CC_ en el Master (las 11 obras de §6, Austral y Jardín Maternal aunque esté cerrada)",
+              cc_master == {"CC_LENNON", "CC_MORENO", "CC_CERRO_BAYO", "CC_LUMAIA", "CC_MUELLE_DE_PIEDRA", "CC_TONGA",
+                            "CC_MOQUEHUE", "CC_GONZALO", "CC_HUA_HUAN", "CC_GRIGERA_GALPON", "CC_TRES_CERROS",
+                            "CC_AUSTRAL", "CC_JARDIN_MATERNAL"}, sorted(cc_master))
+        check("… y 4 en el libro personal (Sur, Abucoque, Belelli, Gessel); ninguna personal en el Master",
+              cc_personal == {"CC_SUR", "CC_ABUCOQUE", "CC_BELELLI", "CC_GESSEL"} and not cc_master & cc_personal,
+              sorted(cc_personal))
+        cerro = master["CC_CERRO_BAYO"]
+        check("una obra sin movimientos tiene igual su hoja, con los totales en cero (Cerro Bayo)",
+              cerro[4][:3] == [0.0, 0.0, 0.0], cerro[4])
+        belelli = hojas["personal"]["CC_BELELLI"]
+        k = next(i for i, f in enumerate(belelli) if f[:1] == ["DETALLE CRONOLÓGICO"])
+        check("CC_BELELLI (personal): el pago de Edesur en el detalle, con el mismo formato (por contratista, por rubro)",
+              any("P-000002" in map(str, f) for f in belelli[k:]) and ["POR CONTRATISTA"] in belelli
+              and ["POR RUBRO"] in belelli, belelli[:6])
         detalle = reg("VISTA_DETALLE")
         ids = {r["id_mov"] for r in detalle}
         check("VISTA_DETALLE: sin el par anulado y sin la fila personal colada; con la línea semanal",
@@ -163,8 +178,9 @@ def main() -> int:
         app.dependency_overrides[obtener_libro_personal] = lambda: personal
         movs_antes = [list(f) for f in estudio.filas]
         r = TestClient(app).post("/vistas/recalcular", headers={"X-API-Key": "test-local"})
-        check("escribe las hojas derivadas en el Master y VISTA_PERSONAL en el personal",
-              r.status_code == 200 and set(estudio.hojas) == set(master) and set(personal.hojas) == {"VISTA_PERSONAL"},
+        check("escribe las hojas derivadas en el Master y las personales (VISTA_PERSONAL, su detalle, sus CC_) en el personal",
+              r.status_code == 200 and set(estudio.hojas) == set(master) and set(personal.hojas) == set(hojas["personal"])
+              and {"VISTA_PERSONAL", "VISTA_DETALLE", "CC_BELELLI"} <= set(personal.hojas),
               (r.status_code, r.text[:300]))
         check("… y nunca toca MOVIMIENTOS", estudio.filas == movs_antes)
         r2 = TestClient(app).post("/vistas/recalcular", headers={"X-API-Key": "test-local"})

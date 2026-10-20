@@ -12,9 +12,11 @@ Son **derivadas**: se reescriben enteras; MOVIMIENTOS nunca se toca.
 - `VISTA_PROVEEDORES`: mes × contratista × obra.
 - `VISTA_DETALLE`: los movimientos vigentes, con el link al comprobante.
 - `VISTA_PERSONAL`, en el libro personal: mes × rubro × destino.
-- `CC_<OBRA>`: la cuenta corriente de cada obra que la lleva (§6), armada **desde las vistas
-  de arriba** (decisión del 15/10: se escribe como valores en cada recálculo, no con fórmulas;
-  ver el handoff).
+- `CC_<OBRA>`: la cuenta corriente de **cada obra** de OBRAS (§5.21 v1.11: también las de
+  proyecto y dirección, Austral y Jardín Maternal aunque esté cerrada), armada **desde las
+  vistas de arriba** (decisión del 15/10: se escribe como valores en cada recálculo, no con
+  fórmulas). Los **inmuebles personales** (Sur, Abucoque, Belelli, Gessel) tienen la suya en
+  el **libro personal**, nunca en el Master (§5.13, §5.14).
 
 Lo personal **nunca** entra en las vistas del Master: solo la línea semanal (§5.14).
 Sin presupuestos (§5.21: etapa posterior).
@@ -33,7 +35,6 @@ logger = logging.getLogger(__name__)
 
 DIAS_GRIS = 30
 TIPOS_OBRA = ("obra_terceros", "obra_propia")
-SERVICIOS_CON_CC = ("administracion", "todo")
 
 
 # ─── Qué entra ─────────────────────────────────────────────────────────────────
@@ -64,10 +65,16 @@ def _usd_sin_convertir(mov: dict) -> float:
 
 
 def obras_con_cc(m: Maestros) -> list:
-    """§6: las obras que llevan cuenta corriente: administración, «todo» y las propias. No las
-    de proyecto y dirección ni los inmuebles personales."""
-    return [o for o in m.obras if o.estado != "cerrada" and o.tipo in TIPOS_OBRA
-            and (o.tipo == "obra_propia" or normalizar(o.servicio) in SERVICIOS_CON_CC)]
+    """§5.21 v1.11: todas las obras de OBRAS tienen cuenta corriente en el Master: las de
+    terceros con cualquier servicio, las propias, Austral y las cerradas (Jardín Maternal, la
+    de referencia). Una obra sin movimientos tiene igual su hoja, en cero. Los inmuebles
+    personales no: van en el libro personal (`inmuebles_personales`)."""
+    return [o for o in m.obras if o.tipo != "personal"]
+
+
+def inmuebles_personales(m: Maestros) -> list:
+    """Sur, Abucoque, Belelli, Gessel: su CC va en el libro personal (§5.13, §5.14)."""
+    return [o for o in m.obras if o.tipo == "personal"]
 
 
 def nombre_hoja_cc(obra: str) -> str:
@@ -110,7 +117,7 @@ def vista_obras(movs: list[dict], m: Maestros, hoy: date) -> list[list]:
               "ejecutado_total_ars", "ejecutado_usd_sin_convertir", "ventas", "capital_propio_inmovilizado",
               "ultimo_movimiento", "semaforo", "lleva_cc"]]
     con_cc = {o.nombre for o in obras_con_cc(m)}
-    for obra in [o for o in m.obras if o.tipo in TIPOS_OBRA and o.estado != "cerrada"]:
+    for obra in obras_con_cc(m):
         propios = [mv for mv in movs if normalizar(mv.get("obra")) == normalizar(obra.nombre)]
         s, _ = saldo_obra(propios, obra.nombre, m)
         egresos = [mv for mv in propios if mv.get("tipo") in ("EGRESO", "PASANTE")]
@@ -128,6 +135,8 @@ def vista_obras(movs: list[dict], m: Maestros, hoy: date) -> list[list]:
             capital = round(max(0.0, s.pagado_con_plata_del_estudio - s.adelantado), 2)
         ultimo = max((str(mv.get("fecha") or "")[:10] for mv in propios), default="")
         caja = s.caja_obra
+        if obra.tipo not in TIPOS_OBRA:
+            capital = 0.0  # Austral: los indirectos del estudio no son capital en una obra
         rojo = (caja is not None and caja.por_rendir < 0) or (obra.tipo == "obra_terceros" and capital > 0)
         gris = not ultimo or (hoy - date.fromisoformat(ultimo)).days > DIAS_GRIS
         semaforo = "rojo" if rojo else "gris" if gris else "verde"
@@ -261,6 +270,43 @@ def cuenta_corriente(obra, vistas: dict[str, list[list]], m: Maestros, ahora: st
     return filas
 
 
+def cuenta_corriente_personal(inmueble, detalle: list[list], ahora: str) -> list[list]:
+    """La CC_<INMUEBLE> en el libro personal: el mismo formato que la de una obra, sin el
+    bloque de aportes del comitente (no hay comitente). Lee el detalle personal, nada más."""
+    filas_detalle = [r for r in _registros(detalle) if r["obra"] == inmueble.nombre]
+    pagos = [r for r in filas_detalle if r["tipo"] in ("EGRESO", "PASANTE")]
+    ultimo = max((str(r["fecha"])[:10] for r in filas_detalle), default="")
+    filas: list[list] = [
+        [f"Cuenta corriente · {inmueble.nombre}", "Inmueble personal (§5.14)", f"Actualizado: {ahora}"],
+        ["Derivada: la escribe el motor (§5.21). No editar a mano: se reescribe cada noche."],
+        [],
+        ["Pagado ($)", "Pagado en US$ sin convertir", "Cantidad de pagos", "Último movimiento"],
+        [round(sum(_pesos(r) or 0.0 for r in pagos), 2), round(sum(_usd_sin_convertir(r) for r in pagos), 2),
+         len(pagos), ultimo],
+        [],
+        ["POR CONTRATISTA"], ["contratista", "cantidad de pagos", "total ($)", "total US$ sin convertir"],
+    ]
+    por_contratista: dict[str, list[float]] = {}
+    for r in pagos:
+        a = por_contratista.setdefault(r["contratista"] or "(sin contratista)", [0, 0.0, 0.0])
+        a[0] += 1
+        a[1] += _pesos(r) or 0.0
+        a[2] += _usd_sin_convertir(r)
+    filas += [[k, v[0], round(v[1], 2), round(v[2], 2)] for k, v in sorted(por_contratista.items(), key=lambda x: -x[1][1])]
+    filas += [[], ["POR RUBRO"], ["rubro_1", "rubro_2", "total ($)", "total US$ sin convertir"]]
+    por_rubro: dict[tuple, list[float]] = {}
+    for r in pagos:
+        a = por_rubro.setdefault((r["rubro_1"] or "Sin rubro", r["rubro_2"] or "Sin rubro"), [0.0, 0.0])
+        a[0] += _pesos(r) or 0.0
+        a[1] += _usd_sin_convertir(r)
+    filas += [[*k, round(v[0], 2), round(v[1], 2)] for k, v in sorted(por_rubro.items(), key=lambda x: -x[1][0])]
+    cols = ["fecha", "id_mov", "tipo", "contratista", "rubro_2", "cuenta", "moneda", "importe", "importe_ars",
+            "descripcion", "comprobante_url"]
+    filas += [[], ["DETALLE CRONOLÓGICO"], cols]
+    filas += [[r.get(c, "") for c in cols] for r in filas_detalle]
+    return filas
+
+
 # ─── El recálculo ──────────────────────────────────────────────────────────────
 
 def calcular(libro: Libro, libro_personal: Libro | None, m: Maestros | None = None,
@@ -281,7 +327,11 @@ def calcular(libro: Libro, libro_personal: Libro | None, m: Maestros | None = No
         master[nombre_hoja_cc(obra.nombre)] = cuenta_corriente(obra, master, m, ahora)
     personal = {}
     if libro_personal is not None:
-        personal["VISTA_PERSONAL"] = vista_personal(como_dicts(libro_personal.leer_movimientos()))
+        movs_p = sin_anulados(como_dicts(libro_personal.leer_movimientos()))
+        personal["VISTA_PERSONAL"] = vista_personal(movs_p)
+        personal["VISTA_DETALLE"] = vista_detalle(movs_p, m)  # el detalle personal, en su libro
+        for inmueble in inmuebles_personales(m):
+            personal[nombre_hoja_cc(inmueble.nombre)] = cuenta_corriente_personal(inmueble, personal["VISTA_DETALLE"], ahora)
     return {"master": master, "personal": personal}
 
 
@@ -295,8 +345,10 @@ def recalcular(libro: Libro, libro_personal: Libro | None, solo_cc: bool = False
             continue
         libro.escribir_hoja(hoja, filas)
         escritas[hoja] = len(filas) - 1
-    if not solo_cc and libro_personal is not None:
+    if libro_personal is not None:
         for hoja, filas in hojas["personal"].items():
+            if solo_cc and not hoja.startswith("CC_"):
+                continue
             libro_personal.escribir_hoja(hoja, filas)
             escritas[f"personal:{hoja}"] = len(filas) - 1
     return {"escritas": escritas}

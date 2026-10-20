@@ -151,7 +151,8 @@ Detalle y contratos al final de `docs/handoff-post-reunion6-2026-10-09.md`.
   `app/conciliar.py` (importar a BANCO_RAW, matchear, lotes, fichas, resumen). **La única
   escritura sobre una fila ya escrita de MOVIMIENTOS** es `Libro.marcar_conciliado`: solo
   `id_banco` y `estado_conc`, por columna.
-- **Vistas** (§5.21): `app/vistas.py` (VISTA_*, CC_<OBRA>); `Libro.escribir_hoja` →
+- **Vistas** (§5.21): `app/vistas.py` (VISTA_*, CC_<OBRA> de **todas** las obras; las de los
+  inmuebles personales, en el libro personal, desde el 20/10); `Libro.escribir_hoja` →
   `sheets.reemplazar_hoja`, que solo acepta hojas `VISTA_*` y `CC_*`.
 
 ### Endpoints
@@ -598,8 +599,9 @@ un `/confirmar` ni un `/anular` de prueba contra el Sheet real.**
 - cron schedule `0 6 * * *` (todos los días a las 3:00 de Argentina, en UTC);
 - variables `MOTOR_URL` y `MOTOR_API_KEY`.
 
-Llama a `POST /vistas/recalcular`, que reescribe las hojas derivadas (VISTA_*, CC_<OBRA>, y
-VISTA_PERSONAL en el libro personal). Idempotente; nunca toca MOVIMIENTOS.
+Llama a `POST /vistas/recalcular`, que reescribe las hojas derivadas: en el Master, VISTA_* y
+la CC_<OBRA> de cada obra; en el libro personal, VISTA_PERSONAL, VISTA_DETALLE y la CC_ de cada
+inmueble personal. Idempotente; nunca toca MOVIMIENTOS.
 
 **El cron del cierre semanal.** Un segundo servicio en Railway, desde el mismo repo, con:
 
@@ -789,9 +791,11 @@ no dependen de la moneda del snapshot.
    nuevas de BANCO_RAW (al final; las ocho viejas no se mueven).
 2. `python scripts/migraciones/2026_10_15_sofias.py --aplicar`: Sofía Fachado, Sofía Cervera a
    estructura, «sofi» a las dos. El snapshot de los tests ya la tiene aplicada.
-3. `python scripts/crear_cc_obras.py --aplicar`: crea CC_MORENO, CC_MOQUEHUE, CC_HUA_HUAN,
-   CC_GRIGERA_GALPON, CC_TRES_CERROS y **reemplaza** CC_LENNON y CC_GONZALO (las fórmulas
-   viejas no conocen cajas de obra, dólares ni anulados). Después las reescribe el cron.
+3. `python scripts/crear_cc_obras.py --aplicar`: aplicado el 15/10 con el criterio viejo (7
+   hojas). **Desde el 20/10 (§5.21 v1.11) son todas las obras**: 13 en el Master (las 11 de
+   §6, Austral y Jardín Maternal) y las 4 de los inmuebles personales en el libro personal.
+   Volver a correrlo (simulacro y `--aplicar`) crea las que faltan. Después las reescribe el
+   cron.
 4. **El 1/11**: cargar en CUENTAS `saldo_apertura` y `fecha_apertura` (31/10) de Banco, Banco
    USD, Efectivo y cada caja de obra (§5.20).
 
