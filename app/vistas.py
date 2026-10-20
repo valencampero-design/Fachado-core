@@ -8,7 +8,14 @@ Son **derivadas**: se reescriben enteras; MOVIMIENTOS nunca se toca.
   moneda).
 - `VISTA_OBRAS`: por obra, aportes del comitente, pagado con plata del estudio, pagado por el
   comitente, caja de obra, ejecutado, capital propio inmovilizado y semáforo.
+- `VISTA_OBRAS_MES` (v1.11): obra × mes, ingresos contra pagos, saldo del mes y acumulado.
+- `VISTA_GENERAL` (v1.11): una fila por día, la visión general (saldo por cuenta, ingresos y
+  pagos del mes, capital propio, obras en rojo y en gris, diferencia contra el banco).
 - `VISTA_RUBROS`: mes × obra × rubro_1 × rubro_2 × tipo_gasto.
+
+El campo `obra` se llama igual y es texto en todas las vistas que lo tienen (VISTA_OBRAS,
+VISTA_OBRAS_MES, VISTA_RUBROS, VISTA_PROVEEDORES, VISTA_DETALLE): un solo control de Looker
+filtra todas. Sin obra, «Sin obra»; sin rubro, «Sin rubro».
 - `VISTA_PROVEEDORES`: mes × contratista × obra.
 - `VISTA_DETALLE`: los movimientos vigentes, con el link al comprobante.
 - `VISTA_PERSONAL`, en el libro personal: mes × rubro × destino.
@@ -111,55 +118,259 @@ def vista_saldos(movs: list[dict], m: Maestros) -> list[list]:
     return filas
 
 
+COLUMNAS_OBRAS = ["obra", "tipo", "servicio", "comitente", "aportes_comitente", "pagado_con_plata_del_estudio",
+                  "pagado_por_el_comitente", "saldo", "caja_moneda", "caja_ingresado", "caja_pagado", "caja_por_rendir",
+                  "ejecutado_total_ars", "ejecutado_usd_sin_convertir", "ventas", "capital_propio_inmovilizado",
+                  "ultimo_movimiento", "semaforo", "lleva_cc"]
+
+
+def _fila_obra(obra, propios: list[dict], m: Maestros, hoy: date) -> dict:
+    """La fila de VISTA_OBRAS de una obra con sus movimientos (`propios`), vista desde `hoy`."""
+    s, _ = saldo_obra(propios, obra.nombre, m)
+    egresos = [mv for mv in propios if mv.get("tipo") in ("EGRESO", "PASANTE")]
+    ejecutado = round(sum(_pesos(mv) or 0.0 for mv in egresos), 2)
+    ejecutado_usd = round(sum(_usd_sin_convertir(mv) for mv in egresos), 2)
+    # Lo que la obra devolvió: en una obra propia, lo que entró (ventas, §5.21).
+    ventas = round(sum(_pesos(mv) or 0.0 for mv in propios if mv.get("tipo") == "INGRESO"), 2) \
+        if obra.tipo == "obra_propia" else 0.0
+    # §5.21 (definición de A&C, a validar con Gabriel): obra propia → lo que puso el estudio
+    # menos lo que devolvió; de terceros → lo pagado con plata del estudio menos lo
+    # adelantado por el comitente, si es positivo.
+    if obra.tipo == "obra_propia":
+        capital = round(s.pagado_con_plata_del_estudio - ventas, 2)
+    else:
+        capital = round(max(0.0, s.pagado_con_plata_del_estudio - s.adelantado), 2)
+    ultimo = max((str(mv.get("fecha") or "")[:10] for mv in propios), default="")
+    caja = s.caja_obra
+    if obra.tipo not in TIPOS_OBRA:
+        capital = 0.0  # Austral: los indirectos del estudio no son capital en una obra
+    rojo = (caja is not None and caja.por_rendir < 0) or (obra.tipo == "obra_terceros" and capital > 0)
+    gris = not ultimo or (hoy - date.fromisoformat(ultimo)).days > DIAS_GRIS
+    semaforo = "rojo" if rojo else "gris" if gris else "verde"
+    valores = [obra.nombre, obra.tipo, obra.servicio, obra.comitente, s.adelantado, s.pagado_con_plata_del_estudio,
+               s.pagado_por_el_comitente, s.saldo, caja.moneda if caja else "", caja.ingresado if caja else "",
+               caja.pagado if caja else "", caja.por_rendir if caja else "", ejecutado, ejecutado_usd, ventas,
+               capital, ultimo, semaforo, "sí"]
+    return dict(zip(COLUMNAS_OBRAS, valores))
+
+
+def _por_obra(movs: list[dict], m: Maestros) -> dict[str, list[dict]]:
+    """{obra: sus movimientos, por fecha}, para las obras con CC."""
+    nombres = {normalizar(o.nombre): o.nombre for o in obras_con_cc(m)}
+    salida: dict[str, list[dict]] = {o: [] for o in nombres.values()}
+    for mv in sorted(movs, key=lambda x: str(x.get("fecha") or "")):
+        nombre = nombres.get(normalizar(mv.get("obra")))
+        if nombre:
+            salida[nombre].append(mv)
+    return salida
+
+
 def vista_obras(movs: list[dict], m: Maestros, hoy: date) -> list[list]:
-    filas = [["obra", "tipo", "servicio", "comitente", "aportes_comitente", "pagado_con_plata_del_estudio",
-              "pagado_por_el_comitente", "saldo", "caja_moneda", "caja_ingresado", "caja_pagado", "caja_por_rendir",
-              "ejecutado_total_ars", "ejecutado_usd_sin_convertir", "ventas", "capital_propio_inmovilizado",
-              "ultimo_movimiento", "semaforo", "lleva_cc"]]
-    con_cc = {o.nombre for o in obras_con_cc(m)}
+    por_obra = _por_obra(movs, m)
+    filas = [list(COLUMNAS_OBRAS)]
     for obra in obras_con_cc(m):
-        propios = [mv for mv in movs if normalizar(mv.get("obra")) == normalizar(obra.nombre)]
-        s, _ = saldo_obra(propios, obra.nombre, m)
-        egresos = [mv for mv in propios if mv.get("tipo") in ("EGRESO", "PASANTE")]
-        ejecutado = round(sum(_pesos(mv) or 0.0 for mv in egresos), 2)
-        ejecutado_usd = round(sum(_usd_sin_convertir(mv) for mv in egresos), 2)
-        # Lo que la obra devolvió: en una obra propia, lo que entró (ventas, §5.21).
-        ventas = round(sum(_pesos(mv) or 0.0 for mv in propios if mv.get("tipo") == "INGRESO"), 2) \
-            if obra.tipo == "obra_propia" else 0.0
-        # §5.21 (definición de A&C, a validar con Gabriel): obra propia → lo que puso el estudio
-        # menos lo que devolvió; de terceros → lo pagado con plata del estudio menos lo
-        # adelantado por el comitente, si es positivo.
-        if obra.tipo == "obra_propia":
-            capital = round(s.pagado_con_plata_del_estudio - ventas, 2)
-        else:
-            capital = round(max(0.0, s.pagado_con_plata_del_estudio - s.adelantado), 2)
-        ultimo = max((str(mv.get("fecha") or "")[:10] for mv in propios), default="")
-        caja = s.caja_obra
-        if obra.tipo not in TIPOS_OBRA:
-            capital = 0.0  # Austral: los indirectos del estudio no son capital en una obra
-        rojo = (caja is not None and caja.por_rendir < 0) or (obra.tipo == "obra_terceros" and capital > 0)
-        gris = not ultimo or (hoy - date.fromisoformat(ultimo)).days > DIAS_GRIS
-        semaforo = "rojo" if rojo else "gris" if gris else "verde"
-        filas.append([obra.nombre, obra.tipo, obra.servicio, obra.comitente, s.adelantado, s.pagado_con_plata_del_estudio,
-                      s.pagado_por_el_comitente, s.saldo, caja.moneda if caja else "", caja.ingresado if caja else "",
-                      caja.pagado if caja else "", caja.por_rendir if caja else "", ejecutado, ejecutado_usd, ventas,
-                      capital, ultimo, semaforo, "sí" if obra.nombre in con_cc else "no"])
+        fila = _fila_obra(obra, por_obra[obra.nombre], m, hoy)
+        filas.append([fila[c] for c in COLUMNAS_OBRAS])
     return filas
 
 
+# ─── Ingresos contra pagos por obra y por mes (§5.21 v1.11, pedido de Gabriel) ──
+
+def _es_honorario(mov: dict) -> bool:
+    return any(normalizar(mov.get(c)).startswith("honorario") for c in ("rubro_1", "rubro_2", "item"))
+
+
+def _siguiente_mes(mes: str) -> str:
+    anio, m_ = int(mes[:4]), int(mes[5:7])
+    return f"{anio + m_ // 12}-{m_ % 12 + 1:02d}"
+
+
+def vista_obras_mes(movs: list[dict], m: Maestros, hoy: date) -> list[list]:
+    """Obra × mes, en pesos, con lo que está en dólares sin convertir aparte (como VISTA_OBRAS):
+
+    - `ingresos` (S5): los aportes del comitente (a una cuenta del estudio o a la caja de la
+      obra), los honorarios cobrados y lo que el comitente **pagó directo** (§5.9: es plata
+      que puso él; si no entrara acá y sí en `pagos`, Lennon aparecería con −$22 millones,
+      como si el estudio financiara la obra, y es falso). Cada parte va también en su columna.
+    - `pagos`: todo lo ejecutado (EGRESO y PASANTE), con plata del estudio, del comitente o de
+      la caja de obra.
+    - `saldo_mes` = ingresos − pagos; `saldo_acumulado`, desde el primer mes de la obra.
+
+    Un mes sin movimientos entre el primero y el actual va igual, en cero, para que la línea
+    del saldo acumulado no salte. `mes_fecha` es el primer día del mes (fecha, para Looker)."""
+    columnas = ["obra", "mes", "mes_fecha", "aportes_comitente", "honorarios_cobrados", "pagado_directo_por_el_comitente",
+                "ingresos", "pagos", "saldo_mes", "saldo_acumulado", "ingresos_usd_sin_convertir",
+                "pagos_usd_sin_convertir", "saldo_acumulado_usd_sin_convertir"]
+    filas = [columnas]
+    hasta = hoy.isoformat()[:7]
+    for obra, propios in _por_obra(movs, m).items():
+        por_mes: dict[str, dict[str, float]] = {}
+        for mv in propios:
+            cuenta = m.cuenta(mv.get("cuenta"), incluir_inactivas=True)
+            a = por_mes.setdefault(_mes(mv.get("fecha")), dict.fromkeys(columnas[3:8] + columnas[10:12], 0.0))
+            tipo, pesos, usd = mv.get("tipo"), _pesos(mv) or 0.0, _usd_sin_convertir(mv)
+            if tipo == "INGRESO" and not (cuenta and cuenta.tipo == "externa"):
+                a["honorarios_cobrados" if _es_honorario(mv) else "aportes_comitente"] += pesos
+                a["ingresos_usd_sin_convertir"] += usd
+            elif tipo in ("EGRESO", "PASANTE"):
+                a["pagos"] += pesos
+                a["pagos_usd_sin_convertir"] += usd
+                if tipo == "PASANTE" or (cuenta and cuenta.tipo == "externa"):
+                    a["pagado_directo_por_el_comitente"] += pesos
+                    a["ingresos_usd_sin_convertir"] += usd
+        if not por_mes:
+            continue
+        acumulado = acumulado_usd = 0.0
+        mes = min(por_mes)
+        while mes <= max(hasta, max(por_mes)):
+            a = por_mes.get(mes) or dict.fromkeys(columnas[3:8] + columnas[10:12], 0.0)
+            ingresos = a["aportes_comitente"] + a["honorarios_cobrados"] + a["pagado_directo_por_el_comitente"]
+            saldo_mes = ingresos - a["pagos"]
+            acumulado += saldo_mes
+            acumulado_usd += a["ingresos_usd_sin_convertir"] - a["pagos_usd_sin_convertir"]
+            filas.append([obra, mes, f"{mes}-01", round(a["aportes_comitente"], 2), round(a["honorarios_cobrados"], 2),
+                          round(a["pagado_directo_por_el_comitente"], 2), round(ingresos, 2), round(a["pagos"], 2),
+                          round(saldo_mes, 2), round(acumulado, 2), round(a["ingresos_usd_sin_convertir"], 2),
+                          round(a["pagos_usd_sin_convertir"], 2), round(acumulado_usd, 2)])
+            mes = _siguiente_mes(mes)
+    return filas
+
+
+# ─── Visión general: una fila por día (§5.21 v1.11) ────────────────────────────
+
+DIAS_GENERAL = 90  # cuántos días hacia atrás tiene VISTA_GENERAL (la serie para los gráficos)
+
+
+def _saldos_banco_por_dia(banco: list[dict], m: Maestros) -> dict[str, list[tuple]]:
+    """{cuenta del libro: [(fecha, cuenta_banco, clave, saldo)]}, por fecha: las líneas con saldo
+    de cada cuenta del banco, asignadas a su cuenta del libro como en la conciliación."""
+    from app.conciliar import cuenta_de_linea
+    salida: dict[str, list[tuple]] = {}
+    for x in banco:
+        if x.get("saldo") in ("", None) or not x.get("cuenta_banco"):
+            continue
+        cuenta = cuenta_de_linea(x, m)
+        if cuenta is None:
+            continue
+        clave = (str(x.get("fecha"))[:10], str(x.get("importado_ts") or ""), -int(numero(x.get("orden"))))
+        salida.setdefault(cuenta.nombre, []).append((clave[0], x["cuenta_banco"], clave, numero(x.get("saldo"))))
+    for lista in salida.values():
+        lista.sort(key=lambda t: t[2])
+    return salida
+
+
+def _saldo_banco_al(lineas: list[tuple], dia: str) -> float | None:
+    """La suma, sobre las cuentas del banco de una cuenta del libro, del saldo de la última línea
+    de cada una con fecha ≤ día. None si ninguna tiene línea hasta ese día."""
+    ultimos: dict[str, float] = {}
+    for fecha, cuenta_banco, _, saldo in lineas:
+        if fecha > dia:
+            break
+        ultimos[cuenta_banco] = saldo
+    return round(sum(ultimos.values()), 2) if ultimos else None
+
+
+def vista_general(movs: list[dict], m: Maestros, hoy: date, saldos: list[list], banco: list[dict]) -> list[list]:
+    """Una fila por día, de los últimos DIAS_GENERAL hasta hoy (`es_hoy` = «sí» en la de hoy: las
+    tarjetas del tablero filtran por esa). Se recalcula entera cada noche, así que no depende de
+    que el cron haya corrido los días anteriores.
+
+    - Saldo por cuenta según el libro: Banco, Banco USD, Mercado Pago, Efectivo, y el total de
+      las cajas de obra (en pesos y en dólares, aparte: no son plata del estudio, §5.8).
+    - Ingresos y pagos del mes hasta ese día (con la regla de VISTA_OBRAS_MES, todas las obras).
+    - Capital propio inmovilizado total y las obras en rojo y en gris (como VISTA_OBRAS ese día).
+    - Diferencia libro − banco: de cada cuenta que concilia, contra el saldo de la última línea
+      del extracto hasta ese día. Vacía si no hay extracto o si la cuenta no tiene saldo de
+      apertura cargado (antes de eso la diferencia no dice nada)."""
+    columnas = ["fecha", "es_hoy", "saldo_banco", "saldo_banco_usd", "saldo_mercado_pago", "saldo_efectivo",
+                "cajas_obra_ars", "cajas_obra_usd", "ingresos_mes", "pagos_mes", "capital_propio_inmovilizado",
+                "obras_en_rojo", "obras_en_gris", "obras_en_rojo_lista", "obras_en_gris_lista",
+                "diferencia_libro_banco_ars", "diferencia_libro_banco_usd", "ultimo_extracto"]
+    filas = [columnas]
+    por_obra = _por_obra(movs, m)
+    obras = {o.nombre: o for o in obras_con_cc(m)}
+    fechas = [str(mv.get("fecha") or "")[:10] for mv in movs if mv.get("fecha")]
+    desde = max(date.fromisoformat(min(fechas)) if fechas else hoy, date.fromordinal(hoy.toordinal() - DIAS_GENERAL + 1))
+    # el saldo de cada cuenta por día, desde VISTA_SALDOS
+    serie: dict[str, list[tuple[str, float]]] = {}
+    for f in saldos[1:]:
+        serie.setdefault(f[1], []).append((f[0], f[6]))
+    activas = [c for c in m.cuentas if c.activa]
+
+    def saldo_libro(cuenta, dia: str) -> float:
+        valor = cuenta.saldo_apertura
+        for fecha, saldo in serie.get(cuenta.nombre, []):
+            if fecha > dia:
+                break
+            valor = saldo
+        return valor
+
+    def suma(dia: str, tipo: str, moneda: str) -> float:
+        return round(sum(saldo_libro(c, dia) for c in activas if c.tipo == tipo and c.moneda == moneda), 2)
+
+    # ingresos y pagos por día, con la misma regla que VISTA_OBRAS_MES (S5 y §5.9)
+    por_dia: dict[str, list[float]] = {}
+    for propios in por_obra.values():
+        for mv in propios:
+            cuenta = m.cuenta(mv.get("cuenta"), incluir_inactivas=True)
+            externa = cuenta is not None and cuenta.tipo == "externa"
+            a = por_dia.setdefault(str(mv.get("fecha") or "")[:10], [0.0, 0.0])
+            if mv.get("tipo") == "INGRESO" and not externa:
+                a[0] += _pesos(mv) or 0.0
+            elif mv.get("tipo") in ("EGRESO", "PASANTE"):
+                a[1] += _pesos(mv) or 0.0
+                if mv.get("tipo") == "PASANTE" or externa:
+                    a[0] += _pesos(mv) or 0.0
+    banco_por_cuenta = _saldos_banco_por_dia(banco, m)
+    ultimo_extracto = {}
+    for d in range(desde.toordinal(), hoy.toordinal() + 1):
+        dia_d = date.fromordinal(d)
+        dia = dia_d.isoformat()
+        del_mes = [v for f, v in por_dia.items() if f[:7] == dia[:7] and f <= dia]
+        ingresos, pagos = sum(v[0] for v in del_mes), sum(v[1] for v in del_mes)
+        filas_obras = [_fila_obra(obras[o], [mv for mv in propios if str(mv.get("fecha") or "")[:10] <= dia], m, dia_d)
+                       for o, propios in por_obra.items()]
+        rojas = [f["obra"] for f in filas_obras if f["semaforo"] == "rojo"]
+        grises = [f["obra"] for f in filas_obras if f["semaforo"] == "gris"]
+        diferencias = {"ARS": None, "USD": None}
+        for c in activas:
+            if not (c.concilia_contra_banco and c.fecha_apertura and c.fecha_apertura <= dia):
+                continue
+            del_banco = _saldo_banco_al(banco_por_cuenta.get(c.nombre, []), dia)
+            if del_banco is None:
+                continue
+            ultimo_extracto[dia] = max(ultimo_extracto.get(dia, ""), max(t[0] for t in banco_por_cuenta[c.nombre] if t[0] <= dia))
+            diferencias[c.moneda] = round((diferencias[c.moneda] or 0.0) + saldo_libro(c, dia) - del_banco, 2)
+        filas.append([dia, "sí" if dia_d == hoy else "no", suma(dia, "banco", "ARS"), suma(dia, "banco", "USD"),
+                      suma(dia, "billetera", "ARS"), suma(dia, "efectivo", "ARS"), suma(dia, "caja_obra", "ARS"),
+                      suma(dia, "caja_obra", "USD"), round(ingresos, 2), round(pagos, 2),
+                      round(sum(f["capital_propio_inmovilizado"] for f in filas_obras), 2), len(rojas), len(grises),
+                      ", ".join(rojas), ", ".join(grises),
+                      "" if diferencias["ARS"] is None else diferencias["ARS"],
+                      "" if diferencias["USD"] is None else diferencias["USD"], ultimo_extracto.get(dia, "")])
+    return filas
+
+
+SIN_OBRA = "Sin obra"
+SIN_RUBRO = "Sin rubro"
+
+
 def vista_rubros(movs: list[dict]) -> list[list]:
+    """Mes × obra × rubro_1 × rubro_2 × tipo_gasto. Sin vacíos en obra ni en los rubros («Sin
+    obra», «Sin rubro»): una barra con la etiqueta en blanco en el tablero no se entiende."""
     acumulado: dict[tuple, list[float]] = {}
     for mv in movs:
         if mv.get("tipo") not in ("EGRESO", "PASANTE"):
             continue
-        clave = (_mes(mv.get("fecha")), mv.get("obra") or "", mv.get("rubro_1") or "Sin rubro", mv.get("rubro_2") or "",
-                 mv.get("tipo_gasto") or "")
+        clave = (_mes(mv.get("fecha")), mv.get("obra") or SIN_OBRA, mv.get("rubro_1") or SIN_RUBRO,
+                 mv.get("rubro_2") or SIN_RUBRO, mv.get("tipo_gasto") or "")
         a = acumulado.setdefault(clave, [0.0, 0.0, 0])
         a[0] += _pesos(mv) or 0.0
         a[1] += _usd_sin_convertir(mv)
         a[2] += 1
-    filas = [["mes", "obra", "rubro_1", "rubro_2", "tipo_gasto", "importe_ars", "importe_usd_sin_convertir", "cantidad"]]
-    filas += [[*k, round(v[0], 2), round(v[1], 2), v[2]] for k, v in sorted(acumulado.items())]
+    filas = [["mes", "obra", "rubro_1", "rubro_2", "tipo_gasto", "importe_ars", "importe_usd_sin_convertir", "cantidad",
+              "mes_fecha"]]
+    filas += [[*k, round(v[0], 2), round(v[1], 2), v[2], f"{k[0]}-01"] for k, v in sorted(acumulado.items())]
     return filas
 
 
@@ -168,13 +379,13 @@ def vista_proveedores(movs: list[dict]) -> list[list]:
     for mv in movs:
         if mv.get("tipo") not in ("EGRESO", "PASANTE") or not mv.get("contratista") or es_cierre_semanal(mv):
             continue
-        clave = (_mes(mv.get("fecha")), mv.get("contratista"), mv.get("obra") or "")
+        clave = (_mes(mv.get("fecha")), mv.get("contratista"), mv.get("obra") or SIN_OBRA)
         a = acumulado.setdefault(clave, [0.0, 0.0, 0])
         a[0] += _pesos(mv) or 0.0
         a[1] += _usd_sin_convertir(mv)
         a[2] += 1
-    filas = [["mes", "contratista", "obra", "importe_ars", "importe_usd_sin_convertir", "cantidad_pagos"]]
-    filas += [[*k, round(v[0], 2), round(v[1], 2), v[2]] for k, v in sorted(acumulado.items())]
+    filas = [["mes", "contratista", "obra", "importe_ars", "importe_usd_sin_convertir", "cantidad_pagos", "mes_fecha"]]
+    filas += [[*k, round(v[0], 2), round(v[1], 2), v[2], f"{k[0]}-01"] for k, v in sorted(acumulado.items())]
     return filas
 
 
@@ -197,6 +408,7 @@ def vista_detalle(movs: list[dict], m: Maestros) -> list[list]:
     for mv in sorted(movs, key=lambda x: (str(x.get("fecha") or ""), str(x.get("id_mov") or ""))):
         fila = {c: mv.get(c, "") for c in COLUMNAS_DETALLE}
         fila["mes"], fila["quien_pago"] = _mes(mv.get("fecha")), _quien_pago(mv, m)
+        fila["obra"] = fila["obra"] or SIN_OBRA
         filas.append([fila[c] if fila[c] is not None else "" for c in COLUMNAS_DETALLE])
     return filas
 
@@ -259,7 +471,7 @@ def cuenta_corriente(obra, vistas: dict[str, list[list]], m: Maestros, ahora: st
     por_rubro: dict[tuple, list[float]] = {}
     for r in detalle:
         if r["tipo"] in ("EGRESO", "PASANTE"):
-            a = por_rubro.setdefault((r["rubro_1"] or "Sin rubro", r["rubro_2"] or ""), [0.0, 0.0])
+            a = por_rubro.setdefault((r["rubro_1"] or SIN_RUBRO, r["rubro_2"] or SIN_RUBRO), [0.0, 0.0])
             a[0] += _pesos(r) or 0.0
             a[1] += _usd_sin_convertir(r)
     filas += [[*k, round(v[0], 2), round(v[1], 2)] for k, v in sorted(por_rubro.items(), key=lambda x: -x[1][0])]
@@ -315,9 +527,18 @@ def calcular(libro: Libro, libro_personal: Libro | None, m: Maestros | None = No
     m = m or maestros.cargar()
     hoy = hoy or date.today()
     movs = _del_master(como_dicts(libro.leer_movimientos()))
+    try:
+        crudo = libro.leer_banco()
+        banco = [dict(zip(crudo[0], f)) for f in crudo[1:]] if crudo else []
+    except Exception:  # sin BANCO_RAW, VISTA_GENERAL sale sin la diferencia contra el banco
+        logger.exception("vistas: no pude leer BANCO_RAW")
+        banco = []
+    saldos = vista_saldos(movs, m)
     master = {
-        "VISTA_SALDOS": vista_saldos(movs, m),
+        "VISTA_SALDOS": saldos,
         "VISTA_OBRAS": vista_obras(movs, m, hoy),
+        "VISTA_OBRAS_MES": vista_obras_mes(movs, m, hoy),
+        "VISTA_GENERAL": vista_general(movs, m, hoy, saldos, banco),
         "VISTA_RUBROS": vista_rubros(movs),
         "VISTA_PROVEEDORES": vista_proveedores(movs),
         "VISTA_DETALLE": vista_detalle(movs, m),
@@ -335,20 +556,19 @@ def calcular(libro: Libro, libro_personal: Libro | None, m: Maestros | None = No
     return {"master": master, "personal": personal}
 
 
-def recalcular(libro: Libro, libro_personal: Libro | None, solo_cc: bool = False) -> dict:
+def recalcular(libro: Libro, libro_personal: Libro | None, solo_cc: bool = False, simulacro: bool = False) -> dict:
     """POST /vistas/recalcular (y scripts/crear_cc_obras.py con `solo_cc`): escribe las hojas.
-    Devuelve {hoja: filas escritas}."""
+    Devuelve {"escritas": {hoja: filas}} (sin el encabezado). Con `simulacro`, lo mismo sin
+    escribir nada: {"simulacro": true, "escribiria": {hoja: filas}}."""
     hojas = calcular(libro, libro_personal)
     escritas = {}
-    for hoja, filas in hojas["master"].items():
-        if solo_cc and not hoja.startswith("CC_"):
+    for destino, prefijo, libro_destino in (("master", "", libro), ("personal", "personal:", libro_personal)):
+        if libro_destino is None:
             continue
-        libro.escribir_hoja(hoja, filas)
-        escritas[hoja] = len(filas) - 1
-    if libro_personal is not None:
-        for hoja, filas in hojas["personal"].items():
+        for hoja, filas in hojas[destino].items():
             if solo_cc and not hoja.startswith("CC_"):
                 continue
-            libro_personal.escribir_hoja(hoja, filas)
-            escritas[f"personal:{hoja}"] = len(filas) - 1
-    return {"escritas": escritas}
+            if not simulacro:
+                libro_destino.escribir_hoja(hoja, filas)
+            escritas[f"{prefijo}{hoja}"] = len(filas) - 1
+    return {"simulacro": True, "escribiria": escritas} if simulacro else {"escritas": escritas}

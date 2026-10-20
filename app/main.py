@@ -222,10 +222,15 @@ async def post_conciliar_lote(req: ConciliarLoteIn, libro: Libro = Depends(obten
 
 # ─── Vistas del tablero (§5.21) ────────────────────────────────────────────────
 
+class VistasIn(BaseModel):
+    simulacro: bool = False  # true: calcula y dice qué hojas y cuántas filas escribiría, sin escribir
+
+
 @app.post("/vistas/recalcular", dependencies=[Depends(verificar_api_key)])
-def post_vistas_recalcular(libro: Libro = Depends(obtener_libro),
+def post_vistas_recalcular(req: VistasIn | None = None, libro: Libro = Depends(obtener_libro),
                            libro_personal: Libro | None = Depends(obtener_libro_personal)) -> dict:
     """Reescribe las hojas derivadas del tablero (VISTA_* y la CC_<OBRA> de cada obra en el
     Master; VISTA_PERSONAL, VISTA_DETALLE y las CC_ de los inmuebles en el libro personal). Nunca
-    toca MOVIMIENTOS. Lo dispara un cron cada noche (scripts/recalcular_vistas.py)."""
-    return vistas.recalcular(libro, libro_personal)
+    toca MOVIMIENTOS. Lo dispara un cron cada noche (scripts/recalcular_vistas.py). Con
+    `{"simulacro": true}` no escribe: devuelve qué hojas y cuántas filas escribiría."""
+    return vistas.recalcular(libro, libro_personal, simulacro=bool(req and req.simulacro))

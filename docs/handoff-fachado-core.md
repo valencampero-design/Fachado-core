@@ -593,15 +593,49 @@ Después del deploy (6.8 del handoff de la tanda): `/salud` y una llamada real a
 `/interpretar` —que nunca escribe— con un texto del corpus y con un comprobante solo. **Nunca
 un `/confirmar` ni un `/anular` de prueba contra el Sheet real.**
 
-**El cron de las vistas (15/10).** Un tercer servicio en Railway, igual que el del cierre:
+**El cron de las vistas (15/10; pasos del 20/10).** El 15/10 aparecieron las `CC_` pero
+ninguna `VISTA_*`: las CC las escribió `crear_cc_obras.py` a mano, y las vistas solo las
+escribe este cron, que nunca se creó. Es un tercer servicio en Railway, igual que el del
+cierre. Paso a paso, en el proyecto `bountiful-trust`:
 
-- start command `python scripts/recalcular_vistas.py`;
-- cron schedule `0 6 * * *` (todos los días a las 3:00 de Argentina, en UTC);
-- variables `MOTOR_URL` y `MOTOR_API_KEY`.
+1. **+ Create** (o **+ New**) → **GitHub Repo** → el repo `fachado-core`, rama `main`. Se crea
+   un servicio nuevo; Railway intenta desplegarlo como web: no importa, el paso 3 lo cambia.
+2. En el servicio nuevo, **Settings** → arriba, el nombre: **`vistas`**.
+3. **Settings → Deploy**:
+   - **Custom Start Command**: `python scripts/recalcular_vistas.py`;
+   - **Cron Schedule**: `0 6 * * *`. Es en **UTC**: todos los días a las 3:00 de Argentina,
+     después del cierre del día y antes de que Gabriel abra el tablero;
+   - **Restart Policy**: **Never**. Si falla, que espere a la noche siguiente y no reintente
+     en loop.
+   - Sin dominio público: es un trabajo que corre y termina, no atiende pedidos.
+4. **Variables** → **New Variable**, dos, como referencias al servicio del motor (así la clave
+   no se copia a mano ni queda escrita en ningún lado):
+   - `MOTOR_URL` = `https://${{web.RAILWAY_PUBLIC_DOMAIN}}`
+   - `MOTOR_API_KEY` = `${{web.MOTOR_API_KEY}}`
 
-Llama a `POST /vistas/recalcular`, que reescribe las hojas derivadas: en el Master, VISTA_* y
-la CC_<OBRA> de cada obra; en el libro personal, VISTA_PERSONAL, VISTA_DETALLE y la CC_ de cada
-inmueble personal. Idempotente; nunca toca MOVIMIENTOS.
+   No necesita las credenciales de Google: el que lee y escribe los libros es el motor.
+5. **Deploy** (o el botón para aplicar los cambios que Railway muestra arriba).
+6. **La primera corrida, sin esperar a las 3**: desde la PC, con las mismas dos variables en
+   el entorno,
+   `python scripts/recalcular_vistas.py --simulacro` (dice qué hojas y cuántas filas
+   escribiría, sin escribir) y después `python scripts/recalcular_vistas.py`. O, en Railway,
+   poner por un rato el Cron Schedule a unos minutos de la hora actual en UTC, esperar la
+   corrida y volverlo a `0 6 * * *`.
+7. **El log de la corrida**: servicio `vistas` → pestaña **Deployments** → la corrida (una por
+   noche, con la hora) → **View Logs**. Una corrida buena termina con «Escritas N hojas» y la
+   lista. Una mala, con una línea «ERROR: …» y el código de salida distinto de 0, y Railway la
+   marca como fallida:
+   - 2: faltan variables;
+   - 3: el motor no contesta o tarda más de 600 s;
+   - 1: el motor contestó un error (401 = la clave no coincide).
+
+Llama a `POST /vistas/recalcular`, que reescribe las hojas derivadas:
+- en el Master, VISTA_* (VISTA_GENERAL y VISTA_OBRAS_MES desde el 20/10) y la CC_<OBRA> de cada
+  obra;
+- en el libro personal, VISTA_PERSONAL, VISTA_DETALLE y la CC_ de cada inmueble personal.
+
+Con `{"simulacro": true}` calcula todo y devuelve `{"simulacro": true, "escribiria": {hoja:
+filas}}` sin escribir. Idempotente; nunca toca MOVIMIENTOS.
 
 **El cron del cierre semanal.** Un segundo servicio en Railway, desde el mismo repo, con:
 
