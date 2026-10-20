@@ -337,3 +337,230 @@ Siguen abiertos del 15/10 y **no se tocan en código**: rubro de Sofía Cervera,
 
 Debajo de esta línea, cada sesión deja su resultado: qué quedó (con commits), qué no y por
 qué, supuestos, cambios de contrato y los pasos de deploy en orden.
+
+---
+
+## Resultado — Motor (sesión del 20/10)
+
+Las cuatro partes de código commiteadas, una por parte, en `main`, **sin pushear**. El único
+push fue el autorizado: `89efc4a` (el snapshot de las dos Sofía), primero de todo. Ningún
+test ni script escribió en los Sheets reales: todo lo que tocó el Master o el libro personal
+fue lectura o simulacro. No se corrió ningún `--aplicar`, no se tocó `CONCILIACION_DESDE` ni
+las variables de Railway.
+
+Seis suites en verde al cierre: `test_casos`, `test_confirmar`, `test_reglas`,
+`test_conciliar` (55 checks, +19), `test_vistas` (48, +23) y `test_apertura` (17, nueva).
+
+### Qué quedó
+
+| Parte | Commits | Qué |
+|---|---|---|
+| — | `64313c8` | Este handoff, commiteado sin cambios (autorizado) |
+| **M1** | `5897289`, `63fddb2` | Una `CC_` por cada obra: **13 en el Master** y las 4 de los inmuebles (Sur, Abucoque, Belelli, Gessel) **en el libro personal**, con el mismo formato (`cuenta_corriente_personal`). `crear_cc_obras.py` escribe las dos; su simulacro contra los libros reales da 13 + 4. `63fddb2`: cinco tests de `test_casos` usaban «elias» como contratista inexistente y el snapshot del 15/10 trae a Elias Rodriguez; ahora usan «teodoro» |
+| **M2** | `b4e0c8e`, `491e041` | **Mercado Pago y las cuatro cuentas juntas.** Ver abajo. `491e041`: `.gitattributes` con `*.pdf` y `*.xlsx` binarios (el PDF armado es todo ASCII y un checkout con `autocrlf` le rompería el xref) |
+| **M3** | `05b230b` | `docs/saldos-apertura-31-10.csv` (12 cuentas leídas de CUENTAS: Banco, Banco USD, Efectivo, Mercado Pago y las 8 cajas de obra, cada una en su moneda) y `scripts/cargar_saldos_apertura.py --csv` con el control contra el banco. Simulacro contra el Master real: lee bien, «sin saldo, no se carga» en las 12 |
+| **M4** | `3f03a0e` | `VISTA_OBRAS_MES`, `VISTA_GENERAL`, `obra` igual en todas las vistas, «Sin rubro» / «Sin obra», `recalcular_vistas.py` con códigos de salida y `--simulacro`, la guía de Looker reescrita y los pasos del cron en Railway |
+| **M5** | (este commit) | `docs/handoff-fachado-core.md` al día (archivos, endpoints, contratos, deploy) y este resultado |
+
+**M2 en detalle:**
+- **El PDF de Mercado Pago** (`extracto.leer_mercado_pago`): pypdf, sin LLM; `origen =
+  mercado_pago`, `cuenta_banco = "Mercado Pago"`; el ID de la operación queda en `ref`, y es
+  el match fuerte contra un comprobante de Mercado Pago (`ref_comprobante = op:<ID>`).
+- **Clasificación**: la compra de Mercado Libre va al lote `meli_personal`; rendimientos,
+  comisiones y retenciones van a `gastos_bancarios` (S3); las transferencias, con match o
+  ficha.
+- **Las cinco fuentes salen de CUENTAS**, no del código. Columna nueva `cuentas_banco`:
+  - `Banco` ← CA $ 273, CC $ 273 y CA $ 48;
+  - `Banco USD` ← CA U$S;
+  - `Mercado Pago` ← el reporte.
+
+  Migración `2026_10_20_cuentas_conciliacion.py`, aplicada **solo al snapshot**. Cada línea
+  busca candidatos solo en su cuenta del libro (`cuenta_de_linea`).
+- **Traspasos entre cuentas propias** (`emparejar`, ±1 día hábil, el par más cercano):
+  - CA → CC = las dos líneas `INTERNA`, sin movimiento ni pregunta (S4), contadas en
+    `internas`;
+  - Banco ↔ Mercado Pago = **una** ficha TRASPASO, llegue primero el que llegue;
+  - pesos ↔ dólares (las dos líneas «COMPRA-VENTA DOLARES») = traspaso con el tc del par
+    (145.000 / 100 = 1.450).
+
+  `/confirmar` con `extras.ids_banco` escribe las dos filas, cada una con su `id_banco`, y
+  marca las dos líneas.
+- **Lote en dólares** (S2): `moneda`, `requiere_tc` y `tc_sugerido` (el tc que el libro usó el
+  último día del lote). `/conciliar/lote` sin `tipo_cambio` da 422 `{campo: tipo_cambio}`; con
+  «1.450» escribe en Banco USD con ese tc.
+- **`GET /conciliar/estado`** según §3.
+- **Tests**:
+  - los cuatro archivos contra un libro en memoria, también con Mercado Pago primero y en orden
+    inverso;
+  - CA→CC INTERNA, Banco→MP con una sola ficha, pesos→USD con tc, el lote en US$ con tc,
+    `estado` con «Me faltan: CA $ 48»;
+  - reimportar todo no cambia nada.
+
+**M4 en detalle:**
+- **`VISTA_OBRAS_MES`**, obra × mes. Columnas:
+  - `aportes_comitente`, `honorarios_cobrados` y `pagado_directo_por_el_comitente`, que suman
+    `ingresos`;
+  - `pagos`, `saldo_mes` y `saldo_acumulado`;
+  - las de US$ sin convertir, aparte;
+  - `mes_fecha`.
+
+  Los meses vacíos van en cero hasta el actual.
+- **`VISTA_GENERAL`**: una fila por día (los últimos 90), con `es_hoy`. Trae:
+  - el saldo de Banco, Banco USD, Mercado Pago y Efectivo;
+  - las cajas de obra en $ y en US$;
+  - ingresos y pagos del mes;
+  - capital propio;
+  - obras en rojo y en gris, con la cuenta y la lista;
+  - la diferencia libro − banco y el último extracto.
+
+  Contra los libros reales (solo lectura) se calcula en 4 s.
+- **`obra`**: el mismo nombre y tipo (texto, nunca vacío) en VISTA_OBRAS, VISTA_OBRAS_MES,
+  VISTA_RUBROS, VISTA_PROVEEDORES y VISTA_DETALLE. Hay un test que lo verifica. En Looker no
+  hace falta nada más que no renombrar el campo (anotado en la guía).
+- **`mes_fecha`** en VISTA_RUBROS y VISTA_PROVEEDORES: una fecha real para los controles de
+  período, en vez de depender de cómo Looker lea «2026-10».
+
+### Qué no y por qué
+
+- **La muestra real del PDF de Mercado Pago no estaba** (`Archivos Muestra/Muestra 3/` no
+  existe). El parser está escrito contra un formato **armado**
+  (`tests/fixtures/generar_muestras_armadas.py`). `test_conciliar` lee la muestra real sola
+  cuando aparezca; hoy dice SKIP. Hasta probarla, un PDF real puede no reconocerse: en ese
+  caso devuelve 422 y el gateway lo manda al circuito de comprobantes, que es lo seguro.
+- **Nada aplicado en los Sheets** (prohibido en esta tirada). Quedan para Valen:
+  `preparar_sheet` (la columna `cuentas_banco` y `BANCO_RAW.origen`), la migración del 20/10,
+  `crear_cc_obras` y, el 1/11, los saldos. El orden está abajo.
+- **CONTEXTO v1.11 incompleto en el repo**: `44b37fb` solo trae las CC de §5.21 y el
+  encabezado dice 1.10. Trabajé con este handoff como especificación. La sesión del gateway
+  encontró lo mismo.
+
+### Supuestos y decisiones (conservadores; ninguno cambia un contrato de §3)
+
+- **S2–S5 implementados** como dice §4 (S1 es del gateway). Los abiertos del 15/10 —rubro de
+  Sofía Cervera, MeLi como `Personal › Consumos`, capital propio— **no se tocaron**.
+- **«Ingresos» de una obra incluye lo que el comitente pagó directo** (además de los aportes y
+  los honorarios de S5), y esos mismos pagos están en `pagos`. Si no, Lennon aparecería con
+  −$22 millones de saldo acumulado, como si el estudio financiara la obra: §5.9 lo prohíbe.
+  Va en su propia columna, para que se vea.
+- **Honorarios** = un ingreso con «honorario» en `rubro_1`, `rubro_2` o `item`; el resto de los
+  ingresos de la obra (también los que entran a la caja de obra) son aportes.
+- **`VISTA_GENERAL` se recalcula entera** (90 días hacia atrás) en vez de agregar una fila por
+  noche. No depende de que el cron haya corrido los días anteriores, que fue el problema del
+  15/10.
+- **La diferencia libro − banco va vacía** mientras la cuenta no tenga `fecha_apertura`: antes
+  del saldo de apertura no dice nada.
+- **Plantilla de saldos**: sin Chequera ni «Pagado por el comitente», porque no son plata en
+  una cuenta. Una fila con el saldo vacío se saltea con un aviso; cualquier error (cuenta que
+  no existe, moneda equivocada, número o fecha inválidos, cuenta repetida) hace que no se
+  escriba nada. Acepta coma o punto y coma (el Excel en castellano guarda con «;»).
+- **El control de saldos sin la columna `cuentas_banco`** (si Valen carga los saldos antes de
+  la migración) deduce las cuentas del banco de las líneas importadas. Así no puede decir cuál
+  falta, pero compara igual.
+- **Una línea del banco que dice «mercado pago» ya no va al lote MeLi**: es un pase a la
+  billetera y se empareja como traspaso. Las compras de Mercado Libre se siguen reconociendo
+  por «mercado libre», «mercadolibre» o «merpago».
+- **Las líneas «COMPRA-VENTA DOLARES» nunca van a un lote**: o son el par de un traspaso o una
+  ficha. Para emparejarlas, el tc tiene que ser plausible (entre 50 y 100.000).
+- **`importado_ts` en hora argentina** (antes, la del servidor, UTC). Lo necesitaba
+  `estado.ultima_importacion`, que se publica con `-03:00`.
+- **Los totales de arriba de `resumen`** son ahora Banco + Mercado Pago (todo lo que está en
+  pesos y concilia). Por cuenta siguen apareciendo por separado.
+
+### Cambios de contrato (aditivos, cruzados con la sesión del gateway)
+
+- `GET /conciliar/estado`: cada fuente suma `rotulo`. Los rótulos de las dos CA $ llevan el
+  número («CA $ 273», «CA $ 48») para distinguirlas. El gateway alineó sus ejemplos, que
+  usaban «CA $», en su commit `6f30fda`.
+- `tipo_cambio` llega tal cual lo escribió el usuario y se lee con `numero()`: «1.450,50» →
+  1450,5. Si vale ≤ 1 o no es un número, devuelve 422.
+- `POST /vistas/recalcular` acepta `{"simulacro": true}` → `{"simulacro": true, "escribiria":
+  {hoja: filas}}`. Lo usa solo el cron; el gateway no lo llama.
+
+### La métrica de siempre
+
+Gratis (`test_corpus --sin-llm --historia`), con la historia bajada hoy de los dos libros (la
+del 9/10 ya no estaba): **antes (`64313c8`) y después, idénticas**, también en el JSON
+completo. Nada de esta tirada toca `/interpretar`.
+
+| | Antes = después |
+|---|---|
+| Obra/destino sin preguntar | 38/50 (76 %) |
+| Con las preguntas de diseño | 45/50 (90 %) · 1 dual + 6 apodos |
+| Preguntas por movimiento | 1,54 (cero preguntas: 1/54) |
+| Con obra + contratista + comprobante | 1,11 (cero preguntas: 0/19) |
+| Invariante | 0 de 59 |
+
+El caso obligatorio «Austral/Sofi» falla **antes y después**: espera una pregunta de
+clasificación que se sacó a propósito el 15/10 (las dos Sofía). El caso quedó viejo y no lo
+toqué porque el rubro de Sofía Cervera sigue abierto.
+
+**Con los comprobantes** (`--adjuntos --historia`, una sola corrida, la autorizada): **USD
+0,225**. Fueron 24 lecturas de comprobantes y 6 llamadas de tokens; la caché local no tenía
+ninguno de estos archivos. Es el número real de preguntas del bot con comprobante:
+
+| | 9/10 (última con adjuntos) | Hoy |
+|---|---|---|
+| Preguntas por movimiento | 0,98 | **0,87** · cero preguntas 24/54 (44 %) |
+| Con obra + contratista + comprobante | 0,45 · 65 % sin preguntas | **0,30** · **15/20 (75 %)** sin preguntas |
+| Obra/destino sin preguntar | — | 45/50 (90 %) |
+| Obra y contratista sin preguntar | — | 39/50 (78 %); con las de diseño, 45/50 (90 %) |
+| Qué se pregunta | — | importe 16, etapa 13, contratista 6, obra 6, rubro 4, tc 1, clasificación 1 |
+| Invariante | 0 | 0 de 59 |
+
+La mejora contra el 9/10 viene de lo del 15/10 (las Sofía, «Es nuevo», el tc del recibo) y de
+una historia más larga (30 movimientos del estudio), no de esta tirada, que no toca
+`/interpretar`. La corrida termina con código 1 solo por el caso «Austral/Sofi» de arriba.
+
+### Deploy, en orden (Valen; motor)
+
+1. **Push** de `fachado-core` (los commits de M1 a M5) → Railway despliega `web` →
+   `curl.exe <URL>/salud`.
+2. **Las columnas**: primero `python scripts/preparar_sheet.py` (simulacro). Tiene que dar
+   `CUENTAS!I1 cuentas_banco` y `BANCO_RAW!R1 origen`, más lo del 15/10 si todavía no se
+   aplicó. Después, con `--aplicar`.
+3. **Las cuentas de la conciliación**: primero
+   `python scripts/migraciones/2026_10_20_cuentas_conciliacion.py` (simulacro). Pone las cuentas
+   del banco de Banco, Banco USD y Mercado Pago, y Mercado Pago pasa a concilia = SÍ. Después,
+   con `--aplicar`; después, `POST /maestros/recargar`.
+4. **Las CC_**: primero `python scripts/crear_cc_obras.py` (simulacro: 13 en el Master y 4 en el
+   personal), después con `--aplicar`. Necesita `FACHADO_PERSONAL_SHEET_ID` en el entorno.
+5. **El cron de vistas**: los pasos en `docs/handoff-fachado-core.md` §5. Primero
+   `python scripts/recalcular_vistas.py --simulacro` desde la PC y después la corrida de
+   verdad; tienen que aparecer `VISTA_GENERAL` y `VISTA_OBRAS_MES`.
+6. **Looker Studio** con `docs/tablero-looker.md`.
+7. **El 1/11**:
+   - Gabriel y Petrus completan `docs/saldos-apertura-31-10.csv`;
+   - Valen corre `python scripts/cargar_saldos_apertura.py --csv docs/saldos-apertura-31-10.csv`,
+     mira el control contra el banco y después corre con `--aplicar`;
+   - Petrus manda los extractos de octubre (entran `ANTERIOR`, que es lo que da el saldo del
+     banco al 31/10 para el control) y después los de noviembre.
+
+**No** bajar `CONCILIACION_DESDE` en Railway para probar (ver el 15/10).
+
+## Para Valen
+
+- **CONTEXTO v1.11**: el del repo está incompleto (el encabezado dice 1.10 y §5.20 no tiene lo
+  de esta semana). Subí la versión completa; las dos sesiones trabajaron con el handoff.
+- **Muestra de Mercado Pago**: dejala en `Archivos Muestra/Muestra 3/`. Hay que correr
+  `test_conciliar` y, si no la lee, ajustar `leer_mercado_pago`: el formato es armado.
+- **Orden de los scripts**: `preparar_sheet` → migración del 20/10 → `/maestros/recargar` →
+  `crear_cc_obras`. Al revés, la migración frena con «correr antes preparar_sheet».
+- **`al_dia` de `/conciliar/estado`**: cuenta las líneas con fecha en la semana (§3). Una
+  cuenta sin movimientos en la semana (la CA $ 48 se usa poco) va a figurar como faltante
+  aunque Petrus mande el extracto. Hay que confirmar con Petrus si es así o si alcanza con que
+  lo haya mandado.
+- **Ingresos de una obra**: incluyen lo que pagó directo el comitente (además de S5), por
+  §5.9. Confirmalo con Gabriel el jueves junto con S5.
+- **Plantilla de saldos**: Chequera quedó afuera. Si tiene cheques emitidos sin debitar al
+  31/10, ¿lleva saldo de apertura?
+- **Elias Rodriguez** tiene rubro habitual `Zinguería › Zinguería`, que no está en RUBROS
+  (¿`Materiales › Zinguería`?). El motor lo avisa y no lo usa: corregirlo en CONTRATISTAS.
+- **El caso «Austral/Sofi» de la métrica** espera una pregunta que ya no se hace (desde el
+  15/10). Actualizarlo cuando se decida el rubro de Sofía Cervera.
+- **Semáforo gris**: Jardín Maternal (cerrada) sale siempre gris, igual que en VISTA_OBRAS.
+  Decidí si una obra cerrada tiene que quedar fuera del conteo de la visión general.
+- **MeLi y Mercado Pago**: las líneas del banco que dicen «mercado pago» ahora son pases a la
+  billetera y no compras de MeLi. Con el primer extracto real, revisá que ninguna compra de
+  MeLi caiga ahí.
+- **El push**: M1 a M5 están commiteados en `main` sin pushear (6 commits después de
+  `64313c8`, más el de este resultado).

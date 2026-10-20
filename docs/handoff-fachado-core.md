@@ -26,6 +26,7 @@
 | ✅ Conversación del 9/10 (D, E, F, G, H, ñ) | Desplegado el 9/10; `Caja obra Lennon` en USD en el Sheet y snapshot regenerado. Falta, cuando Valen lo decida, el script de correcciones (§8). Detalle y métrica al final de `docs/handoff-conversacion-2026-10-09.md` |
 | ✅ Post-reunión 6 (M1 a M5) | Desplegado el 9/10: contratista nuevo con alta al confirmar, consulta del saldo de caja, intenciones `anular`/`corregir`. Contratos al final de `docs/handoff-post-reunion6-2026-10-09.md` |
 | ⏳ Cierre de la propuesta (15/10) | Commiteado **sin pushear**: las dos Sofía, «Es nuevo», tc del recibo, consulta `obra`; **conciliación con el banco** (§5.20); **vistas del tablero y CC_<obra>** (§5.21). Detalle, decisiones y orden de deploy al final de `docs/handoff-cierre-propuesta-2026-10-15.md` |
+| ⏳ Semana 8 (20/10), el motor | Commiteado **sin pushear** (M1 a M4): CC_ de todas las obras y de los inmuebles personales; **Mercado Pago y las cuatro cuentas del banco** con traspasos entre cuentas propias, lote en dólares y `GET /conciliar/estado`; saldos de apertura en un paso; `VISTA_OBRAS_MES` y `VISTA_GENERAL`, la guía de Looker para el celular y el cron de vistas paso a paso. Resultado, supuestos y orden de deploy al final de `docs/handoff-semana-8-2026-10-20.md` |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
@@ -72,23 +73,33 @@ app/
                    contratista): real o en memoria
   archivo.py       dónde queda cada comprobante, y el puerto a Drive
   saldos.py        saldo de una obra y saldo del estudio, derivados del libro
+  extracto.py      los extractos: el Excel de Banco Patagonia y el PDF de Mercado Pago → líneas con hash_id
+  conciliar.py     BANCO_RAW: importar, matchear, traspasos entre cuentas propias, lotes, estado
+  vistas.py        las hojas VISTA_* del tablero y las CC_<OBRA>
   sheets.py        clientes de Google Sheets (service account) y Drive (OAuth), con reintentos
 scripts/
   get_google_token.py    genera el refresh token de Drive, se corre una vez
   snapshot_maestros.py   baja los maestros a tests/maestros_snapshot.json
   preparar_sheet.py      columnas y hojas que el motor necesita. Idempotente, simulacro por defecto
   cierre_semanal.py      lo corre el cron: llama a POST /cierre-semanal
+  recalcular_vistas.py   lo corre el cron de vistas: llama a POST /vistas/recalcular (--simulacro)
+  crear_cc_obras.py      escribe las CC_ a mano (simulacro por defecto)
+  cargar_saldos_apertura.py  los saldos al 31/10 desde docs/saldos-apertura-31-10.csv (simulacro por defecto)
   migraciones/           correcciones de datos del maestro, una por fecha, idempotentes
 tests/
   corpus.csv             las 101 filas de la hoja CAPTURA
   maestros_snapshot.json copia de los maestros, para correr reproducible y offline
-  fixtures/              cert_loguercio_etapa3.pdf, el certificado real de ejemplo
+  fixtures/              cert_loguercio_etapa3.pdf, el certificado real de ejemplo; extractos del banco;
+                         armado-octubre-*: los cuatro archivos ARMADOS (no reales) de la conciliación del 20/10
   dobles.py              libro en memoria y Drive falso
   test_corpus.py         la métrica: cuánto resuelve sin preguntar, en total y por usuario
   test_reglas.py         que lo que resuelve sea lo que el negocio decidió
   test_casos.py          los casos de los handoffs del 25/09 (tandas 1 a 6), con su resultado esperado
   test_confirmar.py      /confirmar, /anular, /movimientos, /cierre-semanal y /consultar contra
                          libros en memoria
+  test_conciliar.py      la conciliación (§5.20): extractos, matcheo, lotes, traspasos, estado
+  test_vistas.py         las vistas del tablero, las CC_ y el script del cron
+  test_apertura.py       los saldos de apertura: plantilla, validación y control contra el banco
 ```
 
 ### Lo del 9/10: pocas preguntas y cajas en dólares (§5.8 y §5.12 v1.8)
@@ -155,6 +166,33 @@ Detalle y contratos al final de `docs/handoff-post-reunion6-2026-10-09.md`.
   inmuebles personales, en el libro personal, desde el 20/10); `Libro.escribir_hoja` →
   `sheets.reemplazar_hoja`, que solo acepta hojas `VISTA_*` y `CC_*`.
 
+### Lo del 20/10: semana 8 (v1.11)
+
+Detalle, supuestos (S1–S5) y orden de deploy al final de `docs/handoff-semana-8-2026-10-20.md`.
+
+- **CC_ de todas las obras** (§5.21 v1.11): `vistas.obras_con_cc` (13 en el Master) e
+  `inmuebles_personales` (Sur, Abucoque, Belelli, Gessel: `cuenta_corriente_personal`, en el
+  libro personal).
+- **Mercado Pago** (§5.20 v1.11): `extracto.leer_mercado_pago` (el PDF con texto, sin LLM;
+  `origen = "mercado_pago"`, `cuenta_banco = "Mercado Pago"`). Escrito contra un formato
+  **armado**: la muestra real no llegó.
+- **Las cuatro cuentas del banco y Mercado Pago**: cada cuenta del libro dice en
+  `CUENTAS.cuentas_banco` qué cuentas del banco se concilian contra ella
+  (`conciliar.cuenta_de_linea`); los candidatos se buscan solo en esa cuenta.
+- **Traspasos entre cuentas propias** (`conciliar.emparejar`, ±1 día hábil, al armar lo
+  pendiente). Tres casos:
+  - misma cuenta del libro (CA → CC) = `INTERNA`, sin movimiento (S4);
+  - Banco ↔ Mercado Pago = una ficha `TRASPASO`;
+  - pesos ↔ dólares (COMPRA-VENTA DOLARES) = traspaso con el tc del par.
+
+  `/confirmar` con `extras.ids_banco` concilia las dos líneas (`confirmar.confirmar_traspaso`).
+- **Lote en dólares** (S2): `lotes[]` con `moneda`, `requiere_tc`, `tc_sugerido`;
+  `/conciliar/lote` con `tipo_cambio`.
+- **`GET /conciliar/estado`** (`conciliar.estado`): qué fuentes llegaron en la semana.
+- **Saldos de apertura**: `scripts/cargar_saldos_apertura.py`.
+- **Tablero**: `vista_obras_mes`, `vista_general`; `obra` igual en todas las vistas; «Sin
+  rubro» / «Sin obra»; `recalcular(..., simulacro=True)`.
+
 ### Endpoints
 
 | Ruta | Estado |
@@ -167,6 +205,11 @@ Detalle y contratos al final de `docs/handoff-post-reunion6-2026-10-09.md`.
 | `POST /cierre-semanal` | Escribe las líneas semanales de gastos personales. Idempotente. Lo dispara el cron |
 | `POST /consultar` | Las tres preguntas del arquitecto. Solo lee |
 | `POST /maestros/recargar` | Relee el Sheet y devuelve las advertencias |
+| `POST /conciliar/extracto` | Importa un extracto (Excel del banco o PDF de Mercado Pago) a BANCO_RAW, concilia y devuelve resumen, lotes y pendientes. Solo escribe BANCO_RAW y `id_banco`/`estado_conc` |
+| `GET /conciliar/pendientes` | Lo que falta conciliar: líneas, traspasos y lotes. Solo lee |
+| `POST /conciliar/lote` | Carga un lote (gastos bancarios, MeLi); con `tipo_cambio` si es en dólares |
+| `GET /conciliar/estado` | Qué fuentes llegaron en la semana y cuáles faltan. Solo lee |
+| `POST /vistas/recalcular` | Reescribe VISTA_* y CC_ (`{"simulacro": true}`: no escribe). Lo dispara el cron |
 
 Todos menos `/salud` piden `X-API-Key` contra `MOTOR_API_KEY`: el único cliente HTTP es el
 gateway. Las personas son otra cosa: viven en `USUARIOS` y se identifican por el `telefono`
@@ -720,6 +763,21 @@ anotadas al final de `docs/handoff-tanda-6-2026-09-25.md`):
   dijo «Reactivar», la ficha trae `extras.reactivar` y `/confirmar` lo reactiva.
 - **Arranque escalonado** (§5.13): primero solo Gabriel; Petrus después de la primera semana.
 
+Lo nuevo del 20/10 (contratos fijos en §3 de `docs/handoff-semana-8-2026-10-20.md`, todos
+implementados tal cual y cruzados con la sesión del gateway):
+
+- `/conciliar/extracto` suma `origen`, `cuenta_banco` e `internas`.
+- `lotes[]` suma `moneda`, `requiere_tc` y `tc_sugerido` (string o null).
+- `/conciliar/lote` acepta `tipo_cambio`. Es un string y se lee con `numero()` («1.450,50»).
+  Si falta o es ≤ 1, devuelve 422 `{campo: tipo_cambio}`.
+- `pendientes[]` suma `tipo: "linea" | "traspaso"`:
+  - un traspaso trae `hash_ids [a, b]` y una `interpretacion` con la ficha TRASPASO;
+  - esa ficha se confirma con `msg_id = "banco:<a>"` y `extras.ids_banco = [a, b]`.
+- `GET /conciliar/estado?telefono=` devuelve `{semana_desde, fuentes: [{cuenta_banco, cuenta,
+  origen, ultima_importacion, ultima_fecha_linea, al_dia, rotulo}], faltan: [rótulos], texto}`.
+  Los rótulos son cortos y sin saltos de línea: «CA $ 273», «CC $», «CA $ 48», «CA U$S»,
+  «Mercado Pago».
+
 Lo nuevo del 15/10 (contratos fijos en §3 de `docs/handoff-cierre-propuesta-2026-10-15.md`;
 lo que el motor sumó, al final de ese archivo): `"__nuevo__"` en la pregunta de contratista;
 `consulta = "obra"`; `ConfirmarOut.obra.moneda` / `.monedas`; `POST /conciliar/extracto`,
@@ -767,10 +825,16 @@ manda mensajes repetidos** con un segundo de diferencia.
 - [x] ~~**Desplegar el fix del 30/09 y correr sus cuatro migraciones**~~ — 30/09.
 - [x] ~~**Desplegar lo del 9/10**, la caja de Lennon en USD y el snapshot~~ — 9/10,
       verificado en producción con `/interpretar`.
-- [ ] **Desplegar lo del 15/10** (orden y pruebas al final de
-      `docs/handoff-cierre-propuesta-2026-10-15.md`), crear el cron de vistas y armar el
-      Looker Studio con `docs/tablero-looker.md`.
-- [ ] **El 1/11**: saldos de apertura en CUENTAS y el primer extracto de noviembre.
+- [ ] **Desplegar lo del 15/10 y lo del 20/10** (orden y pruebas al final de
+      `docs/handoff-cierre-propuesta-2026-10-15.md` y de `docs/handoff-semana-8-2026-10-20.md`),
+      crear el cron de vistas (§5, paso a paso) y armar el Looker Studio con
+      `docs/tablero-looker.md`.
+- [ ] **El 1/11**: saldos de apertura con `scripts/cargar_saldos_apertura.py --csv
+      docs/saldos-apertura-31-10.csv` (completado por Gabriel y Petrus) y el primer extracto de
+      noviembre.
+- [ ] **La muestra real del PDF de Mercado Pago** (`Archivos Muestra/Muestra 3/`): el parser
+      está hecho contra un formato armado; cuando llegue, ajustarlo (`test_conciliar` la lee
+      sola si está).
 - [ ] **Las correcciones del 9/10**, después de que Gabriel conteste las preguntas 1 a 3 del
       guion del 9/10, y con el tc de M-000005 confirmado por Valen (preguntas abiertas 1 y 2 del
       handoff del 9/10 antes): `FACHADO_PERSONAL_SHEET_ID` en el entorno y
@@ -830,8 +894,17 @@ no dependen de la moneda del snapshot.
    §6, Austral y Jardín Maternal) y las 4 de los inmuebles personales en el libro personal.
    Volver a correrlo (simulacro y `--aplicar`) crea las que faltan. Después las reescribe el
    cron.
-4. **El 1/11**: cargar en CUENTAS `saldo_apertura` y `fecha_apertura` (31/10) de Banco, Banco
-   USD, Efectivo y cada caja de obra (§5.20).
+4. **Del 20/10**, en dos pasos:
+   - `python scripts/preparar_sheet.py --aplicar` otra vez: suma `CUENTAS.cuentas_banco` y
+     `BANCO_RAW.origen`;
+   - `python scripts/migraciones/2026_10_20_cuentas_conciliacion.py --aplicar`: las cuentas
+     del banco de Banco, Banco USD y Mercado Pago, y Mercado Pago pasa a conciliar.
+
+   El snapshot de los tests ya la tiene aplicada.
+5. **El 1/11**: `python scripts/cargar_saldos_apertura.py --csv docs/saldos-apertura-31-10.csv`
+   (primero el simulacro; después `--aplicar`). Carga `saldo_apertura` y `fecha_apertura`
+   (31/10) de Banco, Banco USD, Mercado Pago, Efectivo y cada caja de obra (§5.20), con el
+   control contra el extracto.
 
 **Pendiente del 9/10** (simulacro por defecto; lo decide Valen):
 
