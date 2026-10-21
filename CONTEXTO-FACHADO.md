@@ -8,7 +8,7 @@ que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico 
 - `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
   clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.11 · 15 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.12 · 21 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -169,6 +169,15 @@ conciliación cruza por **fecha e importe** los comprobantes recibidos contra la
 Mercado Libre del extracto, y **todo lo que no cruza queda como gasto personal sin
 clasificar**. La ausencia de comprobante es, en este caso, información.
 
+**Una transferencia a «MERCADOLIBRE S.R.L.» no es una compra** *(definido 21/10)*. Mercado
+Libre es el titular de todas las cuentas virtuales (CVU) de Mercado Pago: una transferencia
+desde el banco a un CVU puede ser el pago a un contratista que cobra por Mercado Pago (Mathias
+Flores) o una carga de saldo a la cuenta de Mercado Pago del estudio. Esas líneas
+(`TRANSFERENCIA … MERCADOLIBRE`, CUIT 30-70308853-4) **se concilian como cualquier
+transferencia**: contra el libro, contra el reporte de Mercado Pago (traspaso) o, si no
+cruzan, como pregunta. Al lote de gasto personal van **solo las compras** (`PAGO CON
+TRANSFERENCIA … MERCADOLIBRE`, compras con tarjeta en Mercado Libre).
+
 **Contratista nuevo** *(definido 9/10, reunión 6)*: si el nombre del mensaje no está en el
 maestro, **el bot avisa que es nuevo y lo da de alta** al confirmar, en vez de ofrecer
 parecidos que no tienen nada que ver. La ficha dice «Elías es nuevo: lo agrego como
@@ -180,6 +189,13 @@ parecidos cuando son de verdad cercanos (los mismos umbrales de §5.5); si no, e
 **Cuando sí hay parecidos cercanos**, la pregunta «¿Quién es X?» suma siempre un botón
 **«Es nuevo»** *(definido 15/10)*. **En un gasto personal** («Retiro/Fulano») un destinatario
 desconocido **no** se da de alta: queda en la descripción.
+
+**Obra nueva** *(definido 21/10)*. Las obras aparecen sin aviso (Minas, 20/10). Si el mensaje
+nombra algo que no está en el maestro y no hay obra en el mensaje, el bot pregunta una sola
+vez: «No conozco «Minas». ¿Es una obra nueva o un contratista nuevo?». Si es obra, la ficha
+dice «Minas es nueva: la doy de alta como obra» y al confirmar se agrega a `OBRAS` como obra
+de terceros activa, con tipo, servicio y comitente **a completar por A&C** (marcado en
+`notas`). Su cuenta corriente aparece sola la noche siguiente (§5.21).
 
 **Contratistas inactivos** *(definido 25/09)*: en la carga diaria **no se proponen por
 parecido** (ni difuso, ni palabra única, ni LLM). Solo aparecen si el usuario escribe el
@@ -201,7 +217,10 @@ cambio **el efectivo sí es una cuenta**: sacar del cajero es `TRASPASO`, no un 
    nombrada. **En una obra que tiene caja de obra, «efectivo» es esa caja**, con o sin la
    `C` (§5.8, v1.8).
 2. Lo que dice el comprobante: una transferencia o un débito es **Banco**; un cheque va a la
-   cuenta que el libro ya usa para cheques; un comprobante de Mercado Pago, a Mercado Pago.
+   cuenta que el libro ya usa para cheques; un comprobante de Mercado Pago, a Mercado Pago
+   **si se pagó con dinero en cuenta**. Si el comprobante de Mercado Pago dice que se pagó
+   con **tarjeta de débito**, la plata salió del **Banco** *(definido 21/10: Epen, 13/10)*;
+   con tarjeta de crédito, ver §5.20.
 3. Lo que dice la obra: en Lennon, `Pagado por el comitente` (§5.9).
 4. **Si nada lo dice, se asume `Banco` / transferencia y la ficha lo muestra marcado como
    «supuesto»**, para que el usuario lo vea y lo corrija si no fue así. No se pregunta.
@@ -389,7 +408,15 @@ la obra; a un ingreso no se le pregunta a quién se le pagó**.
   pregunta el importe si el comprobante todavía se está leyendo, ni manda la misma pregunta
   dos veces *(9/10, reunión 6)*.
 - **Un comprobante que llega dentro de los 90 s a una ficha que no tiene comprobante se
-  suma a esa ficha** (el texto a veces sale antes que la foto).
+  suma a esa ficha** (el texto a veces sale antes que la foto). **Nunca a una ficha que ya
+  tiene comprobante, ni a una que está esperando una respuesta**: ahí es un movimiento nuevo
+  *(21/10: el comprobante de Minas terminó mezclado con Abucoque)*.
+- **Las opciones de una pregunta dependen del destino** *(definido 21/10)*. En Austral, los
+  rubros son los de estructura del estudio (gastos generales, combustible, sueldos,
+  contador…), nunca los de obra; en un gasto personal, los personales; en una obra, los de
+  obra. «¿A qué obra?» ofrece **todas** las obras activas **y Austral**, y en un gasto
+  personal, los inmuebles personales. Si el usuario ya dijo el destino («Retiro/Abucoque»),
+  no se vuelve a preguntar.
 - **Una consulta o un pedido nunca se toma como respuesta** a una pregunta pendiente:
   «¿cuánto hay en la caja de Lennon?» se contesta, y la ficha pendiente sigue esperando.
 - **Pedir que se borre algo ya cargado** («el M 0014 está mal, hay que eliminarlo») es una
@@ -567,7 +594,15 @@ una fuente de errores y pasa a ser el detector de lo que no se cargó.
   solo lote** por extracto: «12 gastos bancarios por $ X, ¿los cargo?». Estructura del
   estudio.
 - **Mercado Libre / Mercado Pago que no cruza con un comprobante queda como gasto personal
-  sin clasificar** (§5.6), también en lote.
+  sin clasificar** (§5.6), también en lote. Solo las compras: una transferencia a un CVU de
+  Mercado Libre se concilia como transferencia (§5.6, 21/10).
+- **Los impuestos que debita el banco por cuenta de otro organismo** (DPR Sellos, rentas,
+  ingresos brutos) **no son gastos bancarios** *(21/10)*: van como pregunta, con rubro
+  Impuestos y tasas, para saber de qué obra o si es del estudio.
+- **Con dos candidatos del mismo importe, la fecha desempata** *(21/10)*: si uno solo tiene
+  la misma fecha que la línea del banco, se concilia con ese sin preguntar.
+- **Pagos de tarjeta de crédito** (First Data, «TARJETA CREDITO VISA»): **pendiente de
+  definir con Gabriel** (registro P-34). Mientras tanto, una pregunta por línea.
 - **Lo que está en el libro y no aparece en el banco** después de una semana se avisa en el
   resumen; no se pregunta uno por uno.
 - **Resumen después de cada extracto** (y el lunes, con el cierre semanal): saldo según el
@@ -691,6 +726,12 @@ certificado, «Austral» es el emisor, nunca la obra.**
 ---
 
 ## 8. Estado y pendientes
+
+**Semana 8 (21/10).** Con los dos cargando, la traba está en lo que no es obra: en Austral el
+bot ofrecía rubros de obra, la lista de obras no traía Austral ni los inmuebles, y un
+comprobante nuevo se mezcló con una ficha abierta. La v1.12 lo fija (§5.6, §5.7, §5.12,
+§5.20). Las CC de todas las obras, el reporte de Mercado Pago y el pedido semanal de
+extractos están hechos; los saldos al 31/10 se cargan el 1/11.
 
 **Semana 7 de 8 (15/10).** Gabriel y Petrus cargan por el bot. Lo que falta de la propuesta:
 **la conciliación con el banco (§5.20) y el tablero (§5.21)**, más la marcha blanca y el
