@@ -8,7 +8,7 @@ que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico 
 - `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
   clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.10 · 15 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.11 · 15 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -543,13 +543,18 @@ cargó, quién lo corrigió y cuándo.
 *Definido el 15/10.* Es lo que cierra el circuito de la propuesta: el extracto deja de ser
 una fuente de errores y pasa a ser el detector de lo que no se cargó.
 
-- **Arranca el 1/11.** Octubre es rodaje. El 1/11 se cargan los **saldos de apertura al
-  31/10** de cada cuenta (Banco, Banco USD, Efectivo y cada caja de obra) y **noviembre es el
+- **Arranca el 1/11.** Octubre es rodaje. **Gabriel y Petrus arman juntos los saldos de
+  inicio al 31/10**; el 1/11 se cargan esos **saldos de apertura al 31/10** de cada cuenta (Banco, Banco USD, Efectivo y cada caja de obra) y **noviembre es el
   primer mes que se cierra contra el banco**. Nada anterior al 1/11 se concilia.
-- **El extracto entra por el bot.** Gabriel o Petrus le mandan el Excel que exporta el banco
-  («CompartirDetalleMovimiento…»), una vez por semana o cuando quieran. Trae varias cuentas
-  del mismo banco: se concilia todo junto (§5.7). Los extractos se superponen; una línea ya
-  importada no se duplica.
+- **El extracto entra por el bot, y lo manda Petrus** *(reunión 7, 15/10)*. **El bot se lo
+  pide una vez por semana**, y Petrus le manda los archivos directo por WhatsApp. Son
+  **cuatro extractos del banco, todos del estudio**: dos cajas de ahorro en pesos, una caja
+  de ahorro en dólares y una cuenta corriente en pesos (una de las cajas en pesos está a
+  nombre de Gabriel, pero es del estudio). **Más el reporte de Mercado Pago, que se baja en
+  PDF.** Se concilia todo junto (§5.7). Los extractos se superponen; una línea ya importada
+  no se duplica.
+- **Las preguntas de lo no identificado se las hace a Petrus**, que es quien manda el
+  extracto, de a una.
 - **Lo que coincide se concilia solo**: mismo importe, fecha cercana y, si la línea lo trae,
   el mismo CUIT o nombre o número de operación. Conciliar es **lo único que actualiza una fila
   ya escrita**, y solo sus dos columnas de control (`id_banco`, `estado_conc`): el hecho no
@@ -577,6 +582,9 @@ de obras), **por obra** (ejecución por rubro, aportes del comitente contra egre
 proveedores, detalle con link al comprobante) y **proveedores** (ranking por volumen y
 evolución de lo pagado).
 
+- **Lo que pidió Gabriel** *(reunión 7, 15/10)*: un **gráfico de barras horizontales con lo
+  pagado por rubro**; **ingresos contra pagos de cada obra**, que es su saldo; un **selector
+  para elegir la obra**; y una **visión general del estudio**.
 - Lee de **hojas de vistas** que el motor recalcula (no de MOVIMIENTOS crudo): así el
   tablero no repite la lógica de anulados, cajas de obra, informales y personal.
 - **Sin presupuestos en esta etapa** *(definido 15/10)*: presupuesto contra ejecutado es
