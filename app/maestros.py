@@ -21,8 +21,9 @@ HOJAS = ["OBRAS", "CONTRATISTAS", "RUBROS", "CUENTAS", "ALIAS", "USUARIOS", "ETA
 
 # Qué clase de cosa nombra un alias. NO es la clasificación del gasto: para decir «esta
 # palabra significa personal» va tipo = tipo con valor_canonico = Personal (así están
-# cargados «retiro», «casa» y «particular»).
-TIPOS_ALIAS = {"contratista", "obra", "cuit", "tipo"}
+# cargados «retiro», «casa» y «particular»). `rubro` (21/10): «nafta» → Combustible; el
+# valor_canonico es el rubro_2 (o «rubro_1 / rubro_2» si el rubro_2 se repite).
+TIPOS_ALIAS = {"contratista", "obra", "cuit", "tipo", "rubro"}
 
 
 def normalizar(texto: str | None) -> str:
@@ -246,6 +247,14 @@ class Maestros:
         n1, n2 = normalizar(rubro_1), normalizar(rubro_2)
         return next((r for r in self.rubros if normalizar(r.rubro_1) == n1 and normalizar(r.rubro_2) == n2), None)
 
+    def rubro_por_nombre(self, valor: str | None) -> Rubro | None:
+        """El rubro de un alias: «Combustible» (un rubro_2 que no se repite) o «Estructura del
+        estudio / Combustible». None si no existe o es ambiguo."""
+        if valor and " / " in valor:
+            return self.rubro(*valor.split(" / ", 1))
+        rubros = [r for r in self.rubros if normalizar(r.rubro_2) == normalizar(valor)]
+        return rubros[0] if len(rubros) == 1 else None
+
     def cuenta(self, nombre: str | None, incluir_inactivas: bool = False) -> Cuenta | None:
         """Solo cuentas activas, salvo para leer el pasado: los saldos sí tienen que ver los
         movimientos de una cuenta que después se inactivó."""
@@ -398,6 +407,10 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
             advertencias.append(f"ALIAS: «{a.como_lo_dice}» apunta a «{a.valor_canonico}», que no está en CONTRATISTAS")
         if a.tipo == "obra" and not any(normalizar(o.nombre) == normalizar(a.valor_canonico) for o in obras):
             advertencias.append(f"ALIAS: «{a.como_lo_dice}» apunta a la obra «{a.valor_canonico}», que no está en OBRAS")
+        if a.tipo == "rubro" and len([r for r in rubros if normalizar(r.rubro_2) == normalizar(a.valor_canonico)
+                                      or normalizar(f"{r.rubro_1} / {r.rubro_2}") == normalizar(a.valor_canonico)]) != 1:
+            advertencias.append(f"ALIAS: «{a.como_lo_dice}» apunta al rubro «{a.valor_canonico}», que no está en RUBROS "
+                                f"(o hay más de uno con ese nombre)")
 
     usuarios: list[Usuario] = []
     for r in _registros(crudo.get("USUARIOS", [])):

@@ -32,6 +32,13 @@ UMBRAL_LLM = 0.75
 FACTOR_METODO = {"alias": 1.0, "exacto": 1.0, "cuit": 1.0, "palabra": 0.9, "difuso": 0.9, "llm": 0.8}
 ORIGEN_METODO = {"llm": "llm"}  # el resto de los métodos de diccionario son «texto»
 MAX_OPCIONES = 10
+# §5.12 v1.12: «¿A qué obra?» trae todas las obras activas y Austral (12 hoy); el gateway las
+# muestra como lista numerada cuando son más de 10.
+MAX_OPCIONES_OBRA = 15
+# §5.12 v1.12 (ticket de YPF, 20/10): combustible → Estructura del estudio › Combustible.
+RE_ESTACION = re.compile(r"\b(?:ypf|shell|axion|puma energy|puma|gulf)\b", re.I)
+RE_COMBUSTIBLE = re.compile(r"\b(?:combustible|nafta|gas\s?oil|diesel|infinia)\b", re.I)
+RUBRO_COMBUSTIBLE = ("Estructura del estudio", "Combustible")
 
 
 # El medio de pago que corresponde a una cuenta cuando nadie lo dijo (§5.7). «Pagado por el
@@ -216,6 +223,11 @@ def _intencion(req: InterpretarIn, texto: str, segmentos: list[Segmento], compro
         return "otro"
     plano = normalizar(texto)
     if not plano:
+        return "otro"
+    if re.fullmatch(r"\d{1,2}", plano):
+        # §5.12 v1.12 (captura 09 del 20/10): un «4» suelto, sin ficha, es la respuesta a una
+        # lista que se perdió en el camino, no un movimiento: «¿A qué obra?» sobre un «4» no
+        # tiene sentido. El gateway contesta el acuse corto.
         return "otro"
     if "/" not in texto and RE_PREGUNTA.search(texto.strip().lower() if "?" in texto or "¿" in texto else plano) \
             and consultas.inferir_consulta(texto) and not any(seg.importe is not None for seg in segmentos):
@@ -488,15 +500,53 @@ def _formato_tc(tc: float) -> str:
     return entero if dec == "00" else f"{entero},{dec}"
 
 
-def _ultimo_rubro(contratista: str, historia: list[dict], personal: bool, m: Maestros):
+def _afecta_destino(obra, personal: bool) -> str | None:
+    """§5.12 v1.12: de qué tipo son los rubros que le corresponden al destino. Un inmueble
+    personal o «Retiro» → personal; Austral (obra de tipo estructura) → estructura; una obra →
+    obra. None si todavía no se sabe el destino."""
+    if personal or (obra is not None and obra.tipo == "personal"):
+        return "personal"
+    if obra is not None:
+        return "estructura" if obra.tipo == "estructura" else "obra"
+    return None
+
+
+def _afecta_de_clasificacion(clasificacion: str | None, contratista, m: Maestros) -> str:
+    """El tipo de rubro de la pregunta «¿Qué rubro?»: el de la clasificación; sin clasificación,
+    el del rubro habitual del contratista si es de estructura (Sofía Cervera, A&C); si no, obra."""
+    if clasificacion in ("personal", "estructura", "obra"):
+        return clasificacion
+    habitual = m.rubro(contratista.rubro_1, contratista.rubro_2) if contratista and contratista.rubro_1 else None
+    return "estructura" if habitual is not None and habitual.afecta == "estructura" else "obra"
+
+
+def _rubro_va(rubro, afecta: str | None) -> bool:
+    """§5.12 v1.12: si un rubro le corresponde al destino. Los de tipo «otro» (IVA, Rentas,
+    Escribanía, Honorarios) sirven para una obra y para el estudio, nunca para lo personal."""
+    if rubro is None or afecta is None:
+        return rubro is not None
+    if afecta == "personal":
+        return rubro.afecta == "personal"
+    return rubro.afecta in (afecta, "otro")
+
+
+def _es_combustible(comp, texto: str) -> bool:
+    """§5.12 v1.12 (Petrus, ticket de YPF del 20/10): una estación de servicio en la razón social
+    del comprobante, o «combustible» / «nafta» / «gasoil» en el texto o en el comprobante."""
+    fuentes = [texto or ""] + ([comp.razon_social or "", comp.texto or ""] if comp is not None else [])
+    return any(RE_ESTACION.search(f) or RE_COMBUSTIBLE.search(f) for f in fuentes)
+
+
+def _ultimo_rubro(contratista: str, historia: list[dict], personal: bool, m: Maestros, destino: str | None = None):
     """§5.12 v1.8: el rubro de la última vez que se le pagó a este contratista, en los dos
-    libros. Solo uno del mismo lado (personal o no) que el movimiento de ahora."""
+    libros. Solo uno del mismo lado (personal o no) que el movimiento de ahora y, si ya se sabe
+    el destino, uno que le corresponda (v1.12: Mathias en Austral no trae un rubro de obra)."""
     suyos = [mv for mv in historia if normalizar(mv.get("contratista")) == normalizar(contratista)
              and mv.get("rubro_1") and mv.get("rubro_2")]
     suyos.sort(key=lambda mv: (str(mv.get("fecha") or ""), str(mv.get("ts") or "")), reverse=True)
     for mv in suyos:
         r = m.rubro(mv["rubro_1"], mv["rubro_2"])
-        if r and (r.afecta == "personal") == personal:
+        if r and (r.afecta == "personal") == personal and (destino is None or _rubro_va(r, destino)):
             return r
     return None
 
@@ -504,21 +554,43 @@ def _ultimo_rubro(contratista: str, historia: list[dict], personal: bool, m: Mae
 def _rubros_por_uso(afecta: str, historia: list[dict], m: Maestros, contratista=None) -> list[str]:
     """Las opciones de la pregunta del rubro (§5.12 v1.8: no los primeros diez de RUBROS):
     primero la categoría del contratista si la tiene, después los más usados —en los libros y
-    como rubro habitual de los contratistas—, y después el resto en el orden del maestro."""
+    como rubro habitual de los contratistas—, y después el resto en el orden del maestro.
+    §5.12 v1.12: solo los del destino. En Austral, los de estructura y después los que sirven
+    para cualquier destino (IVA, Rentas, Honorarios…)."""
     uso: Counter = Counter()
     for mv in historia:
         r = m.rubro(mv.get("rubro_1"), mv.get("rubro_2"))
-        if r and r.afecta == afecta:
+        if r:
             uso[(r.rubro_1, r.rubro_2)] += 2
     for c in m.contratistas:
         r = m.rubro(c.rubro_1, c.rubro_2)
-        if r and r.afecta == afecta:
+        if r:
             uso[(r.rubro_1, r.rubro_2)] += 1
     categoria = normalizar(contratista.rubro_1) if contratista and contratista.rubro_1 else None
-    rubros = [r for r in m.rubros if r.afecta == afecta]
+    rubros = [r for r in m.rubros if r.afecta == afecta] + \
+        ([r for r in m.rubros if r.afecta == "otro"] if afecta == "estructura" else [])
     orden = sorted(range(len(rubros)), key=lambda i: (
-        not (categoria and normalizar(rubros[i].rubro_1) == categoria), -uso[(rubros[i].rubro_1, rubros[i].rubro_2)], i))
+        rubros[i].afecta != afecta, not (categoria and normalizar(rubros[i].rubro_1) == categoria),
+        -uso[(rubros[i].rubro_1, rubros[i].rubro_2)], i))
     return [rubros[i].rubro_2 for i in orden][:MAX_OPCIONES]
+
+
+def _opciones_obra(m: Maestros, historia: list[dict], personal: bool = False, primero: str | None = None) -> list[str]:
+    """§5.12 v1.12: las opciones de «¿A qué obra?». Todas las obras activas y Austral (en un
+    gasto personal, los inmuebles personales), las usadas hace menos primero; `primero` adelante
+    de todo (Austral para el combustible). Las cerradas no (Jardín Maternal)."""
+    if personal:
+        obras = [o for o in m.obras if o.estado != "cerrada" and o.tipo == "personal"]
+    else:
+        obras = [o for o in m.obras if o.estado != "cerrada" and o.tipo in ("obra_terceros", "obra_propia", "estructura")]
+    ultima: dict[str, str] = {}
+    for mv in historia:
+        n = normalizar(mv.get("obra"))
+        if n:
+            ultima[n] = max(ultima.get(n, ""), f"{str(mv.get('fecha') or '')[:10]} {mv.get('ts') or ''}")
+    obras.sort(key=lambda o: ultima.get(normalizar(o.nombre), ""), reverse=True)  # estable: empates en el orden del maestro
+    obras.sort(key=lambda o: normalizar(o.nombre) != normalizar(primero))
+    return [o.nombre for o in obras][:MAX_OPCIONES_OBRA]
 
 
 def _completar_preguntas(ficha: Ficha, i: int, suyas: list[Pregunta], m: Maestros,
@@ -539,12 +611,15 @@ def _completar_preguntas(ficha: Ficha, i: int, suyas: list[Pregunta], m: Maestro
         if obligatorios.cubierto(campo, ya | {p.campo for p in nuevas}):
             continue
         if campo in ("obra", "tipo_gasto"):
-            p = Pregunta(campo="obra", texto="¿A qué obra?", opciones=[
-                o.nombre for o in m.obras if o.estado != "cerrada" and o.tipo in ("obra_terceros", "obra_propia")][:MAX_OPCIONES])
+            rubro = m.rubro(c.get("rubro_1"), c.get("rubro_2"))
+            austral = next((o.nombre for o in m.obras if o.tipo == "estructura" and o.estado != "cerrada"), None)
+            p = Pregunta(campo="obra", texto="¿A qué obra?", opciones=_opciones_obra(
+                m, list(historia), personal=normalizar(c.get("tipo_gasto")) == "personal",
+                primero=austral if rubro is not None and rubro.afecta == "estructura" else None))
         elif campo in ("rubro_1", "rubro_2"):
-            afecta = "personal" if normalizar(c.get("tipo_gasto")) == "personal" else "obra"
-            p = Pregunta(campo="rubro", texto="¿Qué rubro?",
-                         opciones=_rubros_por_uso(afecta, list(historia), m, m.contratista(c.get("contratista"))))
+            contratista = m.contratista(c.get("contratista"))
+            afecta = _afecta_de_clasificacion(normalizar(c.get("tipo_gasto")) or None, contratista, m)
+            p = Pregunta(campo="rubro", texto="¿Qué rubro?", opciones=_rubros_por_uso(afecta, list(historia), m, contratista))
         elif campo == "cuenta":
             p = Pregunta(campo="cuenta", texto=f"¿De qué cuenta {verbo}?",
                          opciones=[x for x in cuentas if m.cuenta(x).tipo != "caja_obra"][:MAX_OPCIONES])
@@ -881,20 +956,30 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     # Para un dual sin saber todavía si es personal u obra, la última vez no sirve.
     lado_personal = True if marcador_personal or (semilla and semilla.get("clasificacion") == "personal") else \
         False if (semilla and semilla.get("clasificacion") == "obra") or not (contratista and contratista.dual) else None
+    # §5.12 v1.12: el rubro tiene que ser del destino. Con el destino ya dicho (Austral, un
+    # inmueble, «Retiro», una obra), lo que no le corresponde no se propone.
+    destino = _afecta_destino(obra, lado_personal is True)
     if tipo in ("EGRESO", "PASANTE") and not campos["rubro_1"]:
-        ultimo = _ultimo_rubro(contratista.nombre, historia, lado_personal, m) \
+        ultimo = _ultimo_rubro(contratista.nombre, historia, lado_personal, m, destino) \
             if contratista and lado_personal is not None else None
-        if contratista and contratista.rubro_1 and m.rubro(contratista.rubro_1, contratista.rubro_2):
+        habitual = m.rubro(contratista.rubro_1, contratista.rubro_2) if contratista and contratista.rubro_1 else None
+        sugerido_llm = m.rubro(*rubro_llm.valor.split(" / ")) \
+            if rubro_llm and rubro_llm.puntaje >= UMBRAL_LLM * 100 else None
+        combustible = m.rubro(*RUBRO_COMBUSTIBLE)
+        if combustible and destino in (None, "estructura") and _es_combustible(comp, seg.texto):
+            # El ticket de una estación de servicio: Combustible del estudio, sin preguntar.
+            poner("rubro_1", combustible.rubro_1, "comprobante" if comp is not None else "texto")
+            poner("rubro_2", combustible.rubro_2, "comprobante" if comp is not None else "texto")
+        elif habitual and _rubro_va(habitual, destino):
             poner("rubro_1", contratista.rubro_1, "inferido")
             poner("rubro_2", contratista.rubro_2, "inferido")
             factor *= 0.95
         elif ultimo:
             poner("rubro_1", ultimo.rubro_1, "supuesto")
             poner("rubro_2", ultimo.rubro_2, "supuesto")
-        elif rubro_llm and rubro_llm.puntaje >= UMBRAL_LLM * 100:
-            rubro_1, rubro_2 = rubro_llm.valor.split(" / ")
-            poner("rubro_1", rubro_1, "llm")
-            poner("rubro_2", rubro_2, "llm")
+        elif sugerido_llm and _rubro_va(sugerido_llm, destino):
+            poner("rubro_1", sugerido_llm.rubro_1, "llm")
+            poner("rubro_2", sugerido_llm.rubro_2, "llm")
             factor *= FACTOR_METODO["llm"]
     rubro = m.rubro(campos["rubro_1"], campos["rubro_2"])
 
@@ -912,6 +997,15 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         # Queda en la ficha: en la ronda de una respuesta el texto ya no trae «Retiro», y sin
         # esto el dual volvía a preguntar y aparecía «¿A qué obra?» (captura 1, 30/09).
         extras["destino_personal"] = True
+    if rubro is not None and res.clasificacion and origen.get("rubro_1") != "texto" \
+            and not _rubro_va(rubro, _afecta_de_clasificacion(res.clasificacion, contratista, m)):
+        # §5.12 v1.12: un rubro que no dijo el usuario y no le corresponde al destino (el
+        # combustible del estudio cuando contestó una obra; el habitual de obra de un
+        # contratista pagado en Austral) no queda: se pregunta con las opciones del destino.
+        for campo in ("rubro_1", "rubro_2"):
+            campos[campo] = None
+            origen.pop(campo, None)
+        rubro = None
     if res.clasificacion == "personal":
         # §5.12 v1.8: un gasto personal no lleva la obra de un tercero ni una propia (P-000001
         # quedó con «Moreno etapa 1»). Un inmueble personal (Belelli, Gessel) sí.
@@ -1113,8 +1207,11 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     pregunta_obra = not campos["obra"] and tipo != "TRASPASO" and res.clasificacion != "personal" \
         and res.preguntar != "clasificacion" and not any(p.campo == "obra" for p in preguntas)
     if pregunta_obra and (res.preguntar == "obra" or res.clasificacion in ("obra", "estructura")):
-        opciones = [o.nombre for o in m.obras if o.estado != "cerrada" and o.tipo in ("obra_terceros", "obra_propia")]
-        preguntas.append(Pregunta(campo="obra", texto="¿A qué obra?", opciones=opciones[:MAX_OPCIONES]))
+        # §5.12 v1.12: todas las obras activas y Austral, por uso; con un rubro del estudio (el
+        # combustible), Austral primero.
+        austral = next((o.nombre for o in m.obras if o.tipo == "estructura" and o.estado != "cerrada"), None)
+        primero = austral if rubro is not None and rubro.afecta == "estructura" else None
+        preguntas.append(Pregunta(campo="obra", texto="¿A qué obra?", opciones=_opciones_obra(m, list(historia), primero=primero)))
 
     if tipo in ("EGRESO", "PASANTE") and not campos["contratista"] and res.clasificacion != "personal" \
             and not any(p.campo == "contratista" for p in preguntas):
@@ -1137,12 +1234,15 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         elif not tiene_adjunto and res.clasificacion == "obra":
             preguntas.append(Pregunta(campo="contratista", texto="¿A quién se le pagó?"))
 
+    # §5.12 v1.12: con «¿A qué obra?» abierta, el rubro espera: sus opciones dependen del destino.
     if tipo in ("EGRESO", "PASANTE") and not campos["rubro_1"] and res.preguntar != "clasificacion" \
-            and (res.clasificacion == "personal" or campos["contratista"]):
-        afecta = "personal" if res.clasificacion == "personal" else "obra"
+            and (res.clasificacion == "personal" or campos["contratista"]) \
+            and not any(p.campo in ("obra", "nuevo") for p in preguntas):
+        afecta = _afecta_de_clasificacion(res.clasificacion, contratista, m)
         opciones = _rubros_por_uso(afecta, list(historia), m, contratista)  # §5.12 v1.8: los más usados
-        if rubro_llm and res.clasificacion != "personal":
-            opciones = [rubro_llm.valor.split(" / ")[1]] + [o for o in opciones if o != rubro_llm.valor.split(" / ")[1]]
+        sugerido = m.rubro(*rubro_llm.valor.split(" / ")) if rubro_llm else None
+        if sugerido is not None and res.clasificacion != "personal" and _rubro_va(sugerido, afecta):
+            opciones = [sugerido.rubro_2] + [o for o in opciones if o != sugerido.rubro_2]
         preguntas.append(Pregunta(campo="rubro", texto="¿Qué rubro?", opciones=opciones[:MAX_OPCIONES]))
 
     # El contratista nuevo (también el que viene de la ficha anterior, después de una respuesta):

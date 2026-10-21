@@ -64,6 +64,23 @@ RE_IMPORTE_PESOS = re.compile(r"(?:u\$[sd]|usd|us\$|\$)\s*(\d{1,3}(?:\.\d{3})+(?
 RE_IMPORTE_CON_MONEDA = re.compile(r"(?<![\d/.,])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)\s*"
                                    r"(?:u\$[sd]|usd|us\$|d[oó]lar(?:es)?|pesos)(?![a-z])", re.I)
 RE_IMPORTE_SUELTO = re.compile(r"(?<![\d/])(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?)(?![\d/])")
+# 21/10 («Austral/combustible 77000»): un entero suelto de 4 a 9 cifras, sin $ ni puntos, es el
+# importe si nada más lo es. No un año (2026), ni el número de una operación, cuota,
+# certificado, cheque, factura o etapa.
+RE_IMPORTE_ENTERO = re.compile(r"(?<![\w/.,#°$])(\d{4,9})(?![\w/.,])")
+ANTES_DE_UN_NUMERO_QUE_NO_ES_IMPORTE = {"op", "operacion", "cuota", "cert", "certificado", "cheque", "ch", "factura",
+                                        "fc", "fact", "nro", "n", "numero", "etapa", "recibo", "comprobante"}
+
+
+def _importe_entero(texto: str):
+    for mt in RE_IMPORTE_ENTERO.finditer(texto):
+        anterior = normalizar(texto[:mt.start()]).split()[-1:]
+        if anterior and anterior[0] in ANTES_DE_UN_NUMERO_QUE_NO_ES_IMPORTE:
+            continue
+        if len(mt.group(1)) == 4 and mt.group(1)[:2] in ("19", "20"):
+            continue
+        return mt
+    return None
 RE_USD = re.compile(r"u\$[sd]|usd|us\$|d[oó]lar", re.I)
 RE_CUENTA_USD = re.compile(r"\bbanco\s+(?:en\s+)?(?:usd|d[oó]lares)\b", re.I)
 RE_CERTIFICADO = re.compile(r"^cert(?:ificado)?\b\s*(.*)$")
@@ -232,7 +249,8 @@ def parsear(texto: str, hoy: date | None = None) -> list[Segmento]:
         # «banco usd» es el nombre de una cuenta, no dice en qué moneda está el importe.
         if RE_USD.search(RE_CUENTA_USD.sub(" ", resto)):
             seg.moneda = "USD"
-        im = RE_IMPORTE_PESOS.search(resto) or RE_IMPORTE_CON_MONEDA.search(resto) or RE_IMPORTE_SUELTO.search(resto)
+        im = RE_IMPORTE_PESOS.search(resto) or RE_IMPORTE_CON_MONEDA.search(resto) or RE_IMPORTE_SUELTO.search(resto) \
+            or _importe_entero(resto)
         if im:
             seg.importe = parsear_importe(im.group(1))
             resto = resto[:im.start()] + " " + resto[im.end():]
@@ -423,6 +441,8 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
             exactos.append(Resolucion("contratista", _canonico_contratista(m, a.valor_canonico), "alias", token))
         elif a.tipo == "obra":
             exactos.append(Resolucion("obra", _canonico_obra(m, a.valor_canonico), "alias", token))
+        elif a.tipo == "rubro" and (rubro := m.rubro_por_nombre(a.valor_canonico)):
+            exactos.append(Resolucion("rubro", _rubro_valor(rubro), "alias", token))
     if not exactos:
         exactos += [Resolucion("obra", o.nombre, "exacto", token) for o in m.obras
                     if n in (normalizar(o.nombre), normalizar(o.codigo))]

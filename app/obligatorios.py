@@ -16,13 +16,16 @@ from app.maestros import Maestros, normalizar
 # la cascada con la obra o la pregunta de clasificación; el rubro se pregunta entero.
 # §5.12 v1.8: el rubro se deduce de quién cobró y de si es de obra o personal; con una de
 # estas preguntas abiertas, el rubro se pregunta (si hace falta) después de la respuesta.
-PREGUNTAS_QUE_DEFINEN_EL_RUBRO = {"contratista", "inactivo", "clasificacion"}
+# §5.12 v1.12: también con «¿A qué obra?» abierta (las opciones del rubro dependen del destino)
+# y con «¿Es una obra nueva o un contratista nuevo?» (§5.6 v1.12), que define las dos cosas.
+PREGUNTAS_QUE_DEFINEN_EL_RUBRO = {"contratista", "inactivo", "clasificacion", "obra", "nuevo"}
 
 PREGUNTAS_QUE_LO_COMPLETAN: dict[str, set[str]] = {
-    "tipo_gasto": {"tipo_gasto", "clasificacion", "obra"},
+    "obra": {"obra", "nuevo"},
+    "tipo_gasto": {"tipo_gasto", "clasificacion", "obra", "nuevo"},
     "rubro_1": {"rubro"} | PREGUNTAS_QUE_DEFINEN_EL_RUBRO,
     "rubro_2": {"rubro"} | PREGUNTAS_QUE_DEFINEN_EL_RUBRO,
-    "contratista": {"contratista", "inactivo"},
+    "contratista": {"contratista", "inactivo", "nuevo"},
     "tc": {"tipo_cambio"},
     "etapa": {"etapa", "activar_etapa"},
 }

@@ -382,6 +382,14 @@ def main() -> int:
     for x, f in rotas:
         print(f"  FALLA  fila {x['mensaje'].filas[0]:>3}  {x['mensaje'].texto!r} → {f}")
     fallidos += len(rotas)
+    # §5.12 v1.12 (captura 09 del 20/10): un destino ya dicho no se vuelve a preguntar.
+    repreguntadas = [x for x in resultados if len(x["respuesta"]["fichas"]) == 1
+                     and x["respuesta"]["fichas"][0]["campos"].get("obra")
+                     and any(p["campo"] == "obra" for p in x["respuesta"]["preguntas"])]
+    print(f"Invariante (§5.12 v1.12): {len(repreguntadas)} fichas con la obra resuelta que igual preguntan «¿A qué obra?»")
+    for x in repreguntadas:
+        print(f"  FALLA  fila {x['mensaje'].filas[0]:>3}  {x['mensaje'].texto!r}")
+    fallidos += len(repreguntadas)
 
     imprimir_gasto([u for x in resultados for u in x["respuesta"]["diagnostico"].get("llm_uso") or []])
 

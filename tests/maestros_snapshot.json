@@ -1185,6 +1185,16 @@
       "Mano de obra",
       "Zinguería",
       "obra"
+    ],
+    [
+      "Estructura del estudio",
+      "Gastos generales",
+      "estructura"
+    ],
+    [
+      "Estructura del estudio",
+      "Combustible",
+      "estructura"
     ]
   ],
   "CUENTAS": [
@@ -1586,6 +1596,31 @@
       "sofi",
       "Sofía Fachado",
       "contratista"
+    ],
+    [
+      "combustible",
+      "Combustible",
+      "rubro"
+    ],
+    [
+      "nafta",
+      "Combustible",
+      "rubro"
+    ],
+    [
+      "gasoil",
+      "Combustible",
+      "rubro"
+    ],
+    [
+      "gastos generales",
+      "Gastos generales",
+      "rubro"
+    ],
+    [
+      "generales",
+      "Gastos generales",
+      "rubro"
     ]
   ],
   "USUARIOS": [

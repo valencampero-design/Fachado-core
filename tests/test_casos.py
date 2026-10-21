@@ -28,12 +28,15 @@ def main() -> int:
     # §5.7 (v1.7): cada ficha de cada caso de este archivo pasa por el invariante «ningún
     # obligatorio vacío sin su pregunta». Se junta todo y se chequea al final.
     rotas_invariante: list[tuple[str, list]] = []
+    obra_repreguntada: list[str] = []  # 21/10: una ficha con obra no vuelve a preguntar la obra
 
     def interpretar(req, *a, **kw):
         r = _interpretar(req, *a, **kw)
         rotas = sin_pregunta(r.model_dump())
         if rotas:
             rotas_invariante.append((req.texto or "(adjunto)", rotas))
+        if any(f.campos.get("obra") for f in r.fichas) and any(p.campo == "obra" for p in r.preguntas) and len(r.fichas) == 1:
+            obra_repreguntada.append(req.texto or "(adjunto)")
         return r
     from app.models import InterpretarIn
     from app.saldos import saldo_estudio, saldo_obra
@@ -938,7 +941,109 @@ def main() -> int:
         check(f"«{texto}» → consulta, y /consultar la reconoce como «obra»",
               r.intencion == "consulta" and inferir_consulta(texto) == "obra", (r.intencion, inferir_consulta(texto)))
 
+    # ── 21/10 · el fix de la carga (handoff-fix-carga-2026-10-21.md) ──────────
+    print("\n21/10 · M1 los rubros salen del destino (capturas 03-06)")
+    petrus = next(u for u in m.usuarios if "petrus" in u.nombre.lower())
+    estructura = {x.rubro_2 for x in m.rubros if x.afecta in ("estructura", "otro")}
+    de_obra = {x.rubro_2 for x in m.rubros if x.afecta == "obra"}
+    ticket = Adjunto(url="https://drive.google.com/file/d/TICKETYPFxxxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="IMG_ypf.jpg")
+    r = interpretar(InterpretarIn(texto="", fecha_mensaje="2026-10-20T23:08:00Z", telefono=petrus.telefono, adjuntos=[ticket]),
+                    libros={"estudio": libro(), "personal": None},
+                    lector=lector_con(importe=77000, fecha="2026-10-18", razon_social="YPF NORTE", tipo_comprobante="Ticket"))
+    c = r.fichas[0].campos
+    check("captura 03-04: el ticket de YPF de Petrus, sin texto → Estructura del estudio › Combustible sin preguntar; "
+          "la única pregunta es «¿A qué obra?», con Austral primero",
+          (c["rubro_1"], c["rubro_2"]) == ("Estructura del estudio", "Combustible")
+          and [p.campo for p in r.preguntas] == ["obra"] and r.preguntas[0].opciones[0] == "Austral",
+          ((c["rubro_1"], c["rubro_2"]), [(p.campo, p.opciones[:3]) for p in r.preguntas]))
+    r2 = responder(r, ("obra", "Austral"), libros={"estudio": libro(), "personal": None})
+    c2 = r2.fichas[0].campos
+    check("… contesta Austral → estructura, con el combustible, sin más preguntas",
+          (c2["obra"], c2["tipo_gasto"], c2["rubro_2"]) == ("Austral", "estructura", "Combustible") and not r2.preguntas,
+          ((c2["obra"], c2["tipo_gasto"], c2["rubro_2"]), [p.campo for p in r2.preguntas]))
+    r3 = responder(r, ("obra", "Lennon"), libros={"estudio": libro(), "personal": None})
+    c3 = r3.fichas[0].campos
+    check("… si contesta una obra (Lennon), el combustible del estudio no queda: pregunta a quién se le pagó (en una "
+          "obra hace falta) y el rubro después",
+          c3["rubro_1"] is None and [p.campo for p in r3.preguntas] == ["contratista"],
+          ((c3["rubro_1"], c3["rubro_2"]), [(p.campo, p.opciones[:4]) for p in r3.preguntas]))
+    r4 = responder(r3, ("contratista", "Tucu"), libros={"estudio": libro(), "personal": None})
+    rubro4 = next((p for p in r4.preguntas if p.campo == "rubro"), None)
+    check("… y con el contratista, el rubro de obra (el habitual o la pregunta con los de obra), nunca el combustible",
+          r4.fichas[0].campos["rubro_2"] != "Combustible"
+          and (r4.fichas[0].campos["rubro_1"] is not None or (rubro4 is not None and set(rubro4.opciones) <= de_obra)),
+          (r4.fichas[0].campos["rubro_2"], [(p.campo, p.opciones[:4]) for p in r4.preguntas]))
+    mp_mathias = Adjunto(url="https://drive.google.com/file/d/MPMATHIASxxxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="mp.jpg")
+    r, f = leer_con("Austral/Mathias", adjuntos=[mp_mathias],
+                    lector=lector_con(importe=67706, fecha="2026-10-20", razon_social="Mathias Agustin Flores",
+                                      cuit="20-40136334-4", medio_pago="Transferencia", tipo_comprobante="Comprobante Mercado Pago"))
+    rubro = next((p for p in r.preguntas if p.campo == "rubro"), None)
+    check("captura 05-06: «Austral/Mathias» + comprobante de MP → «¿Qué rubro?» con los de estructura (Gastos "
+          "generales, Movilidad, Servicios…), ninguno de obra",
+          rubro is not None and set(rubro.opciones) <= estructura and "Gastos generales" in rubro.opciones
+          and not set(rubro.opciones) & de_obra, rubro and rubro.opciones)
+    r, f = leer_con("Austral/combustible 77000")
+    c = f.campos
+    check("«Austral/combustible 77000» → Austral, Combustible, $ 77.000, sin preguntas",
+          (c["obra"], c["rubro_2"], c["importe"]) == ("Austral", "Combustible", 77000) and not r.preguntas,
+          ((c["obra"], c["rubro_2"], c["importe"]), [p.campo for p in r.preguntas]))
+    for texto in ("Austral/nafta $ 45.000", "Austral/gasoil $ 45.000", "Austral/gastos generales $ 12.000"):
+        r, f = leer_con(texto)
+        check(f"«{texto}» → el rubro por su alias, sin preguntar",
+              f.campos["rubro_2"] in ("Combustible", "Gastos generales") and not r.preguntas,
+              (f.campos["rubro_2"], [p.campo for p in r.preguntas]))
+    r, f = leer_con("Sofia/Austral $ 100.000")
+    check("«Sofia/Austral» → Sofía Cervera, estructura, Sueldos y cargas sociales, sin preguntas",
+          (f.campos["contratista"], f.campos["tipo_gasto"], f.campos["rubro_2"]) == ("Sofia Cervera", "estructura",
+                                                                                     "Sueldos y cargas sociales")
+          and not r.preguntas, (f.campos["contratista"], f.campos["rubro_2"], [p.campo for p in r.preguntas]))
+    r, f = leer_con("Lennon/Miguel/nafta $ 30.000")
+    check("«nafta» dicha en una obra queda como la dijo (lo que escribe el usuario no se cambia)",
+          f.campos["rubro_2"] == "Combustible" and f.campos["obra"] == "Lennon", (f.campos["obra"], f.campos["rubro_2"]))
+    con_otro = libro(dict(id_mov="M-000001", fecha="2026-10-01", tipo="EGRESO", importe=1000, obra="Lennon",
+                          contratista="Mathias Flores", rubro_1="Mano de obra", rubro_2="Contratistas"))
+    r, f = leer_con("Austral/Mathias $ 5.000", estudio=con_otro)
+    check("la última vez se le pagó a Mathias en una obra (Contratistas): en Austral ese rubro no se propone",
+          f.campos["rubro_2"] is None and any(p.campo == "rubro" and set(p.opciones) <= estructura for p in r.preguntas),
+          (f.campos["rubro_2"], [(p.campo, p.opciones[:3]) for p in r.preguntas]))
+    r, f = leer_con("Electricidad Angostura/Retiro $ 9.000")
+    rubro = next((p for p in r.preguntas if p.campo == "rubro"), None)
+    check("en un gasto personal, el rubro habitual de obra del proveedor no se propone: pregunta los personales",
+          f.campos["rubro_1"] is None and rubro is not None and {x.afecta for x in m.rubros if x.rubro_2 in rubro.opciones}
+          == {"personal"}, (f.campos["rubro_2"], rubro and rubro.opciones))
+
+    print("\n21/10 · M2 «¿A qué obra?» completa y un destino dicho no se repregunta (capturas 07-09)")
+    r, f = leer_con("Pago $ 5.000")
+    obra_p = next((p for p in r.preguntas if p.campo == "obra"), None)
+    check("las opciones de «¿A qué obra?»: todas las activas y Austral (con Tres Cerros, la undécima); Jardín "
+          "Maternal no (cerrada), los inmuebles personales no",
+          obra_p is not None and {"Austral", "Tres Cerros"} <= set(obra_p.opciones) and "Jardín Maternal" not in obra_p.opciones
+          and not {"Sur", "Abucoque", "Belelli", "Gessel"} & set(obra_p.opciones) and len(obra_p.opciones) == 12,
+          obra_p and obra_p.opciones)
+    usada = libro(dict(id_mov="M-000001", fecha="2026-10-19", tipo="EGRESO", importe=1000, obra="Tonga", contratista="Tucu",
+                       ts="2026-10-19 10:00:00"))
+    r, f = leer_con("Pago $ 5.000", estudio=usada)
+    check("… ordenadas por uso: la última obra usada primero", next(p for p in r.preguntas if p.campo == "obra").opciones[0]
+          == "Tonga", next(p for p in r.preguntas if p.campo == "obra").opciones[:3])
+    mp_livio = Adjunto(url="https://drive.google.com/file/d/MPLIVIOxxxxxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="mp2.jpg")
+    leido_livio = dict(importe=50000, fecha="2026-10-20", razon_social="Natalia Gisel Livio", cuit="27-37949469-8",
+                       medio_pago="Transferencia", tipo_comprobante="Comprobante Mercado Pago", id_operacion="184185142161")
+    r, f = leer_con("Retiro/Abucoque", adjuntos=[mp_livio], lector=lector_con(**leido_livio))
+    check("captura 07-08: «Retiro/Abucoque» + MP $ 50.000 → personal, obra Abucoque, una sola pregunta: el rubro personal",
+          (f.campos["tipo_gasto"], f.campos["obra"]) == ("personal", "Abucoque") and [p.campo for p in r.preguntas] == ["rubro"]
+          and "Club y deporte" in r.preguntas[0].opciones, (f.campos["obra"], [(p.campo, p.opciones) for p in r.preguntas]))
+    r2 = responder(r, ("rubro", "Club y deporte"))
+    c2 = r2.fichas[0].campos
+    check("captura 09: contesta «4» (Club y deporte) con la ficha → conserva Abucoque y no pregunta «¿A qué obra?»",
+          (c2["obra"], c2["tipo_gasto"], c2["rubro_2"]) == ("Abucoque", "personal", "Club y deporte") and not r2.preguntas,
+          ((c2["obra"], c2["rubro_2"]), [p.campo for p in r2.preguntas]))
+    r = interpretar(InterpretarIn(texto="4", fecha_mensaje="2026-10-20T21:56:00Z", telefono=titular.telefono))
+    check("captura 09, lo que pasó: el «4» llegó solo, sin la ficha → ya no es un movimiento («otro»), en vez de "
+          "«¿A qué obra?»", r.intencion == "otro" and not r.fichas and not r.preguntas, (r.intencion, [p.campo for p in r.preguntas]))
+
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
+    check(f"21/10 · ninguna ficha con la obra resuelta trae la pregunta «obra» ({len(obra_repreguntada)} con problemas)",
+          not obra_repreguntada, obra_repreguntada)
     check(f"ninguna ficha devolvió un faltante sin su pregunta ({len(rotas_invariante)} con problemas)",
           not rotas_invariante, rotas_invariante)
 
