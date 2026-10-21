@@ -39,9 +39,11 @@ class ErrorConsulta(Exception):
 
 
 def pesos(v: float) -> str:
-    entero, dec = f"{v:,.2f}".split(".")
+    """El signo va adelante: «−$7.166.358,10» (§5.20 v1.12), no «$-7.166.358,10»."""
+    entero, dec = f"{abs(v):,.2f}".split(".")
     entero = entero.replace(",", ".")
-    return f"${entero}" if dec == "00" else f"${entero},{dec}"
+    signo = "−" if round(v, 2) < 0 else ""
+    return f"{signo}${entero}" if dec == "00" else f"{signo}${entero},{dec}"
 
 
 def _dia(valor) -> str:
@@ -54,7 +56,9 @@ def _dia(valor) -> str:
 
 def dinero(v: float, moneda: str = "ARS") -> str:
     """§5.8 v1.9: un importe en dólares siempre dice «US$»."""
-    return pesos(v) if (moneda or "ARS") == "ARS" else "US" + pesos(v)
+    if (moneda or "ARS") == "ARS":
+        return pesos(v)
+    return ("−US" + pesos(-v)) if round(v, 2) < 0 else "US" + pesos(v)
 
 
 def inferir_consulta(texto: str) -> str | None:

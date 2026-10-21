@@ -165,9 +165,32 @@ async def _correr() -> int:
               and movs["M-000002"]["importe"] == 300000 and movs["M-000002"]["contratista"] == "Marcelo Maragaño",
               movs["M-000002"])
         lotes = {x["tipo"]: x for x in r["lotes"]}
-        check("gastos bancarios e impuestos en un lote; MercadoLibre sin comprobante en otro",
+        check("gastos bancarios en un lote; las compras de Mercado Libre sin comprobante en otro",
               "gastos_bancarios" in lotes and "meli_personal" in lotes and lotes["meli_personal"]["cantidad"] >= 1
-              and "gastos bancarios por $" in lotes["gastos_bancarios"]["texto"], {k: v["texto"] for k, v in lotes.items()})
+              and "bancario" in lotes["gastos_bancarios"]["texto"] and " por $" in lotes["gastos_bancarios"]["texto"],
+              {k: v["texto"] for k, v in lotes.items()})
+        banco_ = estudio.banco_dicts()
+        dpr = [x for x in banco_ if "DPR SELLOS" in x["descripcion"] and x["estado"] == "SIN_CARGAR"]
+        cvu = [x for x in banco_ if x["descripcion"].startswith("TRANSFERENCIA D/C VAR 30703088534") and x["estado"] == "SIN_CARGAR"]
+        pct = [x for x in banco_ if x["descripcion"].startswith("PAGO CON TRANSFERENCIA") and "MERCADOLIBRE" in x["descripcion"]
+               and x["estado"] == "SIN_CARGAR"]
+        check("§5.20 v1.12: «DEBITO AUTOMATICO DE DPR SELLOS» no es un gasto bancario: va sin lote, como pregunta",
+              dpr and all(not x["lote"] for x in dpr), [(x["fecha"], x["lote"]) for x in dpr])
+        p_dpr = next((p for p in r["pendientes"] if p["hash_id"] == dpr[0]["hash_id"]), None) if dpr else None
+        f_dpr = p_dpr["interpretacion"]["fichas"][0]["campos"] if p_dpr else {}
+        check("… la pregunta trae el rubro Impuestos y tasas › Rentas y pregunta de qué obra es (Austral entre las opciones)",
+              (f_dpr.get("rubro_1"), f_dpr.get("rubro_2")) == ("Impuestos y tasas", "Rentas")
+              and any(q["campo"] == "obra" and "Austral" in q["opciones"] for q in p_dpr["interpretacion"]["preguntas"]),
+              (f_dpr.get("rubro_2"), p_dpr and [(q["campo"], q["opciones"][:3]) for q in p_dpr["interpretacion"]["preguntas"]]))
+        check("§5.6 v1.12: «TRANSFERENCIA … MERCADOLIBRE S.R.L.» (a un CVU) no va al lote MeLi; «PAGO CON TRANSFERENCIA … "
+              "MERCADOLIBRE» (una compra) sí", cvu and all(not x["lote"] for x in cvu)
+              and pct and all(x["lote"] == "meli_personal" for x in pct),
+              ([(x["descripcion"][:30], x["lote"]) for x in cvu[:2]], [(x["descripcion"][:30], x["lote"]) for x in pct[:2]]))
+        p_cvu = next((p for p in r["pendientes"] if cvu and p["hash_id"] == cvu[0]["hash_id"]), None)
+        check("… y la pregunta dice «a una cuenta de Mercado Pago», sin tomar a Mercado Libre como contratista",
+              p_cvu and "a una cuenta de Mercado Pago" in p_cvu["texto"]
+              and p_cvu["interpretacion"]["fichas"][0]["campos"].get("contratista") in (None, ""),
+              p_cvu and (p_cvu["texto"], p_cvu["interpretacion"]["fichas"][0]["campos"].get("contratista")))
         check("… cada lote trae «detalle»: una línea corta por movimiento, para «Ver detalle»",
               all(len(x["detalle"]) == x["cantidad"] and " · " in x["detalle"][0] for x in r["lotes"]),
               lotes["gastos_bancarios"]["detalle"][:2])
@@ -287,9 +310,12 @@ async def _correr() -> int:
         check("… el ID de la operación es el match fuerte contra el comprobante de Mercado Pago (M-000009)",
               (grimau["estado"], grimau["id_mov"], grimau["ref"]) == ("CONCILIADO", "M-000009", "81234567893"), grimau)
         lotes_mp = {(x["tipo"], x["moneda"]): x for x in rm["lotes"]}
-        check("S3: rendimientos y retenciones de Mercado Pago con los gastos bancarios; la compra de Mercado Libre a "
-              "meli_personal", lotes_mp.get(("gastos_bancarios", "ARS"), {}).get("cantidad") == 2
-              and lotes_mp.get(("meli_personal", "ARS"), {}).get("cantidad") == 1, list(lotes_mp))
+        check("S3: los rendimientos de Mercado Pago con los gastos bancarios; la compra de Mercado Libre a meli_personal; "
+              "la retención de IIBB (§5.20 v1.12: ingresos brutos no es gasto bancario) como pregunta",
+              lotes_mp.get(("gastos_bancarios", "ARS"), {}).get("cantidad") == 1
+              and lotes_mp.get(("meli_personal", "ARS"), {}).get("cantidad") == 1
+              and any("Retención De Iibb" in p["texto"] or "Retención de IIBB" in p["texto"] for p in rm["pendientes"]),
+              (list(lotes_mp), [p["texto"] for p in rm["pendientes"]]))
         check("… el pase del banco a Mercado Pago todavía no tiene par (falta el extracto del banco): queda como línea",
               any(p["tipo"] == "linea" and "Fachado" in p["texto"] for p in rm["pendientes"]),
               [(p["tipo"], p["texto"]) for p in rm["pendientes"]])
@@ -390,6 +416,51 @@ async def _correr() -> int:
                       len(reales))
             except ExtractoNoReconocido as e:
                 check(f"la muestra real de Mercado Pago ({pdfs_reales[0].name}) se lee", False, e)
+
+        print("\n11 · 21/10: el desempate por fecha y el signo del resumen (ensayo de octubre)")
+        from app.consultas import pesos as consultas_pesos
+        from tests.fixtures.generar_muestras_armadas import extracto_banco
+        for orden, filas_ca48 in (("como viene el archivo (16/10 primero)",
+                                   [("16/10/2026", "TRANSFERENCIA ENTRE CUENTAS VAR 27293175840 ALVAREZ ROSARIO MARIA",
+                                     "200.000,00", "", "1.000.000,00"),
+                                    ("14/10/2026", "TRANSFERENCIA D/C VAR 27248707041 CABRE SANDHAM MARCELA AND",
+                                     "200.000,00", "", "1.200.000,00")]),
+                                  ("al revés (14/10 primero)",
+                                   [("14/10/2026", "TRANSFERENCIA D/C VAR 27248707041 CABRE SANDHAM MARCELA AND",
+                                     "200.000,00", "", "1.200.000,00"),
+                                    ("16/10/2026", "TRANSFERENCIA ENTRE CUENTAS VAR 27293175840 ALVAREZ ROSARIO MARIA",
+                                     "200.000,00", "", "1.000.000,00")])):
+            estudio, personal = preparar()
+            personal.sembrar(id_mov="P-000007", fecha="2026-10-13", tipo="EGRESO", importe=200000, moneda="ARS", tc=1,
+                             importe_ars=200000, cuenta="Banco", tipo_gasto="personal", rubro_1="Personal", rubro_2="Familia",
+                             origen="WHATSAPP", cargado_por=titular.nombre, concilia="VERDADERO", estado_conc="PENDIENTE")
+            personal.sembrar(id_mov="P-000017", fecha="2026-10-16", tipo="EGRESO", importe=200000, moneda="ARS", tc=1,
+                             importe_ars=200000, cuenta="Banco", tipo_gasto="personal", rubro_1="Personal", rubro_2="Familia",
+                             origen="WHATSAPP", cargado_por=titular.nombre, concilia="VERDADERO", estado_conc="PENDIENTE")
+            montar(estudio, personal)
+            archivos["dos-200000.xlsx"] = extracto_banco("CA $ 48-69556582-001", "$\xa0", filas_ca48)
+            rd = (await extracto("dos-200000.xlsx")).json()
+            por_fecha = {x["fecha"]: x for x in estudio.banco_dicts()}
+            check(f"dos pagos de $ 200.000 (14 y 16/10) contra P-000007 (13/10) y P-000017 (16/10), {orden}: el del 16 "
+                  f"con el del 16 (misma fecha) y el del 14 con el otro, sin «¿cuál es?»",
+                  (por_fecha["2026-10-16"]["estado"], por_fecha["2026-10-16"]["id_mov"],
+                   por_fecha["2026-10-14"]["estado"], por_fecha["2026-10-14"]["id_mov"])
+                  == ("CONCILIADO", "P-000017", "CONCILIADO", "P-000007") and rd["a_revisar"] == 0,
+                  [(x["fecha"], x["estado"], x["id_mov"], x["candidatos"]) for x in estudio.banco_dicts()])
+        estudio, personal = preparar()
+        estudio.sembrar(id_mov="M-000001", fecha="2026-10-05", tipo="EGRESO", importe=7166358.1, moneda="ARS", tc=1,
+                        importe_ars=7166358.1, obra="Lennon", contratista="Miguel Soto", cuenta="Banco", tipo_gasto="obra",
+                        origen="WHATSAPP", cargado_por=titular.nombre, concilia="VERDADERO", estado_conc="PENDIENTE")
+        montar(estudio, personal)
+        archivos["armado-octubre-CA.xlsx"] = armados["armado-octubre-CA.xlsx"]
+        rs = (await extracto("armado-octubre-CA.xlsx")).json()
+        banco_r = next(c for c in rs["resumen"]["por_cuenta"] if c["cuenta"] == "Banco")
+        linea_banco = next(x for x in rs["texto"].splitlines() if x.startswith("Banco:"))
+        check("captura 01-02: el libro en negativo se muestra con su signo («libro −$ …», no «libro $ …»); un saldo "
+              "positivo, sin signo", banco_r["saldo_libro"] < 0 and "libro −$ " in linea_banco and "banco $ " in linea_banco
+              and (("diferencia −$" in linea_banco) == (banco_r["diferencia"] < 0)), (linea_banco, banco_r))
+        check("… y en las consultas: «−$7.166.358,10», no «$-7.166.358,10»", consultas_pesos(-7166358.1) == "−$7.166.358,10"
+              and consultas_pesos(1000) == "$1.000", consultas_pesos(-7166358.1))
 
         print("\n7 · Errores")
         app.dependency_overrides[obtener_descargador] = lambda: (lambda adj: b"no es un excel")

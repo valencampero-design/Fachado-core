@@ -53,11 +53,28 @@ DIAS_SIN_BANCO = 7     # §5.20: lo del libro que no aparece en el banco despué
 
 # Gastos bancarios (§5.20: un solo lote por extracto, estructura del estudio).
 RE_GASTO_BANCARIO = re.compile(
-    r"comisi|impuesto|imp\.?\s*db|db/cr|intereses|cruce de fondos|iva percep|percepci|retenci|sellos|"
+    r"comisi|impuesto|imp\.?\s*db|db/cr|intereses|cruce de fondos|iva percep|percepci|retenci|"
     r"mantenimiento|cargo\b|seguro de vida|com\.|rendimiento", re.I)
+# §5.20 v1.12: lo que el banco debita por cuenta de otro organismo (DPR Sellos, rentas, ingresos
+# brutos) no es un gasto bancario: va como pregunta, con rubro Impuestos y tasas › Rentas, para
+# saber de qué obra es o si es del estudio. Va antes que RE_GASTO_BANCARIO («retención de IIBB»).
+RE_IMPUESTO_DE_OTRO = re.compile(r"\bdpr\b|rentas|ingresos\s+brutos|\biibb\b|sellos", re.I)
+RUBRO_IMPUESTO_DE_OTRO = "Rentas"  # Impuestos y tasas › Rentas
 # Compras de Mercado Libre. «Mercado Pago» a secas en el banco no: puede ser un pase a la cuenta
 # de Mercado Pago del estudio, que se empareja como traspaso (20/10).
 RE_MELI = re.compile(r"mercado\s*libre|mercadolibre|merpago", re.I)
+# §5.6 v1.12: una TRANSFERENCIA a MERCADOLIBRE S.R.L. (CUIT 30-70308853-4) es a un CVU de Mercado
+# Pago: el pago a un contratista que cobra por ahí (Mathias) o una carga a la cuenta del estudio.
+# Se concilia como cualquier transferencia; al lote van solo las compras («PAGO CON TRANSFERENCIA
+# (PCT) … MERCADOLIBRE», compras con tarjeta).
+RE_TRANSFERENCIA_A_CVU = re.compile(r"^\s*transferencia\b", re.I)
+CUIT_MERCADOLIBRE = "30703088534"
+
+
+def es_transferencia_a_cvu(linea: dict) -> bool:
+    desc = str(linea.get("descripcion") or "")
+    return bool(RE_TRANSFERENCIA_A_CVU.search(desc)) and (
+        bool(RE_MELI.search(desc)) or solo_digitos(linea.get("cuit")) == CUIT_MERCADOLIBRE)
 # Compra o venta de dólares entre la CA $ y la CA U$S (§5.7: traspaso entre monedas).
 RE_CAMBIO = re.compile(r"compra.?venta (?:de )?d[oó]lares|compra de d[oó]lares|venta de d[oó]lares|"
                        r"compra.?venta (?:de )?moneda", re.I)
@@ -207,16 +224,21 @@ def _candidatos(linea: dict, movs: list[dict], m: Maestros, usados: set) -> tupl
     return fuertes, probables
 
 
+def _desempate_por_fecha(linea: dict, cands: list[dict]) -> list[dict]:
+    """§5.20 v1.12: con varios candidatos del mismo importe, si uno solo tiene la misma fecha que
+    la línea, es ese (los dos pagos de $ 200.000 del 14 y el 16/10)."""
+    mismo_dia = [c for c in cands if _dias(linea.get("fecha"), c.get("fecha")) == 0]
+    return mismo_dia if len(mismo_dia) == 1 else cands
+
+
 def _decidir(linea: dict, movs: list[dict], m: Maestros, usados: set) -> tuple[str, list[dict]]:
     fuertes, probables = _candidatos(linea, movs, m, usados)
-    if len(fuertes) == 1:
-        return CONCILIADO, fuertes
-    if len(fuertes) > 1:
-        return A_REVISAR, fuertes
-    if len(probables) == 1:
-        return CONCILIADO, probables
-    if len(probables) > 1:
-        return A_REVISAR, probables
+    for cands in (fuertes, probables):
+        cands = _desempate_por_fecha(linea, cands)
+        if len(cands) == 1:
+            return CONCILIADO, cands
+        if len(cands) > 1:
+            return A_REVISAR, cands
     return SIN_CARGAR, []
 
 
@@ -227,8 +249,12 @@ def lote_de(linea: dict) -> str | None:
     desc = str(linea.get("descripcion") or "")
     if RE_CAMBIO.search(desc):
         return None  # compra o venta de dólares: es un traspaso entre monedas
+    if RE_IMPUESTO_DE_OTRO.search(desc):
+        return None  # §5.20 v1.12: DPR Sellos, rentas, IIBB: pregunta, no gasto bancario
     if RE_GASTO_BANCARIO.search(desc):
         return "gastos_bancarios"
+    if es_transferencia_a_cvu(linea):
+        return None  # §5.6 v1.12: una transferencia a un CVU de Mercado Pago no es una compra
     if str(linea.get("moneda") or "ARS") == "ARS" and numero(linea.get("debito")) > 0 and RE_MELI.search(desc):
         return "meli_personal"
     return None
@@ -307,7 +333,15 @@ def _dia(fecha: str) -> str:
         return str(fecha)
 
 
+def _con_signo(v: float, moneda: str = "ARS") -> str:
+    """§5.20 v1.12: un saldo o una diferencia negativa lleva el signo («−$ 7.166.358,10»).
+    `_dinero` no lo pone: «Vi un pago de $ 165.700» ya dice para qué lado va."""
+    return f"{'−' if round(v, 2) < 0 else ''}{_dinero(v, moneda)}"
+
+
 def _quien(linea: dict) -> str:
+    if es_transferencia_a_cvu(linea):
+        return "una cuenta de Mercado Pago (MERCADOLIBRE S.R.L.)"
     nombre = str(linea.get("nombre") or "").strip()
     return nombre.title() if nombre else f"«{str(linea.get('descripcion') or '').strip()}»"
 
@@ -346,14 +380,21 @@ def ficha_de_linea(linea: dict, telefono: str, libros: dict) -> dict:
     from app.interpretar import interpretar
     importe = numero(linea.get("credito")) - numero(linea.get("debito"))
 
+    # §5.6 v1.12: en una transferencia a un CVU, MERCADOLIBRE S.R.L. es la pasarela, no a quién
+    # se le pagó: no se resuelve como contratista.
+    pasarela = es_transferencia_a_cvu(linea)
+
     def lector(_adj):
         d = DatosComprobante(url="", nombre_archivo="")
         d.completar({"importe": abs(importe), "fecha": str(linea.get("fecha"))[:10], "moneda": linea.get("moneda") or "ARS",
-                     "cuit": linea.get("cuit") or None, "razon_social": linea.get("nombre") or None,
+                     "cuit": None if pasarela else (linea.get("cuit") or None),
+                     "razon_social": None if pasarela else (linea.get("nombre") or None),
                      "medio_pago": "Transferencia", "tipo_comprobante": "Línea del extracto",
                      "id_operacion": linea.get("ref") or None}, "extracto")
         return d
-    req = InterpretarIn(texto="Ingreso" if importe > 0 else "", telefono=telefono,
+    # §5.20 v1.12: un impuesto de otro organismo (DPR Sellos, rentas, IIBB) va con su rubro.
+    texto = "Ingreso" if importe > 0 else RUBRO_IMPUESTO_DE_OTRO if RE_IMPUESTO_DE_OTRO.search(str(linea.get("descripcion"))) else ""
+    req = InterpretarIn(texto=texto, telefono=telefono,
                         fecha_mensaje=f"{str(linea.get('fecha'))[:10]}T15:00:00Z",
                         adjuntos=[Adjunto(url=f"banco:{linea['hash_id']}", nombre="extracto")])
     salida = interpretar(req, libros=libros, lector=lector)
@@ -562,6 +603,9 @@ def procesar_extracto(contenido: bytes, telefono: str, libro: Libro, libro_perso
     marcas: list[tuple[dict, str]] = []  # (movimiento, hash_id) a marcar CONCILIADO
     repetidas = anteriores = 0
     vistos: set = set()
+    # §5.20 v1.12: las que tienen más de un candidato se deciden al final, cuando las demás ya se
+    # llevaron los suyos (el pago del 16/10 se queda con el del 16/10 y el del 14/10 con el otro).
+    nuevas = []
     for linea in lineas:
         if linea.hash_id in ya or linea.hash_id in vistos:
             repetidas += 1
@@ -571,6 +615,10 @@ def procesar_extracto(contenido: bytes, telefono: str, libro: Libro, libro_perso
             anteriores += 1
             nuevas_filas.append(_fila_banco(linea, ANTERIOR, "", [], None, ts))
             continue
+        nuevas.append(linea)
+    ambiguas_primero = {linea.hash_id for linea in nuevas
+                        if _decidir(linea.dict(), conciliables, m, set(usados))[0] == A_REVISAR}
+    for linea in [x for x in nuevas if x.hash_id not in ambiguas_primero] + [x for x in nuevas if x.hash_id in ambiguas_primero]:
         d = linea.dict()
         estado, cands = _decidir(d, conciliables, m, usados)
         id_mov, lista = "", [str(c.get("id_mov")) for c in cands]
@@ -712,8 +760,8 @@ def _texto_resumen(s: dict) -> str:
         partes.append(f"{s['sin_banco']} movimiento{'s' if s['sin_banco'] != 1 else ''} del libro no aparece"
                       f"{'n' if s['sin_banco'] != 1 else ''} en el banco hace más de una semana.")
     for c in r["por_cuenta"]:
-        partes.append(f"{c['cuenta']}: libro {_dinero(c['saldo_libro'], c['moneda'])} · banco "
-                      f"{_dinero(c['saldo_banco'], c['moneda'])} · diferencia {_dinero(c['diferencia'], c['moneda'])}"
+        partes.append(f"{c['cuenta']}: libro {_con_signo(c['saldo_libro'], c['moneda'])} · banco "
+                      f"{_con_signo(c['saldo_banco'], c['moneda'])} · diferencia {_con_signo(c['diferencia'], c['moneda'])}"
                       + (" (sin saldo de apertura cargado)" if not c.get("fecha_apertura") else ""))
     return "\n".join(partes) or "No hay nada pendiente del banco."
 
