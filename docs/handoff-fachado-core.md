@@ -27,6 +27,7 @@
 | ✅ Post-reunión 6 (M1 a M5) | Desplegado el 9/10: contratista nuevo con alta al confirmar, consulta del saldo de caja, intenciones `anular`/`corregir`. Contratos al final de `docs/handoff-post-reunion6-2026-10-09.md` |
 | ⏳ Cierre de la propuesta (15/10) | Commiteado **sin pushear**: las dos Sofía, «Es nuevo», tc del recibo, consulta `obra`; **conciliación con el banco** (§5.20); **vistas del tablero y CC_<obra>** (§5.21). Detalle, decisiones y orden de deploy al final de `docs/handoff-cierre-propuesta-2026-10-15.md` |
 | ⏳ Semana 8 (20/10), el motor | Commiteado **sin pushear** (M1 a M4): CC_ de todas las obras y de los inmuebles personales; **Mercado Pago y las cuatro cuentas del banco** con traspasos entre cuentas propias, lote en dólares y `GET /conciliar/estado`; saldos de apertura en un paso; `VISTA_OBRAS_MES` y `VISTA_GENERAL`, la guía de Looker para el celular y el cron de vistas paso a paso. Resultado, supuestos y orden de deploy al final de `docs/handoff-semana-8-2026-10-20.md` |
+| ⏳ Fix de la carga (21/10), el motor | Commiteado **sin pushear**, encima de la semana 8 (M1 a M5): rubros según el destino (Austral con los de estructura, combustible del ticket), «¿A qué obra?» con todas las obras y Austral, obra nueva («Minas»), comprobante de MP pagado con débito → Banco, y los ajustes de la conciliación del ensayo de octubre. Resultado, reconstrucción de las fallas y **el orden de deploy de las dos tiradas en una lista** al final de `docs/handoff-fix-carga-2026-10-21.md` |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
@@ -192,6 +193,40 @@ Detalle, supuestos (S1–S5) y orden de deploy al final de `docs/handoff-semana-
 - **Saldos de apertura**: `scripts/cargar_saldos_apertura.py`.
 - **Tablero**: `vista_obras_mes`, `vista_general`; `obra` igual en todas las vistas; «Sin
   rubro» / «Sin obra»; `recalcular(..., simulacro=True)`.
+
+### Lo del 21/10: el fix de la carga (v1.12)
+
+Detalle, reconstrucción de las fallas del 20/10 y deploy al final de
+`docs/handoff-fix-carga-2026-10-21.md`.
+
+- **Rubros según el destino** (§5.12 v1.12): `interpretar._afecta_destino`,
+  `_afecta_de_clasificacion` y `_rubro_va`. Austral (o un contratista de estructura) →
+  rubros de estructura (más los «otro»: IVA, Rentas, Honorarios); personal → personales; obra →
+  obra. Vale para las opciones, el habitual, el de la última vez y el LLM. Un rubro que no dijo
+  el usuario y no le corresponde al destino final se borra y se pregunta.
+- **Combustible** (`_es_combustible`, `RE_ESTACION`): un ticket de YPF, Shell, Axion, Puma o
+  Gulf, o «combustible/nafta/gasoil» → `Estructura del estudio › Combustible` sin preguntar.
+  Migración `2026_10_21_rubros_estructura.py` (Gastos generales y Combustible). ALIAS admite
+  tipo `rubro` (`Maestros.rubro_por_nombre`).
+- **«¿A qué obra?»** (`_opciones_obra`): todas las activas y Austral (hasta 15), por uso;
+  en lo personal, los inmuebles. Con la obra abierta, el rubro espera
+  (`obligatorios.PREGUNTAS_QUE_DEFINEN_EL_RUBRO` suma `obra` y `nuevo`).
+- **Importe entero suelto** (`resolver._importe_entero`): «77000» es el importe si nada más lo
+  es (4 a 9 cifras; no años ni números de operación, cuota, certificado, cheque o etapa).
+- **Obra nueva** (§5.6 v1.12): pregunta `campo = "nuevo"` (`OPCION_OBRA_NUEVA`,
+  `OPCION_NUEVO`); `extras.obra_nueva`; `maestros.obra_nueva()` la arma mientras no está en
+  OBRAS; `/confirmar` la da de alta (`confirmar._alta_obra`, `Libro.agregar_obra`).
+- **Mercado Pago pagado con débito** (§5.7 v1.12): `DatosComprobante.pagado_con`
+  (`comprobante.pagado_con` del texto; campo nuevo del lector) → Banco, «Tarjeta de débito».
+- **Conciliación** (§5.20 v1.12):
+  - las transferencias a un CVU de MERCADOLIBRE S.R.L. no van al lote MeLi
+    (`es_transferencia_a_cvu`);
+  - DPR Sellos, rentas e IIBB no son gastos bancarios (`RE_IMPUESTO_DE_OTRO`): van como
+    pregunta, con rubro Rentas;
+  - con dos candidatos del mismo importe, desempata la fecha (`_desempate_por_fecha`; las
+    ambiguas se deciden al final del extracto);
+  - los saldos se muestran con su signo (`_con_signo`, `consultas.pesos`).
+- Un «4» suelto sin ficha es `intencion = "otro"`.
 
 ### Endpoints
 
@@ -763,6 +798,18 @@ anotadas al final de `docs/handoff-tanda-6-2026-09-25.md`):
   dijo «Reactivar», la ficha trae `extras.reactivar` y `/confirmar` lo reactiva.
 - **Arranque escalonado** (§5.13): primero solo Gabriel; Petrus después de la primera semana.
 
+Lo nuevo del 21/10 (contratos fijos en §3 de `docs/handoff-fix-carga-2026-10-21.md`,
+implementados tal cual y cruzados con la sesión del gateway):
+
+- la pregunta `{campo: "nuevo", texto: "No conozco «Minas». ¿Es una obra nueva o un contratista
+  nuevo?", opciones: ["__obra_nueva__", "__nuevo__"]}`; la respuesta va con
+  `{campo: "nuevo", valor}` crudo;
+- `extras.obra_nueva = {nombre, tipo, estado, notas, alias}`;
+- `ConfirmarOut.obra_creada`;
+- «¿A qué obra?» con hasta 15 opciones, que pueden incluir Austral y los inmuebles
+  personales;
+- el lector suma `pagado_con`, solo informativo para el gateway.
+
 Lo nuevo del 20/10 (contratos fijos en §3 de `docs/handoff-semana-8-2026-10-20.md`, todos
 implementados tal cual y cruzados con la sesión del gateway):
 
@@ -901,7 +948,11 @@ no dependen de la moneda del snapshot.
      del banco de Banco, Banco USD y Mercado Pago, y Mercado Pago pasa a conciliar.
 
    El snapshot de los tests ya la tiene aplicada.
-5. **El 1/11**: `python scripts/cargar_saldos_apertura.py --csv docs/saldos-apertura-31-10.csv`
+5. **Del 21/10**: `python scripts/migraciones/2026_10_21_rubros_estructura.py` (simulacro,
+   después `--aplicar`): Gastos generales y Combustible de estructura, y sus alias de tipo
+   `rubro`. Correrla **después** de desplegar el motor nuevo: el viejo no conoce el tipo de
+   alias `rubro` (lo avisa y no lo aplica, sin romper nada). El snapshot ya la tiene.
+6. **El 1/11**: `python scripts/cargar_saldos_apertura.py --csv docs/saldos-apertura-31-10.csv`
    (primero el simulacro; después `--aplicar`). Carga `saldo_apertura` y `fecha_apertura`
    (31/10) de Banco, Banco USD, Mercado Pago, Efectivo y cada caja de obra (§5.20), con el
    control contra el extracto.
