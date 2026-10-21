@@ -219,10 +219,14 @@ ESQUEMA_COMPROBANTE = {
         "numero_cheque": {"type": ["string", "null"]},
         "tipo_cambio": {"type": ["number", "null"],
                         "description": "Si dice «US$ 2.000 × 1535», el 1535: pesos por dólar del pago"},
+        "pagado_con": {"type": ["string", "null"],
+                       "description": "Solo en un comprobante de Mercado Pago: con qué se pagó. «dinero en cuenta» "
+                                      "(dinero disponible en Mercado Pago), «débito» (tarjeta de débito) o "
+                                      "«crédito» (tarjeta de crédito). null si no lo dice o no es de Mercado Pago"},
     },
     "required": ["es_comprobante", "tipo_comprobante", "medio_pago", "fecha", "fecha_pago", "importe", "moneda",
                  "razon_social_destinatario", "cuit_destinatario", "cuenta_destino", "razon_social_originante",
-                 "cuit_originante", "id_operacion", "numero_cheque", "tipo_cambio"],
+                 "cuit_originante", "id_operacion", "numero_cheque", "tipo_cambio", "pagado_con"],
     "additionalProperties": False,
 }
 

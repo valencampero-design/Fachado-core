@@ -1058,6 +1058,32 @@ def main() -> int:
           not any(p.campo in ("nuevo", "obra") for p in r.preguntas) and "Natalia" in (f.campos["descripcion"] or ""),
           ([p.campo for p in r.preguntas], f.campos["descripcion"]))
 
+    print("\n21/10 · M4 comprobante de Mercado Pago pagado con tarjeta (§5.7 v1.12)")
+    comp_epen = Adjunto(url="https://drive.google.com/file/d/EPENxxxxxxxxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="epen.jpg")
+    for pagado, cuenta_esperada, medio_esperado in (("débito", "Banco", "Tarjeta de débito"),
+                                                    ("dinero en cuenta", "Mercado Pago", None),
+                                                    ("crédito", "Mercado Pago", None)):
+        r, f = leer_con("Gonzalo/Epen", adjuntos=[comp_epen],
+                        lector=lector_con(importe=291338.4, fecha="2026-10-15", razon_social="EPEN", medio_pago="Tarjeta",
+                                          tipo_comprobante="Comprobante de Mercado Pago", id_operacion="182976292559",
+                                          pagado_con=pagado))
+        c = f.campos
+        avisos = f.extras.get("advertencias") or []
+        check(f"comprobante de MP pagado con «{pagado}» → cuenta {cuenta_esperada}"
+              + (f", medio «{medio_esperado}», origen comprobante" if medio_esperado else "")
+              + (", con el aviso de tarjeta de crédito (P-34)" if pagado == "crédito" else ""),
+              c["cuenta"] == cuenta_esperada and f.origen_campo.get("cuenta") == "comprobante"
+              and (medio_esperado is None or c["medio_pago"] == medio_esperado)
+              and (pagado != "crédito" or any("tarjeta de crédito" in a for a in avisos)),
+              (c["cuenta"], c["medio_pago"], f.origen_campo.get("cuenta"), avisos))
+    check("el lector lee «pagado_con» del texto de un comprobante de Mercado Pago, y solo de Mercado Pago",
+          comprobante.pagado_con("Mercado Pago · Pagaste con Tarjeta de débito Visa ****1234") == "débito"
+          and comprobante.pagado_con("Mercado Pago · Medio de pago: Visa crédito, 3 cuotas") == "crédito"
+          and comprobante.pagado_con("Mercado Pago · Pagaste con dinero disponible") == "dinero en cuenta"
+          and comprobante.pagado_con("Banco Patagonia · Débito inmediato (DEBIN) · tarjeta de débito") is None
+          and comprobante.parsear_texto("Comprobante de pago Mercado Pago\nTarjeta de débito Maestro").get("pagado_con")
+          == "débito")
+
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"21/10 · ninguna ficha con la obra resuelta trae la pregunta «obra» ({len(obra_repreguntada)} con problemas)",
           not obra_repreguntada, obra_repreguntada)

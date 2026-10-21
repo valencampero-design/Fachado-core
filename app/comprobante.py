@@ -24,7 +24,7 @@ from app.resolver import parsear_importe
 logger = logging.getLogger(__name__)
 
 CAMPOS = ["fecha", "fecha_pago", "importe", "moneda", "razon_social", "cuit", "cuenta_destino",
-          "id_operacion", "numero_cheque", "medio_pago", "tipo_comprobante", "cuit_originante", "tc"]
+          "id_operacion", "numero_cheque", "medio_pago", "tipo_comprobante", "cuit_originante", "tc", "pagado_con"]
 
 
 @dataclass
@@ -44,6 +44,9 @@ class DatosComprobante:
     tipo_comprobante: str | None = None
     cuit_originante: str | None = None
     tc: float | None = None          # §5.8 v1.10: «US$ 2.000 × 1535» → 1535
+    # §5.7 v1.12: en un comprobante de Mercado Pago, con qué se pagó: «dinero en cuenta»,
+    # «débito» (la plata salió del banco: Epen, 13/10) o «crédito». None si no lo dice.
+    pagado_con: str | None = None
     sha256: str | None = None        # del archivo: la referencia más fuerte para duplicados (§5.16)
     fuente: dict[str, str] = field(default_factory=dict)  # campo → nombre_archivo | pdf_texto | vision
     uso_llm: bool = False
@@ -149,6 +152,40 @@ def tipo_de_cambio(texto: str | None) -> float | None:
     return tc if tc and 50 <= tc <= 100000 else None
 
 
+RE_MERCADO_PAGO = re.compile(r"mercado\s*pago", re.I)
+RE_PAGADO_DEBITO = re.compile(r"tarjeta\s+de\s+d[eé]bito|(?:visa|mastercard|maestro|cabal)\s+d[eé]bito|"
+                              r"d[eé]bito\s+(?:visa|mastercard|maestro|cabal)", re.I)
+RE_PAGADO_CREDITO = re.compile(r"tarjeta\s+de\s+cr[eé]dito|(?:visa|mastercard|amex|american express|naranja)\s+cr[eé]dito|"
+                               r"cr[eé]dito\s+(?:visa|mastercard|amex|naranja)", re.I)
+RE_PAGADO_DINERO = re.compile(r"dinero\s+(?:disponible|en\s+cuenta)|saldo\s+(?:en|de)\s+mercado\s*pago|con\s+tu\s+dinero", re.I)
+
+
+def pagado_con(texto: str | None) -> str | None:
+    """§5.7 v1.12: en un comprobante de Mercado Pago, con qué se pagó. Solo si el texto es de
+    Mercado Pago: «débito» en un comprobante del banco es otra cosa (débito inmediato, DEBIN)."""
+    if not texto or not RE_MERCADO_PAGO.search(texto):
+        return None
+    if RE_PAGADO_DEBITO.search(texto):
+        return "débito"
+    if RE_PAGADO_CREDITO.search(texto):
+        return "crédito"
+    if RE_PAGADO_DINERO.search(texto):
+        return "dinero en cuenta"
+    return None
+
+
+def normalizar_pagado_con(valor: str | None) -> str | None:
+    """Lo que devuelve el modelo, a uno de los tres valores (o None)."""
+    n = (valor or "").strip().lower()
+    if "deb" in n or "déb" in n:
+        return "débito"
+    if "cred" in n or "créd" in n:
+        return "crédito"
+    if "dinero" in n or "cuenta" in n or "saldo" in n:
+        return "dinero en cuenta"
+    return None
+
+
 def parsear_texto(texto: str) -> dict:
     if not texto:
         return {}
@@ -201,6 +238,9 @@ def parsear_texto(texto: str) -> dict:
     elif re.search(r"transferencia", plano, re.I):
         datos["medio_pago"] = "Transferencia"
         datos["tipo_comprobante"] = "Comprobante de transferencia"
+    pagado = pagado_con(plano)
+    if pagado:
+        datos["pagado_con"] = pagado
     return datos
 
 
@@ -297,6 +337,7 @@ def leer_bytes(contenido: bytes, nombre: str, mime: str, datos: DatosComprobante
         extraido["cuit"] = formatear_cuit(extraido.get("cuit_destinatario"))
         extraido["cuit_originante"] = formatear_cuit(extraido.get("cuit_originante"))
         extraido["tc"] = extraido.get("tipo_cambio")
+        extraido["pagado_con"] = normalizar_pagado_con(extraido.get("pagado_con"))
         datos.completar(extraido, "vision" if not texto else "pdf_llm")
     else:
         datos.error = uso.get("error")

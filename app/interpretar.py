@@ -56,6 +56,11 @@ def _cuenta_de_tipo(m: Maestros, tipo: str, moneda: str | None = "ARS"):
     return candidatas[0] if len(candidatas) == 1 else None
 
 
+def _es_de_mercado_pago(comp) -> bool:
+    medio = normalizar(" ".join(filter(None, [comp.medio_pago, comp.tipo_comprobante])))
+    return "mercado pago" in medio or "mercadopago" in medio or bool(comp.pagado_con)
+
+
 def _cuenta_del_comprobante(comp, obra, moneda: str | None, m: Maestros):
     """§5.7, regla 2: lo que dice el comprobante. Si lo pagó el comitente de la obra (su CUIT
     es el originante), «Pagado por el comitente» (§5.9); una transferencia o un débito, el
@@ -66,7 +71,10 @@ def _cuenta_del_comprobante(comp, obra, moneda: str | None, m: Maestros):
         return m.cuenta(maestros.CUENTA_PAGADO_POR_COMITENTE)
     medio = normalizar(" ".join(filter(None, [comp.medio_pago, comp.tipo_comprobante])))
     moneda = (comp.moneda or moneda or "ARS").upper()
-    if "mercado pago" in medio or "mercadopago" in medio:
+    if _es_de_mercado_pago(comp):
+        # §5.7 v1.12 (Epen, 13/10): pagado con tarjeta de débito, la plata salió del banco.
+        if comp.pagado_con == "débito":
+            return _cuenta_de_tipo(m, "banco", moneda)
         return _cuenta_de_tipo(m, "billetera")
     if "cheque" in medio:
         return _cuenta_de_tipo(m, "chequera")
@@ -1145,6 +1153,11 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         habitual = m.cuenta(obra.cuenta_habitual) if obra and obra.cuenta_habitual and tipo == "EGRESO" else None
         if por_comprobante:
             poner("cuenta", por_comprobante.nombre, "comprobante")
+            if comp.pagado_con == "débito" and _es_de_mercado_pago(comp):
+                poner("medio_pago", "Tarjeta de débito", "comprobante")
+            elif comp.pagado_con == "crédito" and _es_de_mercado_pago(comp):
+                # P-34: los pagos con tarjeta de crédito, pendientes de definir con Gabriel.
+                advertencias.append("Pagado con tarjeta de crédito: queda en Mercado Pago (pendiente de definir, P-34)")
         elif habitual:
             poner("cuenta", habitual.nombre, "maestro")
         else:
