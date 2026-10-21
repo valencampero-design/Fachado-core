@@ -472,3 +472,69 @@ Ninguno respecto de §3. Lo cruzamos con la sesión del gateway: la pregunta `nu
 valores, `obra_creada`, hasta 15 opciones de obra (12 hoy) y `pagado_con` solo informativo.
 Agregados que no rompen nada: `extras.obra_nueva` también trae `alias`, y un texto de 1 o 2
 dígitos sin contexto devuelve `intencion = "otro"`.
+
+---
+
+## Estado del deploy (21/10, noche) — a medio hacer por la caída de Railway
+
+Valen pidió el deploy completo el 21/10 a la noche. Railway tiene **los builds pausados en todas
+las regiones** por un incidente de seguridad
+(<https://blog.railway.com/p/security-disclosure-wednesday-october-21st>,
+<https://status.railway.com>). Producción sigue con el motor del 15/10 y el gateway viejo: **las
+fallas de las capturas siguen pasando** hasta que se despliegue.
+
+**Hecho (pasos de «## Orden de deploy»):**
+- **1**: push de `fachado-core`, hasta `3068114`. Railway no lo desplegó: el último deploy
+  registrado es `89efc4a`, del 20/10.
+- **8**: push de `chatbot-contable`, hasta `1fd33f6`. Tampoco se desplegó.
+- **2**: `preparar_sheet --aplicar`: `CUENTAS.cuentas_banco` y `BANCO_RAW.origen`.
+- **3**: `2026_10_20_cuentas_conciliacion.py --aplicar`: 4 celdas; repetido, no hace nada.
+- **6**: `crear_cc_obras.py --aplicar`: 13 `CC_` en el Master y 4 en el libro personal.
+
+Todo esto convive bien con el motor viejo. Mercado Pago ya concilia, pero antes del 1/11 no se
+concilia nada.
+
+**Un error al verificar**: se llamó a `/vistas/recalcular` con `{"simulacro": true}` contra el
+motor viejo, que no conoce ese parámetro. Reescribió las `VISTA_*` y sus 7 `CC_` con el criterio
+viejo. Son hojas derivadas y MOVIMIENTOS no se tocó; la primera corrida del motor nuevo (paso 7)
+las deja bien.
+
+**Falta, cuando vuelvan los builds:**
+1. Confirmar que Railway desplegó el último commit de los dos servicios; si no, «Redeploy» de
+   `web` y del gateway. La prueba sin escribir nada: `/interpretar` con el texto «4» tiene que
+   dar `intencion = "otro"`.
+2. Paso 4: `2026_10_21_rubros_estructura.py`, primero el simulacro y después `--aplicar`.
+3. Paso 5: `POST /maestros/recargar`.
+4. Paso 7: crear el servicio `vistas` en Railway (Valen, con su cuenta) y la primera corrida de
+   `recalcular_vistas.py`.
+5. Paso 9: las pruebas en producción.
+6. Paso 10: Looker.
+7. Paso 11: el 1/11.
+
+**Seguridad.** Railway recomienda rotar todas las variables guardadas ahí:
+- del motor: Anthropic, la service account de Google, OAuth de Drive y `MOTOR_API_KEY`;
+- del gateway: Meta/WhatsApp, la clave del motor, Google y las variables de los otros clientes.
+
+Al 21/10 Valen no recibió mail de Railway (cuenta no afectada, por ahora) ni ve consumo raro
+en Anthropic. Decidió esperar: rotar sin poder redesplegar corta el bot. **Rotar apenas vuelvan
+los builds**, junto con el deploy.
+
+**Para la reunión con Gabriel y Petrus** (no se les avisó todavía). Hasta el deploy, las
+fallas del 20/10 siguen:
+- **En Austral**, escribir el rubro: «Austral/movilidad», «Austral/servicios». Combustible y
+  Gastos generales llegan con el deploy.
+- **No mandar un comprobante nuevo mientras el bot espera una respuesta**: contestar o confirmar
+  primero. Es la mezcla de Minas con Abucoque, que pisa importes.
+- **Si el bot dice «movimiento anterior… escribí pendientes»**, escribir «pendientes», no un
+  número suelto.
+- **Una obra nueva** todavía no entra por el bot: se agrega a mano en OBRAS, o se espera al
+  deploy.
+- Además, las decisiones abiertas, todas en «Para Valen» de este archivo y del de la semana 8:
+  - S1–S5 y «los ingresos incluyen lo que pagó directo el comitente»;
+  - el rubro personal de un proveedor de obra (¿agregar «Servicios» personal?);
+  - el combustible en una obra;
+  - las tarjetas de crédito (P-34);
+  - Chequera en los saldos;
+  - `al_dia` del pedido semanal;
+  - el rubro de Sofía Cervera;
+  - Elias Rodriguez en RUBROS.
