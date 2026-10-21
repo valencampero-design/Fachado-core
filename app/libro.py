@@ -54,6 +54,11 @@ class Libro(Protocol):
         False si ya había uno con ese nombre: nunca se duplica."""
         ...
 
+    def agregar_obra(self, valores: dict) -> bool:
+        """Da de alta una obra nueva en OBRAS (§5.6 v1.12), por nombre de columna. False si ya
+        había una con ese nombre: nunca se duplica."""
+        ...
+
     def escribir_certificado(self, numero: int, valores: list) -> None:
         ...
 
@@ -129,6 +134,18 @@ class LibroSheets:
             return False
         fila = [str(valores.get(c, "")) for c in claves]
         sheets.agregar_filas(self.sheet_id, f"CONTRATISTAS!A:{sheets.columna_a_letra(len(fila))}", [fila])
+        return True
+
+    def agregar_obra(self, valores: dict) -> bool:
+        filas = sheets.leer_rango(self.sheet_id, "OBRAS!A:Z", formato="FORMATTED_VALUE")
+        claves = [normalizar(x) for x in (filas[0] if filas else [])]
+        if "obra" not in claves:
+            raise ValueError("OBRAS no tiene la columna «obra»")
+        col = claves.index("obra")
+        if any(len(f) > col and normalizar(f[col]) == normalizar(valores.get("obra")) for f in filas[1:]):
+            return False
+        fila = [str(valores.get(c, "")) for c in claves]
+        sheets.agregar_filas(self.sheet_id, f"OBRAS!A:{sheets.columna_a_letra(len(fila))}", [fila])
         return True
 
     def activar_etapa(self, obra: str, etapa: str) -> bool:

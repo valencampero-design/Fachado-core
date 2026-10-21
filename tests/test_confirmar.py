@@ -816,6 +816,95 @@ async def _correr() -> int:
         check("si la ficha terminó con otro contratista, no hay alta", r.status_code == 200
               and not libro.contratistas_nuevos and r.json().get("contratista_creado") is None, r.text[:300])
 
+        # ── 21/10 · M3 la obra nueva (§5.6 v1.12, Minas) ─────────────────────
+        print("\n21/10 · M3 la obra nueva se da de alta al confirmar (§5.6 v1.12)")
+        from app.interpretar import interpretar as _interp
+        from app.models import InterpretarIn, Respuesta
+        r0 = _interp(InterpretarIn(texto="Minas/Miguel Soto $ 1.000.000", fecha_mensaje="2026-10-20T22:09:00Z",
+                                   telefono=titular.telefono), libros={"estudio": LibroMemoria(encabezado), "personal": None})
+        pregunta = next((p for p in r0.preguntas if p.campo == "nuevo"), None)
+        check("«Minas/Miguel Soto» (sin obra en el mensaje) → «No conozco «Minas». ¿Es una obra nueva o un contratista "
+              "nuevo?», con __obra_nueva__ y __nuevo__, y sin «¿A qué obra?»",
+              pregunta is not None and pregunta.texto == "No conozco «Minas». ¿Es una obra nueva o un contratista nuevo?"
+              and pregunta.opciones == ["__obra_nueva__", "__nuevo__"] and not any(p.campo == "obra" for p in r0.preguntas),
+              [(p.campo, p.texto, p.opciones) for p in r0.preguntas])
+        r1 = _interp(InterpretarIn(fecha_mensaje="2026-10-20T22:10:00Z", telefono=titular.telefono,
+                                   contexto_previo=r0.fichas[0].model_dump(),
+                                   respuestas=[Respuesta(ficha=0, campo="nuevo", valor="__obra_nueva__")]),
+                     libros={"estudio": LibroMemoria(encabezado), "personal": None})
+        f1 = r1.fichas[0]
+        check("contesta «Obra nueva» → obra Minas, de obra, con extras.obra_nueva y el aviso «Minas es nueva: la doy de "
+              "alta como obra»; sigue con las preguntas normales (el rubro de obra, si hace falta)",
+              (f1.campos["obra"], f1.campos["tipo_gasto"]) == ("Minas", "obra")
+              and (f1.extras.get("obra_nueva") or {}).get("tipo") == "obra_terceros"
+              and "a completar por A&C" in f1.extras["obra_nueva"]["notas"]
+              and "Minas es nueva: la doy de alta como obra" in (f1.extras.get("advertencias") or [])
+              and not any(p.campo in ("obra", "nuevo") for p in r1.preguntas),
+              (f1.campos["obra"], f1.extras.get("obra_nueva"), f1.extras.get("advertencias"), [p.campo for p in r1.preguntas]))
+        r2 = _interp(InterpretarIn(fecha_mensaje="2026-10-20T22:10:00Z", telefono=titular.telefono,
+                                   contexto_previo=r0.fichas[0].model_dump(),
+                                   respuestas=[Respuesta(ficha=0, campo="nuevo", valor="__nuevo__")]),
+                     libros={"estudio": LibroMemoria(encabezado), "personal": None})
+        check("contesta «Contratista nuevo» → el circuito de siempre: Minas como contratista nuevo y «¿A qué obra?»",
+              r2.fichas[0].campos["contratista"] == "Minas" and r2.fichas[0].extras.get("contratista_nuevo")
+              and any(p.campo == "obra" for p in r2.preguntas),
+              (r2.fichas[0].campos["contratista"], [p.campo for p in r2.preguntas]))
+
+        libro, _ = preparar()
+        f_minas = ficha(obra="Minas", contratista="Miguel Soto", rubro_1="Mano de obra", rubro_2="Contratistas",
+                        cuenta="Banco", importe=1000000, fecha="2026-10-20", etapa=None)
+        f_minas["extras"] = {"obra_nueva": f1.extras["obra_nueva"]}
+        r = await confirmar("wamid.M3", f_minas)
+        cuerpo = r.json()
+        alta = libro.obras_nuevas[0] if libro.obras_nuevas else {}
+        check("/confirmar escribe el movimiento y da de alta Minas en OBRAS: de terceros, activa, tipo/servicio/comitente "
+              "a completar por A&C (en notas); obra_creada = «Minas»",
+              r.status_code == 200 and cuerpo.get("obra_creada") == "Minas" and len(libro.obras_nuevas) == 1
+              and (alta.get("obra"), alta.get("tipo"), alta.get("estado"), alta.get("servicio"), alta.get("comitente"))
+              == ("Minas", "obra_terceros", "activa", "", "") and "a completar por A&C" in alta.get("notas", "")
+              and any(mv.get("obra") == "Minas" for mv in libro.movimientos()), (r.status_code, cuerpo, alta))
+        r = await confirmar("wamid.M3", f_minas)
+        check("un reintento no da de alta dos veces", r.json().get("ya_existia") and len(libro.obras_nuevas) == 1, r.json())
+        f_sin = ficha(obra="Minas", contratista="Miguel Soto", cuenta="Banco", etapa=None)
+        r = await confirmar("wamid.M3b", f_sin)
+        check("una obra que no está en OBRAS y que nadie dijo que es nueva sigue siendo un 422 {campo: obra}",
+              r.status_code == 422 and r.json()["detail"]["campo"] == "obra", r.text[:200])
+        libro, _ = preparar()
+        libro.agregar_obra = falla
+        r = await confirmar("wamid.M3c", f_minas)
+        check("si falla el alta, el movimiento queda escrito y vuelve una advertencia (no un error)",
+              r.status_code == 200 and r.json().get("obra_creada") is None
+              and any("no se dio de alta en OBRAS" in a for a in r.json().get("advertencias", [])), r.text[:300])
+
+        # La noche siguiente: el maestro ya la tiene (lo que escribió agregar_obra) → el bot la
+        # reconoce y el recálculo de vistas le arma su CC.
+        from app import maestros as _maestros
+        from app import vistas as _vistas
+        original = _maestros._leer_crudo
+
+        def con_minas():
+            d = original()
+            enc_obras = d["OBRAS"][0]
+            d["OBRAS"].append([str(alta.get(c, "")) for c in enc_obras])
+            return d
+        _maestros._leer_crudo = con_minas
+        try:
+            m_minas = _maestros.cargar(forzar=True)
+            r3 = _interp(InterpretarIn(texto="Minas/Miguel Soto $ 50.000", fecha_mensaje="2026-10-21T12:00:00Z",
+                                       telefono=titular.telefono), libros={"estudio": LibroMemoria(encabezado), "personal": None})
+            check("con Minas en OBRAS, un mensaje nuevo con «Minas» ya la encuentra: sin la pregunta «nuevo»",
+                  r3.fichas[0].campos["obra"] == "Minas" and not any(p.campo == "nuevo" for p in r3.preguntas),
+                  (r3.fichas[0].campos["obra"], [p.campo for p in r3.preguntas]))
+            libro_ok = LibroMemoria(encabezado)
+            libro_ok.sembrar(id_mov="M-000001", fecha="2026-10-20", tipo="EGRESO", importe=1000000, moneda="ARS",
+                             importe_ars=1000000, obra="Minas", contratista="Miguel Soto", cuenta="Banco", tipo_gasto="obra")
+            hojas = _vistas.calcular(libro_ok, None, m_minas)
+            check("… y el recálculo de vistas le arma su CC_MINAS, con el pago", "CC_MINAS" in hojas["master"]
+                  and any("M-000001" in map(str, f) for f in hojas["master"]["CC_MINAS"]), sorted(hojas["master"])[:5])
+        finally:
+            _maestros._leer_crudo = original
+            _maestros.cargar(forzar=True)
+
     app.dependency_overrides.clear()
 
     # ── Reintentos ante errores transitorios de Google ────────────────────────

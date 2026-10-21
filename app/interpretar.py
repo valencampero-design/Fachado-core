@@ -14,7 +14,7 @@ import copy
 import logging
 import re
 from collections import Counter
-from datetime import date, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from app import certificados, clasificador, comprobante, consultas, duplicados, llm, maestros, obligatorios, resolver
 from app.config import Settings, settings
@@ -168,6 +168,9 @@ ACUSES = {"ok", "oka", "okey", "dale", "gracias", "muchas gracias", "listo", "si
           "genial", "joya", "barbaro", "hola", "buen dia", "buenas", "buenas tardes", "buenas noches", "de nada"}
 # §5.6 v1.10: el valor del botón «Es nuevo» en la pregunta de contratista (contrato con el gateway).
 OPCION_NUEVO = "__nuevo__"
+# §5.6 v1.12: la pregunta «nuevo» («No conozco «Minas». ¿Es una obra nueva o un contratista
+# nuevo?») tiene estos dos valores (contrato con el gateway, handoff del 21/10 §3).
+OPCION_OBRA_NUEVA = "__obra_nueva__"
 # §5.12 v1.9 (captura 3 del 9/10): «el M 0014 ESTA MAL HAY QUE ELIMINARLO». El id se acepta
 # como M 0014, M-0014, M14, M-000014 (y P- igual).
 RE_ID_MOV = re.compile(r"(?<![a-z0-9])([mp])\s*-?\s*(\d{1,6})(?![0-9])", re.I)
@@ -277,6 +280,21 @@ def _aplicar_respuestas(contexto: dict, respuestas: list, m: Maestros, diag: dic
                 fijar("obra", o.nombre)
             else:
                 libre.append(valor)
+        elif campo == "nuevo":
+            # §5.6 v1.12: «No conozco «Minas». ¿Es una obra nueva o un contratista nuevo?»
+            escrito = extras.pop("nuevo_escrito", None)
+            if not escrito:
+                diag["advertencias"].append("La respuesta «nuevo» llegó sin el nombre escrito en la ficha anterior")
+            elif valor == OPCION_OBRA_NUEVA:
+                nombre = resolver.nombre_propio(escrito)
+                hoy = datetime.now(timezone(timedelta(hours=settings().utc_offset_horas)))
+                extras["obra_nueva"] = {"nombre": nombre, "tipo": "obra_terceros", "estado": "activa",
+                                        "alias": normalizar(escrito),
+                                        "notas": f"Alta por el bot el {hoy:%d/%m}: tipo, servicio y comitente a completar por A&C"}
+                fijar("obra", nombre)
+            else:  # __nuevo__ (o cualquier otra cosa): es un contratista nuevo, el circuito de siempre
+                extras["contratista_nuevo"] = _contratista_nuevo(escrito, None, m)
+                fijar("contratista", extras["contratista_nuevo"]["nombre"])
         elif campo == "contratista" and valor == OPCION_NUEVO:
             # §5.6 v1.10: «Es nuevo» → el alta, con el nombre como lo escribió el usuario.
             escrito = extras.get("contratista_escrito")
@@ -933,6 +951,13 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     poner("tipo", campos["tipo"] or "EGRESO", origen.get("tipo", "inferido"))
     tipo = campos["tipo"]
     obra = m.obra(campos["obra"])
+    nueva = extras.get("obra_nueva") or {}
+    if obra is None and nueva.get("nombre") and normalizar(nueva["nombre"]) == normalizar(campos["obra"]):
+        # §5.6 v1.12: la obra que el usuario dijo que es nueva; se da de alta al confirmar.
+        obra = maestros.obra_nueva(nueva)
+        advertencias.append(f"{obra.nombre} es nueva: la doy de alta como obra")
+    elif nueva and obra is not None:
+        extras.pop("obra_nueva")  # ya existe (la dio de alta otra ficha): no hay alta
     contratista = m.contratista(campos["contratista"])
     if campos["contratista"] and not contratista \
             and campos["contratista"] != (extras.get("contratista_nuevo") or {}).get("nombre"):
@@ -1204,8 +1229,22 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         preguntas.append(Pregunta(campo="clasificacion", texto=f"¿Lo de «{campos['contratista']}» es de obra o personal?",
                                   opciones=["Obra", "Personal"], motivo="dual"))
 
+    # §5.6 v1.12 (Minas, 20/10): en un mensaje sin obra, un nombre que no está en ningún lado
+    # puede ser una obra nueva o un contratista nuevo. Se pregunta una vez, con dos botones; esa
+    # pregunta reemplaza a «¿A qué obra?». Con obra en el mensaje, sigue siendo un contratista.
+    if not campos["obra"] and tipo in ("EGRESO", "PASANTE", "INGRESO") and res.clasificacion != "personal" \
+            and res.preguntar != "clasificacion" and not any(p.campo in ("obra", "nuevo") for p in preguntas):
+        desconocido = next((t for t in sin_resolver if _puede_ser_un_nombre(t)
+                            and not resolver.cercanos(t, seg.candidatos.get(t) or resolver.candidatos(t, m, "contratista"))),
+                           None)
+        if desconocido:
+            sin_resolver.remove(desconocido)
+            extras["nuevo_escrito"] = desconocido
+            preguntas.append(Pregunta(campo="nuevo", texto=f"No conozco «{desconocido}». ¿Es una obra nueva o un "
+                                                           f"contratista nuevo?", opciones=[OPCION_OBRA_NUEVA, OPCION_NUEVO]))
+
     pregunta_obra = not campos["obra"] and tipo != "TRASPASO" and res.clasificacion != "personal" \
-        and res.preguntar != "clasificacion" and not any(p.campo == "obra" for p in preguntas)
+        and res.preguntar != "clasificacion" and not any(p.campo in ("obra", "nuevo") for p in preguntas)
     if pregunta_obra and (res.preguntar == "obra" or res.clasificacion in ("obra", "estructura")):
         # §5.12 v1.12: todas las obras activas y Austral, por uso; con un rubro del estudio (el
         # combustible), Austral primero.

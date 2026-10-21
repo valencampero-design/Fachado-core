@@ -1041,6 +1041,23 @@ def main() -> int:
     check("captura 09, lo que pasó: el «4» llegó solo, sin la ficha → ya no es un movimiento («otro»), en vez de "
           "«¿A qué obra?»", r.intencion == "otro" and not r.fichas and not r.preguntas, (r.intencion, [p.campo for p in r.preguntas]))
 
+    print("\n21/10 · M3 la obra nueva (captura 10, Minas)")
+    comp_minas = Adjunto(url="https://drive.google.com/file/d/MINASxxxxxxxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="minas.jpg")
+    r, f = leer_con("Minas", adjuntos=[comp_minas],
+                    lector=lector_con(importe=1000000, fecha="2026-10-20", razon_social="Juan Pérez", medio_pago="Transferencia"))
+    check("captura 10: un comprobante de $ 1.000.000 con «Minas» → su propia ficha, con la pregunta «nuevo» (no «¿A qué "
+          "obra?», no mezclado con nada)", f.campos["importe"] == 1000000 and f.campos["obra"] is None
+          and [p.campo for p in r.preguntas] == ["nuevo"] and f.extras.get("nuevo_escrito") == "Minas",
+          (f.campos["importe"], [(p.campo, p.texto) for p in r.preguntas]))
+    r, f = leer_con("Lennon/Minas $ 50.000")
+    check("«Lennon/Minas»: con obra en el mensaje, Minas es un contratista nuevo, sin la pregunta «nuevo»",
+          f.campos["contratista"] == "Minas" and f.extras.get("contratista_nuevo") and not any(p.campo == "nuevo" for p in r.preguntas),
+          (f.campos["contratista"], [p.campo for p in r.preguntas]))
+    r, f = leer_con("Retiro/Natalia $ 5.000")
+    check("«Retiro/Natalia» (personal): un desconocido no es ni obra ni contratista nuevo; queda en la descripción",
+          not any(p.campo in ("nuevo", "obra") for p in r.preguntas) and "Natalia" in (f.campos["descripcion"] or ""),
+          ([p.campo for p in r.preguntas], f.campos["descripcion"]))
+
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"21/10 · ninguna ficha con la obra resuelta trae la pregunta «obra» ({len(obra_repreguntada)} con problemas)",
           not obra_repreguntada, obra_repreguntada)

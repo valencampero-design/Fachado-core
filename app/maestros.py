@@ -73,6 +73,13 @@ class Obra:
     cuenta_habitual: str = ""
 
 
+def obra_nueva(datos: dict) -> Obra:
+    """§5.6 v1.12: la obra que el bot va a dar de alta (Minas, 20/10), mientras todavía no está
+    en OBRAS: de terceros y activa; tipo, servicio y comitente los completa A&C."""
+    return Obra(datos.get("nombre", ""), datos.get("nombre", ""), datos.get("tipo") or "obra_terceros", "", "",
+                datos.get("estado") or "activa", "", datos.get("notas", ""))
+
+
 @dataclass
 class Contratista:
     nombre: str

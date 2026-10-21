@@ -144,6 +144,10 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
     obra = None
     if not _vacio(c.get("obra")):
         obra = m.obra(c["obra"])
+        nueva = req.ficha.extras.get("obra_nueva") or {}
+        if obra is None and normalizar(nueva.get("nombre")) == normalizar(c["obra"]):
+            # §5.6 v1.12: el usuario contestó «Obra nueva»; se da de alta después de escribir.
+            obra = maestros.obra_nueva(nueva)
         if obra is None:
             raise falta("obra", f"La obra «{c['obra']}» no está en OBRAS. Nunca se inventa una obra")
 
@@ -321,6 +325,7 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
             advertencias.append(f"Quedó escrito pero la línea del banco no se marcó conciliada ({type(e).__name__})")
 
     contratista_creado = await _alta_contratista(libro, m, fila, req.ficha.extras.get("contratista_nuevo"), advertencias)
+    obra_creada = await _alta_obra(libro, m, fila, req.ficha.extras.get("obra_nueva"), advertencias)
 
     # §5.6: el usuario contestó «Reactivar» a un contratista inactivo. Como el alias: si falla,
     # el movimiento ya quedó escrito y vuelve una advertencia.
@@ -361,7 +366,7 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
 
     return ConfirmarOut(id_mov=fila["id_mov"], fila=numero_fila, comprobante_url=comprobante_url, obra=saldo,
                         certificado=estado, alias_escrito=alias_escrito, contratista_reactivado=reactivado,
-                        contratista_creado=contratista_creado,
+                        contratista_creado=contratista_creado, obra_creada=obra_creada,
                         etapa_activada=etapa_activada,
                         ya_existia=ya_existia, libro=destino,
                         cargado_por=str(fila.get("cargado_por") or usuario.nombre), advertencias=advertencias)
@@ -391,6 +396,32 @@ async def _alta_contratista(libro: Libro, m: Maestros, fila: dict, nuevo: dict |
         logger.exception("No se pudo dar de alta a %s", nuevo["nombre"])
         advertencias.append(f"El movimiento quedó escrito pero {nuevo['nombre']} no se dio de alta en CONTRATISTAS "
                             f"({type(e).__name__})")
+        return None
+
+
+async def _alta_obra(libro: Libro, m: Maestros, fila: dict, nueva: dict | None, advertencias: list[str]) -> str | None:
+    """§5.6 v1.12: la obra nueva de la ficha (Minas, 20/10) se da de alta en OBRAS como obra de
+    terceros activa, con tipo, servicio y comitente a completar por A&C (en `notas`), y lo que
+    escribió el usuario queda como alias. Solo si el movimiento la usa y todavía no existe. Como
+    el contratista nuevo: si falla, el movimiento ya quedó escrito y vuelve una advertencia.
+    Devuelve el nombre dado de alta."""
+    if not nueva or not nueva.get("nombre") or normalizar(nueva["nombre"]) != normalizar(fila.get("obra")) \
+            or m.obra(nueva["nombre"]) is not None:
+        return None
+    try:
+        creada = await asyncio.to_thread(libro.agregar_obra, {
+            "obra": nueva["nombre"], "codigo": nueva["nombre"], "tipo": nueva.get("tipo") or "obra_terceros",
+            "servicio": "", "comitente": "", "estado": nueva.get("estado") or "activa", "cuit_comitente": "",
+            "notas": f"{nueva.get('notas') or 'Alta por el bot'} (con {fila.get('id_mov')}, §5.6 v1.12)", "cuenta_habitual": ""})
+        alias = normalizar(nueva.get("alias"))
+        if creada and alias and alias != normalizar(nueva["nombre"]):
+            await asyncio.to_thread(libro.agregar_alias, [alias, nueva["nombre"], "obra"])
+        maestros.invalidar()  # el próximo mensaje con «Minas» ya la encuentra
+        return nueva["nombre"] if creada else None
+    except Exception as e:  # noqa: BLE001
+        logger.exception("No se pudo dar de alta la obra %s", nueva["nombre"])
+        advertencias.append(f"El movimiento quedó escrito pero la obra {nueva['nombre']} no se dio de alta en OBRAS "
+                            f"({type(e).__name__}): hay que agregarla a mano")
         return None
 
 
