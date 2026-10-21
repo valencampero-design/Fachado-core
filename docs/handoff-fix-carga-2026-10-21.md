@@ -246,6 +246,12 @@ primero sin `--aplicar` (simulacro) y después con `--aplicar`. Todos son idempo
    - las dos plantillas de Meta;
    - `FACHADO_RESUMEN_LUNES` y `FACHADO_PEDIDO_EXTRACTOS` cuando estén aprobadas;
    - `"conciliacion": true` en el tenant de Petrus.
+
+   Va en el 8 por coherencia, no porque dependa de los pasos 1 a 7. Según la sesión del
+   gateway, su código funciona con el motor del 15/10 que está hoy en producción: los campos
+   nuevos se leen solo si vienen, y el pedido semanal está apagado. Si la mezcla de fichas
+   (falla 4, que pisa importes) no puede esperar, el gateway se puede pushear antes, solo. Sin
+   el motor nuevo, igual faltan la pregunta de obra nueva y los rubros de Austral.
 9. **Prueba en producción**, con Gabriel o Petrus:
    - el ticket de YPF sin texto → solo «¿A qué obra?», con Austral primero;
    - «Austral/Mathias» con su comprobante de MP → los rubros de estructura;
