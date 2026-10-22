@@ -4,13 +4,12 @@ API HTTP sin estado. No sabe nada de WhatsApp: el gateway conversa, el motor int
 cuando un usuario confirma, escribe. `/interpretar` nunca escribe: esa separación es lo que
 permite probar el parser sin ensuciar el libro.
 """
-import hmac
 import logging
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from app import conciliar, maestros, vistas
+from app import conciliar, maestros, seguridad, vistas
 from app.anular import anular, movimiento
 from app.archivo import Archivador, ArchivadorDrive
 from app.cierre import cierre_semanal
@@ -23,16 +22,22 @@ from app.models import (Adjunto, AnularIn, AnularOut, ConfirmarIn, ConfirmarOut,
                         InterpretarOut, MovimientoOut)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="fachado-core", version="0.1.0")
 
 
-def verificar_api_key(x_api_key: str | None = Header(default=None)) -> None:
-    esperada = settings().motor_api_key
-    if not esperada:
-        raise HTTPException(status_code=503, detail="MOTOR_API_KEY no está configurada")
-    if not x_api_key or not hmac.compare_digest(x_api_key, esperada):
+def verificar_api_key(x_api_key: str | None = Header(default=None)) -> str:
+    """MOTOR_API_KEY o, durante una rotación, MOTOR_API_KEY_ANTERIOR (app/seguridad.py)."""
+    if not settings().motor_api_key:
+        logger.error("MOTOR_API_KEY no está configurada: se rechaza todo")
+        raise HTTPException(status_code=503, detail="Servicio no disponible")
+    cual = seguridad.clave_que_coincide(x_api_key)
+    if cual is None:
         raise HTTPException(status_code=401, detail="X-API-Key inválida")
+    if cual == "anterior":
+        logger.info("Llamada con MOTOR_API_KEY_ANTERIOR: falta pasar este cliente a la clave nueva")
+    return cual
 
 
 # ─── Dependencias: los tests las reemplazan por libros en memoria ─────────────
@@ -58,6 +63,13 @@ def obtener_archivador() -> Archivador:
 @app.get("/salud")
 def salud() -> dict:
     return {"ok": True}
+
+
+@app.get("/salud/auth")
+def salud_auth(cual: str = Depends(verificar_api_key)) -> dict:
+    """Solo lectura, para scripts/verificar_credenciales.py: la clave entra y cuál de las dos es.
+    Durante una rotación, "anterior" quiere decir que ese cliente todavía no tiene la nueva."""
+    return {"ok": True, "clave": cual}
 
 
 @app.post("/interpretar", response_model=InterpretarOut, dependencies=[Depends(verificar_api_key)])
