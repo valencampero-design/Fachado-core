@@ -26,7 +26,7 @@ def _anthropic() -> anthropic.Anthropic:
     global _cliente
     with _lock:
         if _cliente is None:
-            _cliente = anthropic.Anthropic()
+            _cliente = anthropic.Anthropic(api_key=settings().anthropic_api_key or None)
     return _cliente
 
 

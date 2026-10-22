@@ -41,7 +41,9 @@ class Settings:
     google_client_secret: str = field(default_factory=lambda: os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", ""))
     google_refresh_token: str = field(default_factory=lambda: os.getenv("GOOGLE_OAUTH_REFRESH_TOKEN", ""))
 
-    # LLM
+    # LLM. Una key propia de este servicio (no la del gateway): así una key filtrada se revoca
+    # sin tumbar al otro y el consumo se ve por servicio en la consola de Anthropic.
+    anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     llm_habilitado: bool = field(default_factory=lambda: _bool("LLM_HABILITADO", True))
     llm_modelo: str = field(default_factory=lambda: os.getenv("LLM_MODELO", "claude-opus-5-5"))
     # Siempre explícito: en Claude Opus 5.5 el effort por defecto es `medium` (en Opus 5 era

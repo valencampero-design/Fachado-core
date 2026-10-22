@@ -30,6 +30,9 @@ seguridad.instalar_filtro_logs()
 @asynccontextmanager
 async def _arranque(_app: FastAPI):
     seguridad.instalar_filtro_logs()  # uvicorn pudo reconfigurar sus handlers después del import
+    # Falla con el NOMBRE de lo que falta: antes, sin OAuth el comprobante no se movía y sin
+    # FACHADO_SHEET_ID cada request fallaba recién al leer el Sheet.
+    seguridad.validar_entorno()
     yield
 
 

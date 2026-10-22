@@ -123,3 +123,56 @@ def clave_que_coincide(recibida: str | None) -> str | None:
         if esperada and hmac.compare_digest(recibida.encode(), esperada.encode()):
             resultado = nombre
     return resultado
+
+
+# ── Arranque ──────────────────────────────────────────────────────────────────
+
+OAUTH_DRIVE = ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN")
+
+
+def problemas_de_entorno() -> list[str]:
+    """Lo que impide arrancar el servicio web, por NOMBRE de variable (nunca el valor)."""
+    from app.config import settings
+
+    s = settings()
+    problemas = [] if s.motor_api_key else ["falta MOTOR_API_KEY"]
+    offline = bool(s.maestros_snapshot)  # tests y pruebas locales: sin Sheet ni Drive
+    if not offline:
+        if not s.sheet_id:
+            problemas.append("falta FACHADO_SHEET_ID")
+        if s.google_credentials_json:
+            try:
+                datos = json.loads(s.google_credentials_json)
+                if not (isinstance(datos, dict) and datos.get("client_email") and datos.get("private_key")):
+                    problemas.append("GOOGLE_CREDENTIALS_JSON no es el JSON de una service account (sin client_email/private_key)")
+            except ValueError:
+                problemas.append("GOOGLE_CREDENTIALS_JSON no es JSON válido")
+        elif not s.google_credentials_path:
+            problemas.append("falta GOOGLE_CREDENTIALS_JSON (la service account que escribe el Sheet)")
+        # Drive con OAuth de usuario: /confirmar mueve los comprobantes y el lector los baja.
+        problemas += [f"falta {v} (Drive)" for v in OAUTH_DRIVE if not os.getenv(v)]
+    if s.llm_habilitado and not s.anthropic_api_key:
+        problemas.append("falta ANTHROPIC_API_KEY (o LLM_HABILITADO=false)")
+    return problemas
+
+
+def advertencias_de_entorno() -> list[str]:
+    from app.config import settings
+
+    s = settings()
+    avisos = []
+    if not s.personal_sheet_id and not s.maestros_snapshot:
+        avisos.append("FACHADO_PERSONAL_SHEET_ID vacía: lo personal se rechaza con 503")
+    if os.getenv("MOTOR_API_KEY_ANTERIOR"):
+        avisos.append("MOTOR_API_KEY_ANTERIOR cargada: rotación en curso, sacarla cuando gateway y crons usen la nueva")
+    return avisos
+
+
+def validar_entorno() -> None:
+    problemas = problemas_de_entorno()
+    if problemas:
+        raise RuntimeError("El motor no arranca. " + "; ".join(problemas)
+                           + ". Cargá estas variables en Railway (servicio web del motor) y volvé a desplegar.")
+    for aviso in advertencias_de_entorno():
+        logger.warning("Entorno: %s", aviso)
+    logger.info("Validación de variables de entorno: OK")

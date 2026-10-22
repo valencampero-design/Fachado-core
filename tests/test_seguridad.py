@@ -101,6 +101,47 @@ def main() -> int:
     finally:
         app.dependency_overrides.clear()
 
+    print("\n3 · El arranque dice qué falta (el nombre, nunca el valor)")
+    import json
+
+    sa = json.dumps({"type": "service_account", "client_email": "x@y", "private_key": "NOESUNACLAVE"})
+    prod = {"MAESTROS_SNAPSHOT": "", "FACHADO_SHEET_ID": "sheet-de-prueba", "GOOGLE_CREDENTIALS_JSON": sa,
+            "GOOGLE_OAUTH_CLIENT_ID": "cid", "GOOGLE_OAUTH_CLIENT_SECRET": "GOCSPX-prueba",
+            "GOOGLE_OAUTH_REFRESH_TOKEN": "1//0prueba", "LLM_HABILITADO": "true", "ANTHROPIC_API_KEY": "sk-ant-prueba"}
+    guardado = {k: os.environ.get(k) for k in list(prod) + ["MOTOR_API_KEY"]}
+    os.environ.update(prod)
+    try:
+        check("con todo cargado: arranca", seguridad.problemas_de_entorno() == [], seguridad.problemas_de_entorno())
+        for var in ("MOTOR_API_KEY", "FACHADO_SHEET_ID", "GOOGLE_OAUTH_REFRESH_TOKEN", "ANTHROPIC_API_KEY"):
+            valor = os.environ.pop(var)
+            problemas = seguridad.problemas_de_entorno()
+            check(f"sin {var}: lo dice", any(var in p for p in problemas), problemas)
+            os.environ[var] = valor
+        os.environ["GOOGLE_CREDENTIALS_JSON"] = "{no es json NOESUNACLAVE"
+        problemas = seguridad.problemas_de_entorno()
+        check("service account mal pegada: lo dice sin mostrar el valor",
+              any("no es JSON" in p for p in problemas) and not any("NOESUNACLAVE" in p for p in problemas), problemas)
+        os.environ["GOOGLE_CREDENTIALS_JSON"] = sa
+        os.environ["LLM_HABILITADO"] = "false"
+        os.environ.pop("ANTHROPIC_API_KEY")
+        check("con LLM_HABILITADO=false la key de Anthropic no es obligatoria", seguridad.problemas_de_entorno() == [])
+        os.environ.pop("MOTOR_API_KEY")
+        try:
+            with TestClient(app):
+                pass
+            check("el servicio no arranca si falta algo", False)
+        except RuntimeError as e:
+            check("el servicio no arranca si falta algo, y dice cuál", "MOTOR_API_KEY" in str(e), e)
+    finally:
+        for k, v in guardado.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    os.environ["MAESTROS_SNAPSHOT"] = str(RAIZ / "maestros_snapshot.json")
+    check("offline (MAESTROS_SNAPSHOT, como los tests): solo pide MOTOR_API_KEY",
+          seguridad.problemas_de_entorno() == [], seguridad.problemas_de_entorno())
+
     print(f"\n{'TODO OK' if not fallas else str(len(fallas)) + ' FALLAS'}")
     return 1 if fallas else 0
 
