@@ -33,7 +33,7 @@ def _valores_secretos() -> list[tuple[str, str]]:
             if nombre == "GOOGLE_CREDENTIALS_JSON":
                 try:
                     clave = json.loads(valor).get("private_key") or ""
-                    if clave:
+                    if len(clave) >= 20:
                         pares.append((nombre, clave))
                         pares.append((nombre, clave.replace("\n", "\\n")))
                 except (ValueError, AttributeError):
