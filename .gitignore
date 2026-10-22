@@ -1,6 +1,14 @@
 # Secretos — nunca commitear
 .env
+.env.*
+!.env.example
 client_secret*.json
+token*.json
+google_credentials*.json
+*service_account*.json
+*service-account*.json
+*.pem
+*.p12
 
 # Python
 __pycache__/
