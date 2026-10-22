@@ -5,6 +5,7 @@ cuando un usuario confirma, escribe. `/interpretar` nunca escribe: esa separaci�
 permite probar el parser sin ensuciar el libro.
 """
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
@@ -23,8 +24,16 @@ from app.models import (Adjunto, AnularIn, AnularOut, ConfirmarIn, ConfirmarOut,
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
+seguridad.instalar_filtro_logs()
 
-app = FastAPI(title="fachado-core", version="0.1.0")
+
+@asynccontextmanager
+async def _arranque(_app: FastAPI):
+    seguridad.instalar_filtro_logs()  # uvicorn pudo reconfigurar sus handlers después del import
+    yield
+
+
+app = FastAPI(title="fachado-core", version="0.1.0", lifespan=_arranque)
 
 
 def verificar_api_key(x_api_key: str | None = Header(default=None)) -> str:
@@ -136,7 +145,7 @@ async def post_cierre_semanal(req: CierreIn | None = None, libro: Libro = Depend
     """La línea semanal de gastos personales (§5.14). La dispara un cron de Railway los lunes
     a las 8 (scripts/cierre_semanal.py); también se puede llamar a mano. Es idempotente."""
     if libro_personal is None:
-        raise HTTPException(status_code=503, detail="El libro personal no está configurado (FACHADO_PERSONAL_SHEET_ID)")
+        raise HTTPException(status_code=503, detail="El libro personal no está configurado")
     try:
         salida = await cierre_semanal(libro, libro_personal, (req.semana if req else None))
     except ValueError as e:

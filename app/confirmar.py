@@ -274,7 +274,7 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
     if destino == "personal" and not usuario.ve_personal:
         raise ErrorConfirmar(403, "tipo_gasto", f"{usuario.nombre} no tiene acceso a lo personal (ve_personal = no)")
     if destino == "personal" and libro_personal is None:
-        raise ErrorConfirmar(503, "libro_personal", "El libro personal no está configurado (FACHADO_PERSONAL_SHEET_ID). "
+        raise ErrorConfirmar(503, "libro_personal", "El libro personal no está configurado. "
                                                     "Lo personal nunca se escribe en el libro del estudio")
     libros = {"estudio": libro, "personal": libro_personal}
 
