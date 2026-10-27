@@ -128,6 +128,14 @@ def escribir_rango(sheet_id: str, rango: str, valores: list[list]) -> None:
                                 body={"values": valores}))
 
 
+def escribir_rangos(sheet_id: str, datos: list[tuple[str, list[list]]], por_llamada: int = 200) -> None:
+    """Varias celdas o rangos en una llamada (RAW, como `escribir_rango`): una migración con
+    cientos de celdas no choca con el límite de escrituras por minuto de Google."""
+    for i in range(0, len(datos), por_llamada):
+        lote = [{"range": rango, "values": valores} for rango, valores in datos[i:i + por_llamada]]
+        _ejecutar(_valores().batchUpdate(spreadsheetId=sheet_id, body={"valueInputOption": "RAW", "data": lote}))
+
+
 def agregar_filas(sheet_id: str, rango: str, valores: list[list]) -> str:
     """Appendea al final de la tabla. Devuelve el rango escrito («ALIAS!A42:C42»)."""
     resp = _ejecutar(_valores().append(spreadsheetId=sheet_id, range=rango, valueInputOption="RAW",

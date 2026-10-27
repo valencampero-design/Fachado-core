@@ -1,7 +1,7 @@
 {
   "_meta": {
     "fuente": "1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A",
-    "tomado": "2026-10-15",
+    "tomado": "2026-10-27",
     "nota": "Copia literal de las hojas maestras. Se regenera con scripts/snapshot_maestros.py."
   },
   "OBRAS": [
@@ -798,6 +798,14 @@
       "Familia",
       "activo",
       "Hija de Gabriel. Gasto personal (§7 v1.10). En las transferencias, «FACHADO, SOFIA»"
+    ],
+    [
+      "Sergio Coria",
+      "",
+      "",
+      "",
+      "activo",
+      "Alta desde WhatsApp con M-000032 (§5.6 v1.9)"
     ]
   ],
   "RUBROS": [
@@ -1386,736 +1394,644 @@
       "Corralón / albañilería",
       "obra",
       "1.2",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Maderera",
       "obra",
       "1.4",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Sanitarios",
       "obra",
       "1.6",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Carpinterías de PVC o aluminio",
       "obra",
       "1.8",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Carpinterías de madera",
       "obra",
       "1.9",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Amoblamientos: placares y cocina",
       "obra",
       "1.10",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Herrajes",
       "obra",
       "1.13",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Griferías",
       "obra",
       "1.16",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Artefactos de baño",
       "obra",
       "1.17",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Artefactos de iluminación",
       "obra",
       "1.18",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Marmolería",
       "obra",
       "1.19",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Accesorios de baño",
       "obra",
       "1.21",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Bachas de cocina y lavadero",
       "obra",
       "1.22",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Aire acondicionado",
       "obra",
       "1.24",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Artefactos a gas",
       "obra",
       "1.25",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Parquización",
       "obra",
       "1.26",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Materiales",
       "Varios",
       "obra",
       "1.28",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Contratista principal",
       "obra",
       "2.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Gasista",
       "obra",
       "2.3",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Pintor",
       "obra",
       "2.4",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Techista",
       "obra",
       "2.5",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Estructuras",
       "obra",
       "2.6",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Herrero",
       "obra",
       "2.7",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Zinguero",
       "obra",
       "2.8",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Albañilería",
       "obra",
       "2.9",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Carpintería",
       "obra",
       "2.10",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Jornales varios",
       "obra",
       "2.11",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Calefaccionista",
       "obra",
       "2.12",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Jardinería",
       "obra",
       "2.13",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Riego",
       "obra",
       "2.14",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Colocador",
       "obra",
       "2.15",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Servicios",
       "obra",
       "2.17",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Ayudante de gremio",
       "obra",
       "2.18",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Oficial",
       "obra",
       "2.19",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Mano de obra",
       "Ayudante",
       "obra",
       "2.20",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Movimiento de suelo",
       "obra",
       "3.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Limpieza de lotes",
       "obra",
       "3.2",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Volteo",
       "obra",
       "3.3",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Contenedor",
       "obra",
       "3.4",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Baño químico",
       "obra",
       "3.5",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Volquetes",
       "obra",
       "3.6",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Contenciones",
       "obra",
       "3.7",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Fletes",
       "obra",
       "3.8",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Seguridad",
       "obra",
       "3.9",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Indumentaria",
       "obra",
       "3.10",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Alquiler de herramientas",
       "obra",
       "3.11",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesoría",
       "Seguridad e higiene",
       "obra",
       "4.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesoría",
       "Calculista",
       "obra",
       "4.2",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesoría",
       "Asesor de instalaciones",
       "obra",
       "4.3",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesoría",
       "Estudio de suelos",
       "obra",
       "4.4",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesoría",
       "Forestal",
       "obra",
       "4.5",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesoría",
       "Ambiental",
       "obra",
       "4.6",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Indirectos",
       "F-931",
       "obra",
       "5.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Indirectos",
       "Control",
       "obra",
       "5.2",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Indirectos",
       "Administrativos",
       "obra",
       "5.3",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Indirectos",
       "Operativos",
       "obra",
       "5.4",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Varios",
       "Gastos varios de obra",
       "obra",
       "6.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Internet",
       "estructura",
       "A1.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Luz",
       "estructura",
       "A1.2",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Gas",
       "estructura",
       "A1.3",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Servicios",
       "Celular",
       "estructura",
       "A1.4",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Impuestos",
       "Impuestos",
       "estructura",
       "A2.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Sueldos",
       "Sueldos fijos",
       "estructura",
       "A3.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesorías externas",
       "Contador",
       "estructura",
       "A4.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesorías externas",
       "Seguridad e Higiene",
       "estructura",
       "A4.2",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesorías externas",
       "Técnicas: Forestal",
       "estructura",
       "A4.3",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesorías externas",
       "Técnicas: Estructural",
       "estructura",
       "A4.4",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesorías externas",
       "Técnicas: Instalaciones",
       "estructura",
       "A4.5",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Asesorías externas",
       "Técnicas: Ambiental",
       "estructura",
       "A4.6",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Contratados",
       "Dibujante",
       "estructura",
       "A5.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Contratados",
       "Renders",
       "estructura",
       "A5.2",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Contratados",
       "Gestores",
       "estructura",
       "A5.3",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Insumos",
       "Insumos",
       "estructura",
       "A6.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Gastos corrientes",
       "Librería",
       "estructura",
       "A7.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Gastos corrientes",
       "Copias",
       "estructura",
       "A7.2",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Gastos corrientes",
       "Otros",
       "estructura",
       "A7.3",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Colegio de Arquitectos",
       "Colegio de Arquitectos",
       "estructura",
       "A8.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Alquiler",
       "Alquiler",
       "estructura",
       "A9.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Inversión",
       "Inversión",
       "estructura",
       "A10.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Impuestos y ART",
       "Rentas",
       "estructura",
       "A11.1",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Impuestos y ART",
       "F.931",
       "estructura",
       "A11.2",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Impuestos y ART",
       "IERIC",
       "estructura",
       "A11.3",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Impuestos y ART",
       "UOCRA",
       "estructura",
       "A11.4",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Impuestos y ART",
       "UECARA",
       "estructura",
       "A11.5",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Impuestos y ART",
       "Caja previsional",
       "estructura",
       "A11.6",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Impuestos y ART",
       "Matrículas",
       "estructura",
       "A11.7",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Impuestos y ART",
       "Cámara de Comercio",
       "estructura",
       "A11.8",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Personal",
       "Casa de Buenos Aires",
       "personal",
       "R5",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Personal",
       "Autos",
       "personal",
       "R6",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Personal",
       "Súper",
       "personal",
       "R7",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Personal",
       "Tarjetas",
       "personal",
       "R8",
-      "activo",
-      ""
+      "activo"
     ],
     [
       "Personal",
       "Educación",
       "personal",
       "R9",
-      "activo",
-      ""
+      "activo"
     ]
   ],
   "CUENTAS": [

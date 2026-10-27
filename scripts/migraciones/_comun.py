@@ -99,10 +99,14 @@ class Migracion:
             return
         from app import sheets
         from app.sheets import columna_a_letra as letra
-        for tipo, hoja, fila, columna, valor, _ in self.cambios:
-            if tipo == "celda":
-                col = self.encabezado(hoja).index(columna) + 1
-                sheets.escribir_rango(self.sid, f"{hoja}!{letra(col)}{fila}", [[valor]])
+        # En lote (27/10): una celda por llamada chocaba con el límite de escrituras por minuto.
+        celdas = [(f"{hoja}!{letra(self.encabezado(hoja).index(columna) + 1)}{fila}", [[valor]])
+                  for tipo, hoja, fila, columna, valor, _ in self.cambios if tipo == "celda"]
+        if celdas:
+            sheets.escribir_rangos(self.sid, celdas)
+        por_hoja: dict[str, list[list]] = {}
         for hoja, fila, _ in self.nuevas:
-            sheets.agregar_filas(self.sid, f"{hoja}!A:{letra(len(fila))}", [fila])
+            por_hoja.setdefault(hoja, []).append(fila)
+        for hoja, filas in por_hoja.items():
+            sheets.agregar_filas(self.sid, f"{hoja}!A:{letra(max(len(f) for f in filas))}", filas)
         print(f"\nAplicado: {len(self.cambios)} celda(s) y {len(self.nuevas)} fila(s) nueva(s)")
