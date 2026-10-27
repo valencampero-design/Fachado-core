@@ -538,3 +538,45 @@ fallas del 20/10 siguen:
   - `al_dia` del pedido semanal;
   - el rubro de Sofía Cervera;
   - Elias Rodriguez en RUBROS.
+
+---
+
+## Deploy terminado (27/10)
+
+Railway reanudó los builds y desplegó `abcab52` el 22/10. La rotación de credenciales del 23/10
+quedó cerrada; el detalle está en `chatbot-contable/docs/seguridad/plan-unificado-2026-10-23.md`.
+El 27/10 se terminaron los pasos que faltaban:
+
+- **Paso 7**: el cron de vistas existe (servicio «Vistas», antes «Fachado-core», `0 6 * * *` UTC)
+  y corre todos los días. El 27/10 a las 06:00 escribió `VISTA_GENERAL` y las CC con el código
+  nuevo.
+- **Paso 4**: `2026_10_21_rubros_estructura.py --aplicar` agregó 7 filas (2 rubros y 5 alias);
+  repetirla no hace nada.
+- **Paso 5**: `POST /maestros/recargar`, que ahora da 78 rubros y 53 alias. Las advertencias son
+  las conocidas: contratistas repetidos, Contador Pasolli, Elias Rodriguez y el alias «Sofi».
+  **La primera llamada devolvió 200 con los números viejos (76/48)**: la lectura del Sheet falló
+  y `maestros.cargar` siguió con la caché sin avisar. Las tres llamadas siguientes dieron bien.
+  Ver «Pendiente» abajo.
+- **Paso 9**: pruebas contra el motor publicado con `/interpretar` y `/conciliar/pendientes`, sin
+  escribir nada. Las 9 pasan:
+  - «Austral/nafta» → Combustible;
+  - «Austral/combustible 77000» → Combustible, $ 77.000;
+  - «Austral/Mathias» → rubros de estructura, con Gastos generales;
+  - «Retiro/Abucoque» → solo el rubro personal; con «Club y deporte» conserva Abucoque;
+  - un «4» suelto → `otro`;
+  - «Minas/…» → la pregunta «nuevo»;
+  - «¿A qué obra?» con Austral y Tres Cerros;
+  - el resumen con «libro −$ 8.016.561,88».
+
+No se pudieron probar desde la PC:
+- el ticket de YPF como foto: hace falta el archivo en Drive y la lectura con el modelo;
+- la mezcla de comprobantes, que es del gateway.
+
+Se ven la primera vez que Gabriel o Petrus carguen.
+
+**Pendiente:**
+- `/maestros/recargar` debería decir cuando no pudo leer el Sheet y sigue con la copia en
+  caché, en vez de devolver 200 con los datos viejos;
+- Looker (paso 10);
+- el 1/11, los saldos de apertura (paso 11);
+- los temas para la reunión, arriba.
