@@ -144,7 +144,7 @@ def main() -> int:
               (moreno["capital_propio_inmovilizado"], moreno["semaforo"]) == (5000, "rojo"), moreno)
         rubros = reg("VISTA_RUBROS")
         check("VISTA_RUBROS: mes × obra × rubro × tipo_gasto, en pesos y lo que está en dólares aparte",
-              any(r["mes"] == "2026-10" and r["obra"] == "Lennon" and r["rubro_2"] == "Contratistas"
+              any(r["mes"] == "2026-10" and r["obra"] == "Lennon" and r["rubro_2"] == "Contratista principal"
                   and r["importe_ars"] == 1450000 and r["importe_usd_sin_convertir"] == 2000 for r in rubros), rubros)
         prov = reg("VISTA_PROVEEDORES")
         miguel = [r for r in prov if r["contratista"] == "Miguel Soto" and r["obra"] == "Lennon"]
@@ -153,6 +153,24 @@ def main() -> int:
         vp = [dict(zip(hojas["personal"]["VISTA_PERSONAL"][0], f)) for f in hojas["personal"]["VISTA_PERSONAL"][1:]]
         check("VISTA_PERSONAL (en el libro personal): mes × rubro × destino",
               {(r["rubro_2"], r["destino"], r["importe_ars"]) for r in vp} == {("Familia", "", 80000), ("Agua", "Belelli", 30000)}, vp)
+        print("\n§5.4 v1.13 · los rubros viejos se muestran con la lista del estudio (27/10)")
+        lennon_r = next(r for r in rubros if r["obra"] == "Lennon" and r["rubro_2"] == "Contratista principal")
+        check("VISTA_RUBROS: el pago cargado con «Mano de obra › Contratistas» (inactivo) sale como 2.1 Contratista "
+              "principal, con codigo y rubro_general; ninguna fila con un rubro inactivo",
+              (lennon_r["codigo"], lennon_r["rubro_general"]) == ("2.1", "Mano de obra")
+              and not any(m.rubro(r["rubro_1"], r["rubro_2"]) is not None and not m.rubro(r["rubro_1"], r["rubro_2"]).activo
+                          for r in rubros), lennon_r)
+        det2 = {r["id_mov"]: r for r in reg("VISTA_DETALLE")}
+        check("VISTA_DETALLE: el movimiento M-000002 (Contratistas) con el rubro nuevo, codigo 2.1 y rubro_general",
+              (det2["M-000002"]["rubro_2"], det2["M-000002"]["codigo"], det2["M-000002"]["rubro_general"])
+              == ("Contratista principal", "2.1", "Mano de obra"), det2["M-000002"])
+        cc_l = master["CC_LENNON"]
+        i_r = next(i for i, f in enumerate(cc_l) if f[:1] == ["POR RUBRO"])
+        check("CC_LENNON, «POR RUBRO»: con el rubro nuevo, nunca el viejo",
+              any("Contratista principal" in map(str, f) for f in cc_l[i_r:]) and not any("Contratistas" in map(str, f)
+                                                                                           for f in cc_l[i_r:]), cc_l[i_r:i_r + 5])
+        check("VISTA_PERSONAL: rubro_general «Retiros» (en el maestro sigue siendo «Personal»), codigo y mes_fecha",
+              all(r["rubro_general"] == "Retiros" for r in vp) and all("mes_fecha" in r for r in vp), vp)
         check("lo personal nunca en las vistas del Master: ni Sofía Fachado ni Edesur",
               "Sofía Fachado" not in json.dumps(master, ensure_ascii=False) and "Edesur" not in json.dumps(master))
 

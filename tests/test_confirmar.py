@@ -905,6 +905,18 @@ async def _correr() -> int:
             _maestros._leer_crudo = original
             _maestros.cargar(forzar=True)
 
+        # ── 27/10 · la lista de rubros del estudio (§5.4 v1.13) ─────────────
+        print("\n27/10 · una ficha con un rubro viejo se escribe con el nuevo")
+        libro, _ = preparar()
+        f_vieja = ficha(contratista="Miguel Soto", rubro_1="Mano de obra", rubro_2="Contratistas", cuenta="Banco")
+        r = await confirmar("wamid.R1", f_vieja)
+        fila_r = next((mv for mv in libro.movimientos() if mv.get("id_mov") == r.json().get("id_mov")), {})
+        check("una ficha armada antes del 27/10 con «Mano de obra › Contratistas» (inactivo) se escribe con 2.1 "
+              "Contratista principal, con un aviso",
+              r.status_code == 200 and (fila_r.get("rubro_1"), fila_r.get("rubro_2")) == ("Mano de obra", "Contratista principal")
+              and any("se reemplazó por" in a for a in r.json().get("advertencias", [])),
+              (r.status_code, fila_r.get("rubro_2"), r.json().get("advertencias")))
+
     app.dependency_overrides.clear()
 
     # ── Reintentos ante errores transitorios de Google ────────────────────────

@@ -353,24 +353,46 @@ def vista_general(movs: list[dict], m: Maestros, hoy: date, saldos: list[list], 
 
 SIN_OBRA = "Sin obra"
 SIN_RUBRO = "Sin rubro"
+RUBRO_GENERAL_PERSONAL = "Retiros"  # §5.4 v1.13: en el maestro, «Personal»; en el tablero, «Retiros»
+
+
+def con_rubro_vigente(movs: list[dict], m: Maestros) -> list[dict]:
+    """§5.4 v1.13: cada movimiento con el rubro de la lista del estudio. Uno viejo se traduce por
+    `reemplazado_por` (MOVIMIENTOS no se reescribe: se traduce acá, al armar las vistas). Suma
+    `codigo` y `rubro_general` (lo personal se muestra como «Retiros»)."""
+    salida = []
+    for mv in movs:
+        rubro = m.rubro_vigente(mv.get("rubro_1"), mv.get("rubro_2"))
+        nuevo = dict(mv)
+        if rubro is not None:
+            nuevo["rubro_1"], nuevo["rubro_2"], nuevo["codigo"] = rubro.rubro_1, rubro.rubro_2, rubro.codigo
+        else:
+            nuevo["codigo"] = ""
+        r1 = nuevo.get("rubro_1") or ""
+        nuevo["rubro_general"] = RUBRO_GENERAL_PERSONAL if normalizar(r1) == "personal" else (r1 or SIN_RUBRO)
+        salida.append(nuevo)
+    return salida
 
 
 def vista_rubros(movs: list[dict]) -> list[list]:
     """Mes × obra × rubro_1 × rubro_2 × tipo_gasto. Sin vacíos en obra ni en los rubros («Sin
-    obra», «Sin rubro»): una barra con la etiqueta en blanco en el tablero no se entiende."""
+    obra», «Sin rubro»): una barra con la etiqueta en blanco en el tablero no se entiende.
+    §5.4 v1.13: con `codigo` y `rubro_general` (los movimientos ya vienen traducidos)."""
     acumulado: dict[tuple, list[float]] = {}
     for mv in movs:
         if mv.get("tipo") not in ("EGRESO", "PASANTE"):
             continue
         clave = (_mes(mv.get("fecha")), mv.get("obra") or SIN_OBRA, mv.get("rubro_1") or SIN_RUBRO,
-                 mv.get("rubro_2") or SIN_RUBRO, mv.get("tipo_gasto") or "")
+                 mv.get("rubro_2") or SIN_RUBRO, mv.get("tipo_gasto") or "", mv.get("codigo") or "",
+                 mv.get("rubro_general") or mv.get("rubro_1") or SIN_RUBRO)
         a = acumulado.setdefault(clave, [0.0, 0.0, 0])
         a[0] += _pesos(mv) or 0.0
         a[1] += _usd_sin_convertir(mv)
         a[2] += 1
     filas = [["mes", "obra", "rubro_1", "rubro_2", "tipo_gasto", "importe_ars", "importe_usd_sin_convertir", "cantidad",
-              "mes_fecha"]]
-    filas += [[*k, round(v[0], 2), round(v[1], 2), v[2], f"{k[0]}-01"] for k, v in sorted(acumulado.items())]
+              "mes_fecha", "codigo", "rubro_general"]]
+    filas += [[*k[:5], round(v[0], 2), round(v[1], 2), v[2], f"{k[0]}-01", k[5], k[6]]
+              for k, v in sorted(acumulado.items())]
     return filas
 
 
@@ -391,7 +413,7 @@ def vista_proveedores(movs: list[dict]) -> list[list]:
 
 COLUMNAS_DETALLE = ["id_mov", "fecha", "mes", "tipo", "obra", "etapa", "contratista", "item", "rubro_1", "rubro_2",
                     "tipo_gasto", "cuenta", "quien_pago", "moneda", "importe", "importe_ars", "tc", "descripcion",
-                    "comprobante_url", "cargado_por", "estado_conc"]
+                    "comprobante_url", "cargado_por", "estado_conc", "codigo", "rubro_general"]
 
 
 def _quien_pago(mov: dict, m: Maestros) -> str:
@@ -419,12 +441,15 @@ def vista_personal(movs: list[dict]) -> list[list]:
     for mv in sin_anulados(movs):
         if mv.get("tipo") not in ("EGRESO", "PASANTE"):
             continue
-        clave = (_mes(mv.get("fecha")), mv.get("rubro_1") or "Sin rubro", mv.get("rubro_2") or "", mv.get("obra") or "")
+        clave = (_mes(mv.get("fecha")), mv.get("rubro_1") or "Sin rubro", mv.get("rubro_2") or "", mv.get("obra") or "",
+                 mv.get("codigo") or "", RUBRO_GENERAL_PERSONAL)  # en el libro personal, todo es un retiro
         a = acumulado.setdefault(clave, [0.0, 0])
         a[0] += _pesos(mv) or 0.0
         a[1] += 1
-    filas = [["mes", "rubro_1", "rubro_2", "destino", "importe_ars", "cantidad"]]
-    filas += [[*k, round(v[0], 2), v[1]] for k, v in sorted(acumulado.items())]
+    # §5.4 v1.13: `rubro_general` = «Retiros» (en el maestro sigue siendo «Personal»); y el mes
+    # como fecha, para los gráficos de Looker.
+    filas = [["mes", "rubro_1", "rubro_2", "destino", "importe_ars", "cantidad", "codigo", "rubro_general", "mes_fecha"]]
+    filas += [[*k[:4], round(v[0], 2), v[1], k[4], k[5], f"{k[0]}-01"] for k, v in sorted(acumulado.items())]
     return filas
 
 
@@ -526,7 +551,7 @@ def calcular(libro: Libro, libro_personal: Libro | None, m: Maestros | None = No
     """{"master": {hoja: filas}, "personal": {hoja: filas}}: todo lo que se escribiría."""
     m = m or maestros.cargar()
     hoy = hoy or date.today()
-    movs = _del_master(como_dicts(libro.leer_movimientos()))
+    movs = con_rubro_vigente(_del_master(como_dicts(libro.leer_movimientos())), m)
     try:
         crudo = libro.leer_banco()
         banco = [dict(zip(crudo[0], f)) for f in crudo[1:]] if crudo else []
@@ -548,7 +573,7 @@ def calcular(libro: Libro, libro_personal: Libro | None, m: Maestros | None = No
         master[nombre_hoja_cc(obra.nombre)] = cuenta_corriente(obra, master, m, ahora)
     personal = {}
     if libro_personal is not None:
-        movs_p = sin_anulados(como_dicts(libro_personal.leer_movimientos()))
+        movs_p = con_rubro_vigente(sin_anulados(como_dicts(libro_personal.leer_movimientos())), m)
         personal["VISTA_PERSONAL"] = vista_personal(movs_p)
         personal["VISTA_DETALLE"] = vista_detalle(movs_p, m)  # el detalle personal, en su libro
         for inmueble in inmuebles_personales(m):

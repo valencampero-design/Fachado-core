@@ -315,9 +315,11 @@ def _aplicar_respuestas(contexto: dict, respuestas: list, m: Maestros, diag: dic
             c = m.contratista(valor)
             fijar("contratista", c.nombre) if c else libre.append(valor)
         elif campo == "rubro":
-            rubros = [x for x in m.rubros if normalizar(x.rubro_2) == n]
+            # §5.4 v1.13: primero los activos; uno viejo se traduce al que lo reemplaza.
+            rubros = [x for x in m.rubros_activos if normalizar(x.rubro_2) == n] \
+                or [m.vigente(x) for x in m.rubros if normalizar(x.rubro_2) == n]
             if not rubros and " / " in valor:
-                rubros = [x for x in [m.rubro(*valor.split(" / ", 1))] if x]
+                rubros = [x for x in [m.rubro_vigente(*valor.split(" / ", 1))] if x]
             if rubros:
                 fijar("rubro_1", rubros[0].rubro_1)
                 fijar("rubro_2", rubros[0].rubro_2)
@@ -479,7 +481,7 @@ def _desempatar(candidatos: list[str], personal: bool, obra, m: Maestros) -> str
     estructura (Austral, el estudio) → el de estructura. Uno solo, o nada: si no, se pregunta."""
     def afecta(nombre: str) -> str | None:
         c = m.contratista(nombre)
-        r = m.rubro(c.rubro_1, c.rubro_2) if c and c.rubro_1 and c.rubro_2 else None
+        r = m.rubro_vigente(c.rubro_1, c.rubro_2) if c and c.rubro_1 and c.rubro_2 else None
         return r.afecta if r else None
 
     lado = "personal" if personal else "estructura" if obra is not None and obra.tipo == "estructura" else None
@@ -542,7 +544,7 @@ def _afecta_de_clasificacion(clasificacion: str | None, contratista, m: Maestros
     el del rubro habitual del contratista si es de estructura (Sofía Cervera, A&C); si no, obra."""
     if clasificacion in ("personal", "estructura", "obra"):
         return clasificacion
-    habitual = m.rubro(contratista.rubro_1, contratista.rubro_2) if contratista and contratista.rubro_1 else None
+    habitual = m.rubro_vigente(contratista.rubro_1, contratista.rubro_2) if contratista and contratista.rubro_1 else None
     return "estructura" if habitual is not None and habitual.afecta == "estructura" else "obra"
 
 
@@ -571,7 +573,7 @@ def _ultimo_rubro(contratista: str, historia: list[dict], personal: bool, m: Mae
              and mv.get("rubro_1") and mv.get("rubro_2")]
     suyos.sort(key=lambda mv: (str(mv.get("fecha") or ""), str(mv.get("ts") or "")), reverse=True)
     for mv in suyos:
-        r = m.rubro(mv["rubro_1"], mv["rubro_2"])
+        r = m.rubro_vigente(mv["rubro_1"], mv["rubro_2"])  # §5.4 v1.13: el de la lista nueva
         if r and (r.afecta == "personal") == personal and (destino is None or _rubro_va(r, destino)):
             return r
     return None
@@ -585,20 +587,26 @@ def _rubros_por_uso(afecta: str, historia: list[dict], m: Maestros, contratista=
     para cualquier destino (IVA, Rentas, Honorarios…)."""
     uso: Counter = Counter()
     for mv in historia:
-        r = m.rubro(mv.get("rubro_1"), mv.get("rubro_2"))
+        r = m.rubro_vigente(mv.get("rubro_1"), mv.get("rubro_2"))  # un uso viejo cuenta para el nuevo
         if r:
             uso[(r.rubro_1, r.rubro_2)] += 2
     for c in m.contratistas:
-        r = m.rubro(c.rubro_1, c.rubro_2)
+        r = m.rubro_vigente(c.rubro_1, c.rubro_2)
         if r:
             uso[(r.rubro_1, r.rubro_2)] += 1
-    categoria = normalizar(contratista.rubro_1) if contratista and contratista.rubro_1 else None
-    rubros = [r for r in m.rubros if r.afecta == afecta] + \
-        ([r for r in m.rubros if r.afecta == "otro"] if afecta == "estructura" else [])
+    habitual = m.rubro_vigente(contratista.rubro_1, contratista.rubro_2) if contratista and contratista.rubro_1 else None
+    categoria = normalizar(habitual.rubro_1) if habitual else None
+    # §5.4 v1.13: solo los activos (la lista del estudio y los viejos a confirmar).
+    rubros = [r for r in m.rubros_activos if r.afecta == afecta] + \
+        ([r for r in m.rubros_activos if r.afecta == "otro"] if afecta == "estructura" else [])
     orden = sorted(range(len(rubros)), key=lambda i: (
         rubros[i].afecta != afecta, not (categoria and normalizar(rubros[i].rubro_1) == categoria),
-        -uso[(rubros[i].rubro_1, rubros[i].rubro_2)], i))
-    return [rubros[i].rubro_2 for i in orden][:MAX_OPCIONES]
+        -uso[(rubros[i].rubro_1, rubros[i].rubro_2)], not rubros[i].codigo, i))  # a igual uso, la lista del estudio
+    elegidos = [rubros[i] for i in orden][:MAX_OPCIONES]
+    # §5.4 v1.13: un nombre que se repite (Materiales › Riego y Mano de obra › Riego) va con su
+    # rubro general, para que la respuesta no sea ambigua («Materiales / Riego»).
+    repetidos = Counter(normalizar(r.rubro_2) for r in rubros)
+    return [f"{r.rubro_1} / {r.rubro_2}" if repetidos[normalizar(r.rubro_2)] > 1 else r.rubro_2 for r in elegidos]
 
 
 def _opciones_obra(m: Maestros, historia: list[dict], personal: bool = False, primero: str | None = None) -> list[str]:
@@ -637,7 +645,7 @@ def _completar_preguntas(ficha: Ficha, i: int, suyas: list[Pregunta], m: Maestro
         if obligatorios.cubierto(campo, ya | {p.campo for p in nuevas}):
             continue
         if campo in ("obra", "tipo_gasto"):
-            rubro = m.rubro(c.get("rubro_1"), c.get("rubro_2"))
+            rubro = m.rubro_vigente(c.get("rubro_1"), c.get("rubro_2"))
             austral = next((o.nombre for o in m.obras if o.tipo == "estructura" and o.estado != "cerrada"), None)
             p = Pregunta(campo="obra", texto="¿A qué obra?", opciones=_opciones_obra(
                 m, list(historia), personal=normalizar(c.get("tipo_gasto")) == "personal",
@@ -813,7 +821,7 @@ def _validar(categoria: str | None, valor: str | None, m: Maestros) -> str | Non
         return c.nombre if c else None
     if categoria == "rubro":
         partes = [p.strip() for p in valor.split("/")]
-        r = m.rubro(partes[0], partes[1]) if len(partes) == 2 else None
+        r = m.rubro_vigente(partes[0], partes[1]) if len(partes) == 2 else None  # el LLM puede traer uno viejo
         return f"{r.rubro_1} / {r.rubro_2}" if r else None
     return None
 
@@ -995,8 +1003,8 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
     if tipo in ("EGRESO", "PASANTE") and not campos["rubro_1"]:
         ultimo = _ultimo_rubro(contratista.nombre, historia, lado_personal, m, destino) \
             if contratista and lado_personal is not None else None
-        habitual = m.rubro(contratista.rubro_1, contratista.rubro_2) if contratista and contratista.rubro_1 else None
-        sugerido_llm = m.rubro(*rubro_llm.valor.split(" / ")) \
+        habitual = m.rubro_vigente(contratista.rubro_1, contratista.rubro_2) if contratista and contratista.rubro_1 else None
+        sugerido_llm = m.rubro_vigente(*rubro_llm.valor.split(" / ")) \
             if rubro_llm and rubro_llm.puntaje >= UMBRAL_LLM * 100 else None
         combustible = m.rubro(*RUBRO_COMBUSTIBLE)
         if combustible and destino in (None, "estructura") and _es_combustible(comp, seg.texto):
@@ -1004,8 +1012,8 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             poner("rubro_1", combustible.rubro_1, "comprobante" if comp is not None else "texto")
             poner("rubro_2", combustible.rubro_2, "comprobante" if comp is not None else "texto")
         elif habitual and _rubro_va(habitual, destino):
-            poner("rubro_1", contratista.rubro_1, "inferido")
-            poner("rubro_2", contratista.rubro_2, "inferido")
+            poner("rubro_1", habitual.rubro_1, "inferido")
+            poner("rubro_2", habitual.rubro_2, "inferido")
             factor *= 0.95
         elif ultimo:
             poner("rubro_1", ultimo.rubro_1, "supuesto")
@@ -1015,6 +1023,12 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             poner("rubro_2", sugerido_llm.rubro_2, "llm")
             factor *= FACTOR_METODO["llm"]
     rubro = m.rubro(campos["rubro_1"], campos["rubro_2"])
+    if rubro is not None and not rubro.activo and m.vigente(rubro) is not rubro:
+        # §5.4 v1.13: un rubro viejo (de una ficha anterior a la lista del estudio) se escribe
+        # con el que lo reemplaza.
+        rubro = m.vigente(rubro)
+        poner("rubro_1", rubro.rubro_1, origen.get("rubro_1", "inferido"))
+        poner("rubro_2", rubro.rubro_2, origen.get("rubro_2", "inferido"))
 
     # ── 5. Cascada de clasificación (código, no LLM) ──────────────────────────
     res = clasificador.clasificar(m, tipo, obra, contratista, rubro, marcador_personal)
@@ -1292,7 +1306,7 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
             and not any(p.campo in ("obra", "nuevo") for p in preguntas):
         afecta = _afecta_de_clasificacion(res.clasificacion, contratista, m)
         opciones = _rubros_por_uso(afecta, list(historia), m, contratista)  # §5.12 v1.8: los más usados
-        sugerido = m.rubro(*rubro_llm.valor.split(" / ")) if rubro_llm else None
+        sugerido = m.rubro_vigente(*rubro_llm.valor.split(" / ")) if rubro_llm else None
         if sugerido is not None and res.clasificacion != "personal" and _rubro_va(sugerido, afecta):
             opciones = [sugerido.rubro_2] + [o for o in opciones if o != sugerido.rubro_2]
         preguntas.append(Pregunta(campo="rubro", texto="¿Qué rubro?", opciones=opciones[:MAX_OPCIONES]))

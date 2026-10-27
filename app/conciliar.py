@@ -59,7 +59,9 @@ RE_GASTO_BANCARIO = re.compile(
 # brutos) no es un gasto bancario: va como pregunta, con rubro Impuestos y tasas › Rentas, para
 # saber de qué obra es o si es del estudio. Va antes que RE_GASTO_BANCARIO («retención de IIBB»).
 RE_IMPUESTO_DE_OTRO = re.compile(r"\bdpr\b|rentas|ingresos\s+brutos|\biibb\b|sellos", re.I)
-RUBRO_IMPUESTO_DE_OTRO = "Rentas"  # Impuestos y tasas › Rentas
+# El rubro va puesto, no como texto: desde la lista del 27/10 hay dos «Rentas» activos (el viejo,
+# a confirmar, y el de Austral), y el texto quedaría ambiguo. Se traduce con `vigente`.
+RUBRO_IMPUESTO_DE_OTRO = ("Impuestos y tasas", "Rentas")
 # Compras de Mercado Libre. «Mercado Pago» a secas en el banco no: puede ser un pase a la cuenta
 # de Mercado Pago del estudio, que se empareja como traspaso (20/10).
 RE_MELI = re.compile(r"mercado\s*libre|mercadolibre|merpago", re.I)
@@ -392,17 +394,23 @@ def ficha_de_linea(linea: dict, telefono: str, libros: dict) -> dict:
                      "medio_pago": "Transferencia", "tipo_comprobante": "Línea del extracto",
                      "id_operacion": linea.get("ref") or None}, "extracto")
         return d
-    # §5.20 v1.12: un impuesto de otro organismo (DPR Sellos, rentas, IIBB) va con su rubro.
-    texto = "Ingreso" if importe > 0 else RUBRO_IMPUESTO_DE_OTRO if RE_IMPUESTO_DE_OTRO.search(str(linea.get("descripcion"))) else ""
-    req = InterpretarIn(texto=texto, telefono=telefono,
+    req = InterpretarIn(texto="Ingreso" if importe > 0 else "", telefono=telefono,
                         fecha_mensaje=f"{str(linea.get('fecha'))[:10]}T15:00:00Z",
                         adjuntos=[Adjunto(url=f"banco:{linea['hash_id']}", nombre="extracto")])
     salida = interpretar(req, libros=libros, lector=lector)
+    # §5.20 v1.12: un impuesto de otro organismo (DPR Sellos, rentas, IIBB) va con su rubro; la
+    # obra (o Austral) se pregunta, y esa pregunta también cubre el rubro.
+    impuesto = maestros.cargar().rubro_vigente(*RUBRO_IMPUESTO_DE_OTRO) \
+        if importe < 0 and RE_IMPUESTO_DE_OTRO.search(str(linea.get("descripcion"))) else None
     for ficha in salida.fichas:
         ficha.extras["id_banco"] = linea["hash_id"]
         ficha.campos["comprobante_url"] = None  # no hay archivo: la línea es el comprobante
         if not ficha.campos.get("descripcion"):
             ficha.campos["descripcion"] = f"Extracto: {linea.get('descripcion')}"
+        if impuesto is not None and not ficha.campos.get("rubro_1"):
+            ficha.campos["rubro_1"], ficha.campos["rubro_2"] = impuesto.rubro_1, impuesto.rubro_2
+            ficha.origen_campo.update(rubro_1="inferido", rubro_2="inferido")
+            ficha.faltantes = [f for f in ficha.faltantes if f not in ("rubro_1", "rubro_2")]
     return salida.model_dump()
 
 

@@ -114,7 +114,7 @@ def _system_maestros(m: Maestros) -> list[dict]:
         c = m.contratista(a.valor_canonico) if a.tipo == "contratista" else None
         return c is None or c.activo
 
-    rubros = "\n".join(f"- {r.rubro_1} / {r.rubro_2}" for r in m.rubros)
+    rubros = "\n".join(f"- {r.rubro_1} / {r.rubro_2}" for r in m.rubros_activos)  # §5.4 v1.13: la lista nueva
     cuentas = "\n".join(f"- {c.nombre}" for c in m.cuentas if c.activa)
     alias = "\n".join(f"- «{a.como_lo_dice}» → {a.valor_canonico} ({a.tipo})" for a in m.alias if alias_vigente(a))
     texto = f"""Sos el intérprete de mensajes de WhatsApp de un estudio de arquitectura de Villa La Angostura (Argentina) que administra obras. Las personas del estudio anotan pagos y cobros con mensajes cortos del estilo «contratista/obra», «obra/concepto» o «Retiro/club/cuota», en cualquier orden, con apodos, abreviaturas y errores de tipeo. Cada mensaje dice quién lo escribe.

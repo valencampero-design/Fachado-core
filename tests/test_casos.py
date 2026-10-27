@@ -641,14 +641,15 @@ def main() -> int:
     c = f.campos
     check("«Lennon/Miguel» + el recibo → cero preguntas (el criterio de aceptación)", not r.preguntas,
           [(p.campo, p.texto) for p in r.preguntas])
-    check("… Miguel Soto, importe y fecha del recibo, rubro el último usado con él (supuesto)",
+    check("… Miguel Soto, importe y fecha del recibo, rubro el último usado con él (supuesto), traducido a la lista "
+          "del 27/10 (Mano de obra › Contratistas → 2.1 Contratista principal)",
           (c["contratista"], c["importe"], c["fecha"], c["rubro_2"], f.origen_campo.get("rubro_2"))
-          == ("Miguel Soto", 7084000, "2026-10-03", "Contratistas", "supuesto"), (c, f.origen_campo))
+          == ("Miguel Soto", 7084000, "2026-10-03", "Contratista principal", "supuesto"), (c, f.origen_campo))
     r, f = leer_con("Lennon/Miguel", estudio=libro(), adjuntos=[recibo_miguel], lector=lector_con(**leido_miguel))
     rubro_p = [p for p in r.preguntas if p.campo == "rubro"]
     primeros_de_rubros = [x.rubro_2 for x in m.rubros if x.afecta == "obra"][:10]
     check("sin historia ni rubro habitual: solo se pregunta el rubro, con las opciones más usadas (no los primeros 10 de "
-          "RUBROS)", rubro_p and [p.campo for p in r.preguntas] == ["rubro"] and "Contratistas" in rubro_p[0].opciones[:3]
+          "RUBROS)", rubro_p and [p.campo for p in r.preguntas] == ["rubro"] and "Contratista principal" in rubro_p[0].opciones[:3]
           and rubro_p[0].opciones != primeros_de_rubros, [(p.campo, p.opciones[:5]) for p in r.preguntas])
 
     r = interpretar(InterpretarIn(texto="INGRRSO/28 de septiembre,  Lennon me paso us$20.000 Para ingresar a caja chica, "
@@ -945,7 +946,8 @@ def main() -> int:
     print("\n21/10 · M1 los rubros salen del destino (capturas 03-06)")
     petrus = next(u for u in m.usuarios if "petrus" in u.nombre.lower())
     estructura = {x.rubro_2 for x in m.rubros if x.afecta in ("estructura", "otro")}
-    de_obra = {x.rubro_2 for x in m.rubros if x.afecta == "obra"}
+    # «Servicios» es un rubro de Austral y también de Mano de obra (2.17): solo los que son únicamente de obra.
+    de_obra = {x.rubro_2 for x in m.rubros if x.afecta == "obra"} - estructura
     ticket = Adjunto(url="https://drive.google.com/file/d/TICKETYPFxxxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="IMG_ypf.jpg")
     r = interpretar(InterpretarIn(texto="", fecha_mensaje="2026-10-20T23:08:00Z", telefono=petrus.telefono, adjuntos=[ticket]),
                     libros={"estudio": libro(), "personal": None},
@@ -980,7 +982,7 @@ def main() -> int:
     rubro = next((p for p in r.preguntas if p.campo == "rubro"), None)
     check("captura 05-06: «Austral/Mathias» + comprobante de MP → «¿Qué rubro?» con los de estructura (Gastos "
           "generales, Movilidad, Servicios…), ninguno de obra",
-          rubro is not None and set(rubro.opciones) <= estructura and "Gastos generales" in rubro.opciones
+          rubro is not None and set(rubro.opciones) <= estructura and "Internet" in rubro.opciones  # la lista del 27/10
           and not set(rubro.opciones) & de_obra, rubro and rubro.opciones)
     r, f = leer_con("Austral/combustible 77000")
     c = f.campos
@@ -993,9 +995,9 @@ def main() -> int:
               f.campos["rubro_2"] in ("Combustible", "Gastos generales") and not r.preguntas,
               (f.campos["rubro_2"], [p.campo for p in r.preguntas]))
     r, f = leer_con("Sofia/Austral $ 100.000")
-    check("«Sofia/Austral» → Sofía Cervera, estructura, Sueldos y cargas sociales, sin preguntas",
+    check("«Sofia/Austral» → Sofía Cervera, estructura, Sueldos fijos (27/10: antes «Sueldos y cargas sociales»), sin preguntas",
           (f.campos["contratista"], f.campos["tipo_gasto"], f.campos["rubro_2"]) == ("Sofia Cervera", "estructura",
-                                                                                     "Sueldos y cargas sociales")
+                                                                                     "Sueldos fijos")
           and not r.preguntas, (f.campos["contratista"], f.campos["rubro_2"], [p.campo for p in r.preguntas]))
     r, f = leer_con("Lennon/Miguel/nafta $ 30.000")
     check("«nafta» dicha en una obra queda como la dijo (lo que escribe el usuario no se cambia)",
@@ -1083,6 +1085,47 @@ def main() -> int:
           and comprobante.pagado_con("Banco Patagonia · Débito inmediato (DEBIN) · tarjeta de débito") is None
           and comprobante.parsear_texto("Comprobante de pago Mercado Pago\nTarjeta de débito Maestro").get("pagado_con")
           == "débito")
+
+    print("\n27/10 · los rubros del estudio (§5.4 v1.13)")
+    inactivos = {x.rubro_2 for x in m.rubros if not x.activo}
+    r, f = leer_con("Austral/contador $ 150.000")
+    check("«Austral/contador» → Asesorías externas › Contador (A4.1), sin preguntas",
+          (f.campos["rubro_1"], f.campos["rubro_2"]) == ("Asesorías externas", "Contador") and not r.preguntas,
+          ((f.campos["rubro_1"], f.campos["rubro_2"]), [p.campo for p in r.preguntas]))
+    r, f = leer_con("Moreno/Tucu zinguería $ 80.000")
+    rz = m.rubro(f.campos["rubro_1"], f.campos["rubro_2"])
+    check("«Moreno/Tucu zinguería» → el rubro de obra (Materiales › Zinguería, 1.15), no uno inactivo",
+          rz is not None and rz.afecta == "obra" and rz.activo and "Zingu" in rz.rubro_2,
+          (f.campos["rubro_1"], f.campos["rubro_2"]))
+    r, f = leer_con("Retiro/súper $ 45.000")
+    check("«Retiro/súper» → Personal › Súper (R7)", (f.campos["tipo_gasto"], f.campos["rubro_1"], f.campos["rubro_2"])
+          == ("personal", "Personal", "Súper"), (f.campos["tipo_gasto"], f.campos["rubro_1"], f.campos["rubro_2"]))
+    opciones_todas = []
+    for texto in ("Lennon/Fulano Mengano $ 1.000", "Austral/Mathias $ 1.000", "Retiro/Abucoque $ 1.000"):
+        r, f = leer_con(texto)
+        opciones_todas += [o for p in r.preguntas if p.campo == "rubro" for o in p.opciones]
+    check("un rubro inactivo no se ofrece nunca (en obra, en Austral ni en lo personal)",
+          opciones_todas and not set(opciones_todas) & (inactivos - {x.rubro_2 for x in m.rubros_activos}),
+          set(opciones_todas) & inactivos)
+    check("un nombre viejo (el de un alias o del LLM) se traduce: «Supermercado» → Súper, «Mano de obra / Contratistas» → "
+          "Contratista principal", m.rubro_por_nombre("Supermercado").rubro_2 == "Súper"
+          and m.rubro_por_nombre("Mano de obra / Contratistas").rubro_2 == "Contratista principal",
+          (m.rubro_por_nombre("Supermercado"), m.rubro_por_nombre("Mano de obra / Contratistas")))
+    con_viejo = libro(dict(id_mov="M-000001", fecha="2026-10-01", tipo="EGRESO", importe=1000, obra="Lennon",
+                           contratista="Mathias Flores", rubro_1="Personal", rubro_2="Supermercado", tipo_gasto="personal"))
+    r, f = leer_con("Retiro/Mathias $ 2.000", estudio=con_viejo)
+    check("la última vez con un rubro viejo (Personal › Supermercado): se propone el nuevo (Súper), nunca el viejo",
+          f.campos["rubro_2"] in (None, "Súper") and "Supermercado" not in [o for p in r.preguntas for o in p.opciones],
+          (f.campos["rubro_2"], [(p.campo, p.opciones[:4]) for p in r.preguntas]))
+    r = interpretar(InterpretarIn(fecha_mensaje="2026-10-27T12:00:00Z", telefono=titular.telefono,
+                                  contexto_previo={"campos": {"tipo": "EGRESO", "obra": "Lennon", "contratista": "Miguel Soto",
+                                                              "rubro_1": "Mano de obra", "rubro_2": "Contratistas",
+                                                              "importe": 1000, "fecha": "2026-10-27"},
+                                                   "origen_campo": {}, "extras": {}},
+                                  respuestas=[Respuesta(ficha=0, campo="importe", valor="1000")]),
+                    libros={"estudio": libro(), "personal": None})
+    check("una ficha anterior con un rubro viejo (Contratistas) vuelve con el nuevo (Contratista principal)",
+          r.fichas[0].campos["rubro_2"] == "Contratista principal", r.fichas[0].campos["rubro_2"])
 
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"21/10 · ninguna ficha con la obra resuelta trae la pregunta «obra» ({len(obra_repreguntada)} con problemas)",

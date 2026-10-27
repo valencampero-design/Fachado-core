@@ -175,6 +175,14 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
     informal = tipo == "PASANTE" or normalizar(c.get("informal")) in ("si", "true", "verdadero", "1", "x")
     concilia = cuenta.concilia_contra_banco and not informal
     fila = {campo: ("" if _vacio(c.get(campo)) else c[campo]) for campo in CAMPOS_DE_LA_FICHA}
+    # §5.4 v1.13: una ficha armada antes de la lista nueva puede traer un rubro inactivo; se
+    # escribe el que lo reemplaza (MOVIMIENTOS es append-only: lo nuevo, con la lista nueva).
+    rubro = m.rubro(fila.get("rubro_1"), fila.get("rubro_2"))
+    vigente = m.vigente(rubro)
+    if rubro is not None and vigente is not rubro:
+        advertencias.append(f"El rubro «{rubro.rubro_1} / {rubro.rubro_2}» se reemplazó por "
+                            f"«{vigente.rubro_1} / {vigente.rubro_2}» ({vigente.codigo})")
+        fila["rubro_1"], fila["rubro_2"] = vigente.rubro_1, vigente.rubro_2
     fila.update({
         "fecha": fecha,
         "tipo": tipo,

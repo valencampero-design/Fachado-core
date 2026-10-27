@@ -101,6 +101,12 @@ class Rubro:
     rubro_1: str
     rubro_2: str
     afecta: str  # obra | estructura | personal | otro
+    # §5.4 v1.13 (27/10): la lista del estudio. El código (1.1, A4.1, R7) es la base del
+    # presupuesto futuro; un rubro viejo queda `inactivo` con el código que lo reemplaza. Nada
+    # se borra: los movimientos viejos siguen apuntando a él y se traducen con `vigente`.
+    codigo: str = ""
+    activo: bool = True
+    reemplazado_por: str = ""
 
 
 # Qué cuentas suman al saldo de caja del ESTUDIO (CONTEXTO-FACHADO.md §5.8, regla de oro:
@@ -255,12 +261,38 @@ class Maestros:
         return next((r for r in self.rubros if normalizar(r.rubro_1) == n1 and normalizar(r.rubro_2) == n2), None)
 
     def rubro_por_nombre(self, valor: str | None) -> Rubro | None:
-        """El rubro de un alias: «Combustible» (un rubro_2 que no se repite) o «Estructura del
-        estudio / Combustible». None si no existe o es ambiguo."""
+        """El rubro de un alias: «Combustible» (un rubro_2 que no se repite entre los activos) o
+        «Estructura del estudio / Combustible». Siempre el vigente. None si no existe o es ambiguo."""
         if valor and " / " in valor:
-            return self.rubro(*valor.split(" / ", 1))
-        rubros = [r for r in self.rubros if normalizar(r.rubro_2) == normalizar(valor)]
-        return rubros[0] if len(rubros) == 1 else None
+            return self.vigente(self.rubro(*valor.split(" / ", 1)))
+        activos = [r for r in self.rubros_activos if normalizar(r.rubro_2) == normalizar(valor)]
+        if len(activos) == 1:
+            return activos[0]
+        todos = [r for r in self.rubros if normalizar(r.rubro_2) == normalizar(valor)]
+        return self.vigente(todos[0]) if len(todos) == 1 else None
+
+    @property
+    def rubros_activos(self) -> list[Rubro]:
+        """§5.4 v1.13: los que se ofrecen y se proponen. Un inactivo nunca."""
+        return [r for r in self.rubros if r.activo]
+
+    def rubro_por_codigo(self, codigo: str | None) -> Rubro | None:
+        c = str(codigo or "").strip().lower()
+        return next((r for r in self.rubros if c and r.codigo.strip().lower() == c), None)
+
+    def vigente(self, rubro: Rubro | None) -> Rubro | None:
+        """El rubro que vale hoy: un inactivo se traduce por `reemplazado_por` (§5.4 v1.13). Si
+        el reemplazo no existe, el mismo."""
+        vistos = 0
+        while rubro is not None and not rubro.activo and rubro.reemplazado_por and vistos < 5:
+            nuevo = self.rubro_por_codigo(rubro.reemplazado_por)
+            if nuevo is None:
+                break
+            rubro, vistos = nuevo, vistos + 1
+        return rubro
+
+    def rubro_vigente(self, rubro_1: str | None, rubro_2: str | None) -> Rubro | None:
+        return self.vigente(self.rubro(rubro_1, rubro_2))
 
     def cuenta(self, nombre: str | None, incluir_inactivas: bool = False) -> Cuenta | None:
         """Solo cuentas activas, salvo para leer el pasado: los saldos sí tienen que ver los
@@ -360,8 +392,18 @@ def construir(crudo: dict[str, list[list[str]]]) -> Maestros:
         previo.dual = previo.dual or nuevo.dual
     contratistas = list(por_nombre.values())
 
-    rubros = [Rubro(r.get("rubro_1", ""), r.get("rubro_2", ""), normalizar(r.get("afecta")))
+    rubros = [Rubro(r.get("rubro_1", ""), r.get("rubro_2", ""), normalizar(r.get("afecta")),
+                    str(r.get("codigo") or "").strip(), normalizar(r.get("estado")) != "inactivo",
+                    str(r.get("reemplazado_por") or "").strip())
               for r in _registros(crudo.get("RUBROS", [])) if r.get("rubro_1")]
+    codigos = {r.codigo.lower() for r in rubros if r.codigo}
+    for r in rubros:
+        if not r.activo and not r.reemplazado_por:
+            advertencias.append(f"RUBROS: «{r.rubro_1} / {r.rubro_2}» está inactivo sin «reemplazado_por»: "
+                                f"los movimientos viejos con ese rubro se muestran como están")
+        elif not r.activo and r.reemplazado_por.lower() not in codigos:
+            advertencias.append(f"RUBROS: «{r.rubro_1} / {r.rubro_2}» está reemplazado por «{r.reemplazado_por}», "
+                                f"que no es el código de ningún rubro")
     for c in contratistas:
         if not c.activo:
             continue  # su rubro habitual no se usa: un inactivo no se propone (§5.6)

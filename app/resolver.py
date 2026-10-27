@@ -453,7 +453,7 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
               [c for c in activas if len(n) >= 4 and normalizar(c.nombre).startswith(n)]
     if len(cuentas) == 1:
         exactos.append(Resolucion("cuenta", cuentas[0].nombre, "exacto", token))
-    rubros = [r for r in m.rubros if n == normalizar(r.rubro_2)]
+    rubros = [r for r in m.rubros_activos if n == normalizar(r.rubro_2)]  # §5.4 v1.13: un inactivo nunca
     if len(rubros) == 1:
         exactos.append(Resolucion("rubro", _rubro_valor(rubros[0]), "exacto", token))
 
@@ -474,7 +474,7 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
 
     # 2. Una palabra que identifica a un único contratista o rubro.
     if " " not in n and len(n) >= 3:
-        rubros = [r for r in m.rubros
+        rubros = [r for r in m.rubros_activos
                   if n in set(normalizar(r.rubro_2).split()) - STOPWORDS_RUBRO]
         if len(rubros) == 1:
             return [Resolucion("rubro", _rubro_valor(rubros[0]), "palabra", token, 90)]
@@ -496,7 +496,7 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
             claves.setdefault(normalizar(a.como_lo_dice), ("contratista", _canonico_contratista(m, a.valor_canonico)))
         elif a.tipo == "obra":
             claves.setdefault(normalizar(a.como_lo_dice), ("obra", _canonico_obra(m, a.valor_canonico)))
-    for r in m.rubros:
+    for r in m.rubros_activos:
         claves.setdefault(normalizar(r.rubro_2), ("rubro", _rubro_valor(r)))
     claves.pop("", None)
 
@@ -535,7 +535,9 @@ def escanear(texto: str, m: Maestros, max_palabras: int = 4) -> tuple[list[str],
                 continue
             firmes = [r for r in resolver_token(" ".join(palabras[i:i + k]), m)
                       if (r.categoria == "ambiguo" and r.metodo != "difuso")
-                      or (r.categoria in ("obra", "contratista", "cuenta") and r.metodo in ("alias", "exacto", "palabra"))]
+                      or (r.categoria in ("obra", "contratista", "cuenta") and r.metodo in ("alias", "exacto", "palabra"))
+                      # 27/10: un rubro también («Tucu zinguería»), pero solo exacto o por alias
+                      or (r.categoria == "rubro" and r.metodo in ("alias", "exacto"))]
             if firmes:
                 hallazgos += [Hallazgo(i, i + k, r) for r in firmes]
                 usadas |= set(range(i, i + k))
@@ -598,7 +600,7 @@ def resolver_segmento(seg: Segmento, m: Maestros, incluir_inactivos: bool = Fals
         nuevas = []
         for h in hallazgos:
             r = h.resolucion
-            if r.categoria in ("obra", "contratista", "cuenta") and not seg.primero(r.categoria) \
+            if r.categoria in ("obra", "contratista", "cuenta", "rubro") and not seg.primero(r.categoria) \
                     and all(x.categoria != r.categoria for x in nuevas):
                 nuevas.append(r)
         if n_palabras == 2 and len(nuevas) != 2:
