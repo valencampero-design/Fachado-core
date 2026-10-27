@@ -27,7 +27,9 @@
 | ✅ Post-reunión 6 (M1 a M5) | Desplegado el 9/10: contratista nuevo con alta al confirmar, consulta del saldo de caja, intenciones `anular`/`corregir`. Contratos al final de `docs/handoff-post-reunion6-2026-10-09.md` |
 | ⏳ Cierre de la propuesta (15/10) | Commiteado **sin pushear**: las dos Sofía, «Es nuevo», tc del recibo, consulta `obra`; **conciliación con el banco** (§5.20); **vistas del tablero y CC_<obra>** (§5.21). Detalle, decisiones y orden de deploy al final de `docs/handoff-cierre-propuesta-2026-10-15.md` |
 | ⏳ Semana 8 (20/10), el motor | Commiteado **sin pushear** (M1 a M4): CC_ de todas las obras y de los inmuebles personales; **Mercado Pago y las cuatro cuentas del banco** con traspasos entre cuentas propias, lote en dólares y `GET /conciliar/estado`; saldos de apertura en un paso; `VISTA_OBRAS_MES` y `VISTA_GENERAL`, la guía de Looker para el celular y el cron de vistas paso a paso. Resultado, supuestos y orden de deploy al final de `docs/handoff-semana-8-2026-10-20.md` |
-| ⏳ Fix de la carga (21/10), el motor | Commiteado **sin pushear**, encima de la semana 8 (M1 a M5): rubros según el destino (Austral con los de estructura, combustible del ticket), «¿A qué obra?» con todas las obras y Austral, obra nueva («Minas»), comprobante de MP pagado con débito → Banco, y los ajustes de la conciliación del ensayo de octubre. Resultado, reconstrucción de las fallas y **el orden de deploy de las dos tiradas en una lista** al final de `docs/handoff-fix-carga-2026-10-21.md` |
+| ✅ Semana 8 y fix de la carga | Desplegados (22/10) y terminados el 27/10: rubros de estructura, recarga de maestros y pruebas en producción (final de `docs/handoff-fix-carga-2026-10-21.md`) |
+| ✅ Rubros del estudio (27/10) | La lista oficial (§5.4 v1.13) en RUBROS, el motor y las vistas; desplegado (`d9e6b84`). Mapa para Gabriel en `docs/maestros/mapa-rubros-2026-10-27.md`; resultado al final de `docs/handoff-rubros-tablero-2026-10-27.md` |
+| ⏳ Tablero en Data Studio (ex Looker Studio) | Falta armarlo: la autorización de Sheets la tiene que dar Valen (ventana emergente). Guía: `docs/tablero-looker.md` |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
@@ -86,6 +88,8 @@ scripts/
   recalcular_vistas.py   lo corre el cron de vistas: llama a POST /vistas/recalcular (--simulacro)
   crear_cc_obras.py      escribe las CC_ a mano (simulacro por defecto)
   cargar_saldos_apertura.py  los saldos al 31/10 desde docs/saldos-apertura-31-10.csv (simulacro por defecto)
+  respaldar_hojas.py     copia <HOJA>_bak_<fecha> de hojas del Master antes de una migración, y la verifica
+  probar_extracto.py     cómo lee el motor un extracto nuevo, sin importarlo
   migraciones/           correcciones de datos del maestro, una por fecha, idempotentes
 tests/
   corpus.csv             las 101 filas de la hoja CAPTURA
@@ -227,6 +231,23 @@ Detalle, reconstrucción de las fallas del 20/10 y deploy al final de
     ambiguas se deciden al final del extracto);
   - los saldos se muestran con su signo (`_con_signo`, `consultas.pesos`).
 - Un «4» suelto sin ficha es `intencion = "otro"`.
+
+### Lo del 27/10: los rubros del estudio (v1.13)
+
+Detalle y conteos al final de `docs/handoff-rubros-tablero-2026-10-27.md`.
+
+- **RUBROS** suma `codigo` (1.1, A4.1, R7), `estado` (activo / inactivo) y `reemplazado_por`.
+  La migración `2026_10_27_rubros_estudio.py` lee
+  `docs/maestros/Listado_general_rubros_obra_formato_unificado.xlsx`. Nada se borra.
+- **El motor**: `Maestros.rubros_activos`, `rubro_por_codigo`, `vigente` y `rubro_vigente`.
+  - Un inactivo nunca se ofrece ni se propone (resolver, opciones, prompt del LLM).
+  - Uno viejo (habitual, última vez, LLM, alias, ficha anterior, `/confirmar`) se traduce por
+    `reemplazado_por`.
+  - En las opciones, un nombre repetido va como «rubro_1 / rubro_2».
+- **Las vistas** traducen cada movimiento (`vistas.con_rubro_vigente`) y suman `codigo` y
+  `rubro_general` (en lo personal, «Retiros»). MOVIMIENTOS no se toca.
+- **Migraciones** (`_comun.py`): las celdas van en un `batchUpdate` y las filas nuevas en un
+  `append` por hoja.
 
 ### Endpoints
 
@@ -715,6 +736,15 @@ Llama a `POST /vistas/recalcular`, que reescribe las hojas derivadas:
 Con `{"simulacro": true}` calcula todo y devuelve `{"simulacro": true, "escribiria": {hoja:
 filas}}` sin escribir. Idempotente; nunca toca MOVIMIENTOS.
 
+**Estado al 27/10.** El servicio existe y se llama **«Vistas»** (lo crearon el 22/10 como
+«Fachado-core» y lo renombraron en la rotación). Tiene solo `MOTOR_URL` y `MOTOR_API_KEY` por
+referencia y corre todos los días a las 06:00 UTC; las corridas del 27/10 dieron bien.
+
+**Cuidado con las referencias.** Una variable por referencia (`${{web.MOTOR_API_KEY}}`) se toma
+**al desplegar** el servicio, no en cada corrida. El 26/10 el cron `cierre-semanal` falló con
+401: seguía con su deploy del 22/10, anterior a la rotación del 23/10. Después de rotar una
+clave, hay que redesplegar los crons (o pushear: Railway redespliega los tres servicios).
+
 **El cron del cierre semanal.** Un segundo servicio en Railway, desde el mismo repo, con:
 
 - start command `python scripts/cierre_semanal.py`;
@@ -929,6 +959,17 @@ manda mensajes repetidos** con un segundo de diferencia.
 --aplicar`, CUENTAS fila 9; no tenía movimientos) y el snapshot se regeneró. Los tests fijan
 la caja de Lennon en pesos y los de G la pasan a dólares (`tests/dobles.cuenta_en_moneda`):
 no dependen de la moneda del snapshot.
+
+**Aplicado al 27/10.** Los pasos 1 a 5 de la lista de abajo ya están en el Master (el 21/10, el
+22/10 con el deploy y el 27/10). Y además, el 27/10:
+
+- **Los rubros del estudio**: `preparar_sheet` (RUBROS.codigo, estado, reemplazado_por) y
+  `2026_10_27_rubros_estudio.py --aplicar`. RUBROS queda con 170 filas: 144 activos y 26
+  inactivos. CONTRATISTAS: 14 rubros habituales al nuevo.
+- **Respaldo previo** en el mismo libro: `RUBROS_bak_2026-10-27`, `ALIAS_bak_2026-10-27` y
+  `CONTRATISTAS_bak_2026-10-27`. Se pueden borrar a mano cuando Gabriel confirme el mapa.
+
+Falta el paso 6, el 1/11.
 
 **Pendiente del 15/10** (simulacro por defecto; lo aplica Valen, en este orden):
 

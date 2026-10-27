@@ -1,6 +1,9 @@
 # El tablero en Looker Studio — guía paso a paso
 
-> Para Valen. CONTEXTO-FACHADO.md §5.21 (v1.11, lo que pidió Gabriel). Reescrita el 20/10.
+> Para Valen. CONTEXTO-FACHADO.md §5.21 (v1.11, lo que pidió Gabriel) y §5.4 v1.13 (los rubros
+> del estudio). Reescrita el 20/10; al día el 27/10: **Looker Studio ahora se llama «Data
+> Studio»** (lookerstudio.google.com lleva a datastudio.google.com) y las vistas traen `codigo` y
+> `rubro_general`.
 > El motor deja los datos en hojas `VISTA_*` del Master (y `VISTA_PERSONAL` en «FACHADO —
 > Personal»), que se recalculan solas cada noche. El tablero **solo lee esas hojas**: nunca
 > MOVIMIENTOS. **Sin presupuestos** (etapa posterior). Pensado para el **celular de Gabriel**:
@@ -22,7 +25,16 @@ El personal va en un informe aparte.
 2. El cron nocturno creado en Railway. Los pasos están en `docs/handoff-fachado-core.md`, en
    «El cron de las vistas». Sin el cron, las hojas quedan como estaban el día que las
    escribiste.
-3. Entrá a <https://lookerstudio.google.com> con la cuenta que tiene acceso al Master.
+3. Entrá a <https://lookerstudio.google.com> con la cuenta que tiene acceso al Master
+   (valencampero@gmail.com).
+4. **Las dos autorizaciones de la primera vez** (27/10). Data Studio pide, en una ventana
+   emergente de Google:
+   - «Autoriza la API de Data Studio» al abrirlo: **Continuar**;
+   - al conectar la primera hoja, «Data Studio necesita autorización para conectarse a Hojas
+     de cálculo de Google»: **Autorizar** → elegí la cuenta → **Permitir**.
+
+   Se hacen una sola vez por cuenta. Si el navegador bloquea las ventanas emergentes, permitilas
+   para datastudio.google.com.
 
 ## 1 · Las fuentes de datos (una por hoja)
 
@@ -61,7 +73,7 @@ Repetí los ocho pasos con cada hoja.
 | | `aportes_comitente`, `pagado_con_plata_del_estudio`, `pagado_por_el_comitente`, `saldo`, `ejecutado_total_ars`, `ventas`, `capital_propio_inmovilizado` | Moneda (ARS) | Suma |
 | | `caja_ingresado`, `caja_pagado`, `caja_por_rendir`, `ejecutado_usd_sin_convertir` | Número (pueden estar en dólares: la caja de Lennon) | Suma |
 | | `ultimo_movimiento` | Fecha | — |
-| **VISTA_RUBROS** | `mes`, `obra`, `rubro_1`, `rubro_2`, `tipo_gasto` | Texto | — |
+| **VISTA_RUBROS** | `mes`, `obra`, `rubro_1`, `rubro_2`, `tipo_gasto`, `codigo`, `rubro_general` | Texto | — |
 | | `mes_fecha` | Fecha | — |
 | | `importe_ars` | Moneda (ARS) | Suma |
 | | `importe_usd_sin_convertir`, `cantidad` | Número | Suma |
@@ -73,7 +85,11 @@ Repetí los ocho pasos con cada hoja.
 | | `comprobante_url` | **URL** | — |
 | | `importe_ars` | Moneda (ARS) | Suma |
 | | `importe`, `tc` | Número | Suma |
-| | el resto (`id_mov`, `mes`, `tipo`, `obra`, `etapa`, `contratista`, `item`, `rubro_*`, `tipo_gasto`, `cuenta`, `quien_pago`, `moneda`, `descripcion`, `cargado_por`, `estado_conc`) | Texto | — |
+| | el resto (`id_mov`, `mes`, `tipo`, `obra`, `etapa`, `contratista`, `item`, `rubro_*`, `tipo_gasto`, `cuenta`, `quien_pago`, `moneda`, `descripcion`, `cargado_por`, `estado_conc`, `codigo`, `rubro_general`) | Texto | — |
+| **VISTA_PERSONAL** (libro personal) | `mes`, `rubro_1`, `rubro_2`, `destino`, `codigo`, `rubro_general` | Texto | — |
+| | `mes_fecha` | Fecha | — |
+| | `importe_ars` | Moneda (ARS) | Suma |
+| | `cantidad` | Número | Suma |
 
 Tres reglas que valen para todas las fuentes:
 
@@ -85,6 +101,12 @@ Tres reglas que valen para todas las fuentes:
   («2026-10») queda como texto, para las tablas.
 - **Pesos y dólares nunca se suman.** Lo que está en dólares sin convertir va en columnas
   aparte (`*_usd_*`), en sus propias tarjetas.
+- **Los rubros son los de la lista del estudio** (§5.4 v1.13). Un movimiento cargado con un
+  rubro viejo (por ejemplo «Mano de obra › Contratistas») aparece con el nuevo (2.1 Contratista
+  principal), porque el motor lo traduce al armar las vistas. `codigo` es el de la lista (1.1,
+  A4.1, R7); `rubro_general` es el rubro general (Materiales, Mano de obra, Asesorías externas…;
+  en lo personal, «Retiros»). Los rubros viejos que siguen a confirmar con Gabriel no tienen
+  código.
 
 ## 2 · El informe del estudio
 
@@ -172,7 +194,8 @@ En las tarjetas siguientes, el mismo botón **Agregar un filtro** ya muestra «H
 2. **Lo pagado por rubro, en barras horizontales**: **Gráfico de barras** (el de barras
    acostadas; el de barras paradas se llama «Gráfico de columnas»):
    - fuente **VISTA_RUBROS**;
-   - dimensión `rubro_2` (o `rubro_1` para ver más agrupado);
+   - dimensión `rubro_general` y, debajo, `rubro_2`; en Configuración, activá **Desglose**
+     (drill down): el gráfico muestra los rubros generales y, con un clic en una barra, el detalle;
    - métrica `importe_ars`;
    - en Configuración, **Ordenar** por `importe_ars` descendente;
    - en Estilo, **10 barras**.
@@ -239,14 +262,16 @@ ajustá el alto hasta que no quede espacio en blanco abajo.
 
 1. Una fuente nueva, igual que en el punto 1, desde **«FACHADO — Personal»**, hoja
    **`VISTA_PERSONAL`**:
-   - `mes`, `rubro_1`, `rubro_2` y `destino`: Texto;
+   - `mes`, `rubro_1`, `rubro_2`, `destino`, `codigo` y `rubro_general`: Texto;
+   - `mes_fecha`: Fecha;
    - `importe_ars`: Moneda (ARS);
    - `cantidad`: Número.
 2. **Crear** e **Informe**, con esa fuente. Mismo lienzo de 400 px. Nombre: «Fachado —
    Personal».
-3. Tres gráficos:
+3. Tres gráficos, con el título **«Retiros»** (es el rubro general de todo lo personal:
+   `rubro_general` = «Retiros»; en el maestro sigue llamándose «Personal»):
    - un **Gráfico de barras** por `rubro_2`, métrica `importe_ars`;
-   - una **Tabla** por `mes`;
+   - un **Gráfico de columnas** por `mes_fecha`, con desglose por `rubro_2` (los retiros por mes);
    - una **Tabla** por `destino` (los inmuebles: Sur, Abucoque, Belelli, Gessel).
 4. **Compartirlo solo con quien tiene `ve_personal`** (§5.13, §5.14). Nunca agregar esta
    fuente al informe del estudio.
