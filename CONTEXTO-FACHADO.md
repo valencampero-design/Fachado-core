@@ -8,7 +8,7 @@ que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico 
 - `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
   clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.12 · 21 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.13 · 27 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -144,6 +144,30 @@ Código, no prompt. Se evalúa en orden, gana la primera que matchea, y la ficha
 **«Retiro» manda siempre.** `Electricidad Angostura/Retiro` es material eléctrico para su
 casa, no una obra sin imputar. El proveedor se conserva para poder separar, dentro de su
 cuenta, lo de obra de lo personal.
+
+**Los rubros** *(definido 27/10)*. La lista oficial es la que armó el estudio en
+«Listado general de rubros de obra — formato unificado» (en `fachado-core/docs/maestros/`).
+Tiene tres hojas:
+
+- **Rubros de obra**: seis rubros generales (Materiales, Mano de obra, Servicios, Asesoría,
+  Indirectos, Varios), cada uno con su detalle y su código (1.1, 2.3…).
+- **Austral**: los gastos del estudio (Servicios, Impuestos, Sueldos, Asesorías externas,
+  Contratados, Insumos, Gastos corrientes, Colegio de Arquitectos, Alquiler, Inversión,
+  Impuestos y ART), con su detalle.
+- **Retiros**: lo personal (Consumos, Salud y prepaga, Club y deporte, Casa, Casa de Buenos
+  Aires, Autos, Súper, Tarjetas, Educación). En el maestro el rubro general sigue llamándose
+  `Personal`, para que la regla R3 no cambie; en el tablero se muestra como «Retiros».
+
+Reglas para pasarla al maestro:
+- **Nada se borra.** Un rubro viejo que no está en la lista nueva pasa a `inactivo`, con el
+  rubro nuevo que lo reemplaza.
+- **MOVIMIENTOS no se reescribe** (es append-only). El tablero y las cuentas corrientes muestran
+  todo con la lista nueva, traduciendo los rubros viejos.
+- **Los rubros viejos sin equivalente claro** siguen activos y quedan para confirmar con
+  Gabriel. Entre ellos, Combustible y Gastos generales de Austral (21/10), los gastos bancarios
+  y `Personal › Familia`.
+- El código de cada rubro (1.1, 2.3…) queda en el maestro: es la base del presupuesto por obra
+  de una etapa futura.
 
 ### 5.5 · Resolver primero con diccionario, después con LLM
 
