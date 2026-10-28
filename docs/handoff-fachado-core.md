@@ -260,7 +260,7 @@ Detalle y conteos al final de `docs/handoff-rubros-tablero-2026-10-27.md`.
 | `POST /anular` | El contraasiento de §5.19, en el mismo libro que la original |
 | `POST /cierre-semanal` | Escribe las líneas semanales de gastos personales. Idempotente. Lo dispara el cron |
 | `POST /consultar` | Las tres preguntas del arquitecto. Solo lee |
-| `POST /maestros/recargar` | Relee el Sheet y devuelve las advertencias |
+| `POST /maestros/recargar` | Relee el Sheet y devuelve las advertencias. Si el Sheet no responde, 503 con el error y `copia_leida_en`: el motor sigue con la copia anterior (desde el 28/10) |
 | `POST /conciliar/extracto` | Importa un extracto (Excel del banco o PDF de Mercado Pago) a BANCO_RAW, concilia y devuelve resumen, lotes y pendientes. Solo escribe BANCO_RAW y `id_banco`/`estado_conc` |
 | `GET /conciliar/pendientes` | Lo que falta conciliar: líneas, traspasos y lotes. Solo lee |
 | `POST /conciliar/lote` | Carga un lote (gastos bancarios, MeLi); con `tipo_cambio` si es en dólares |

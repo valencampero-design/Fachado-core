@@ -905,6 +905,28 @@ async def _correr() -> int:
             _maestros._leer_crudo = original
             _maestros.cargar(forzar=True)
 
+        # ── 28/10 · /maestros/recargar con el Sheet caído ───────────────────
+        print("\n28/10 · /maestros/recargar dice cuando sigue con la copia en caché")
+        antes = len(_maestros.cargar().rubros)
+
+        def sheet_caido():
+            raise RuntimeError("el Sheet no responde (clave test-local)")
+        _maestros._leer_crudo = sheet_caido
+        try:
+            r = await cli.post("/maestros/recargar")
+            detalle = r.json().get("detail", {})
+            check("con el Sheet caído, /maestros/recargar da 503 con el error y desde cuándo es la copia",
+                  r.status_code == 503 and "no responde" in detalle.get("error", "")
+                  and detalle.get("copia_leida_en"), r.text[:300])
+            check("… el error sale sin secretos (la MOTOR_API_KEY redactada)", "test-local" not in r.text, r.text[:300])
+            check("… y el motor sigue con la copia anterior", len(_maestros.cargar().rubros) == antes)
+        finally:
+            _maestros._leer_crudo = original
+        r = await cli.post("/maestros/recargar")
+        check("con el Sheet de vuelta, /maestros/recargar da 200 y se borra el error",
+              r.status_code == 200 and r.json().get("rubros") == antes and not _maestros.cargar().error_recarga,
+              r.text[:200])
+
         # ── 27/10 · la lista de rubros del estudio (§5.4 v1.13) ─────────────
         print("\n27/10 · una ficha con un rubro viejo se escribe con el nuevo")
         libro, _ = preparar()

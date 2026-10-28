@@ -6,6 +6,7 @@ permite probar el parser sin ensuciar el libro.
 """
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
@@ -94,8 +95,15 @@ def post_interpretar(req: InterpretarIn, libro: Libro = Depends(obtener_libro),
 
 @app.post("/maestros/recargar", dependencies=[Depends(verificar_api_key)])
 def post_recargar_maestros() -> dict:
-    """Fuerza la relectura del Sheet (por ejemplo, después de cargar un alias nuevo)."""
+    """Fuerza la relectura del Sheet (por ejemplo, después de cargar un alias nuevo). Si el
+    Sheet no responde, el motor sigue con la copia anterior, pero esto devuelve 503: quien
+    recarga tiene que saber que lo que acaba de cambiar todavía no se ve."""
     m = maestros.cargar(forzar=True)
+    if m.error_recarga:
+        leido = datetime.fromtimestamp(m.leido_en, timezone.utc).isoformat(timespec="seconds")
+        raise HTTPException(status_code=503, detail={
+            "detalle": "No se pudo leer el Sheet: el motor sigue con la copia anterior",
+            "error": m.error_recarga, "copia_leida_en": leido})
     return {"obras": len(m.obras), "contratistas": len(m.contratistas), "rubros": len(m.rubros),
             "cuentas": len(m.cuentas), "alias": len(m.alias), "usuarios": len(m.usuarios),
             "advertencias": m.advertencias}

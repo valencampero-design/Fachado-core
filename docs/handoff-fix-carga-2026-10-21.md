@@ -575,8 +575,8 @@ No se pudieron probar desde la PC:
 Se ven la primera vez que Gabriel o Petrus carguen.
 
 **Pendiente:**
-- `/maestros/recargar` debería decir cuando no pudo leer el Sheet y sigue con la copia en
-  caché, en vez de devolver 200 con los datos viejos;
+- ~~`/maestros/recargar` debería decir cuando no pudo leer el Sheet y sigue con la copia en
+  caché~~ hecho el 28/10: devuelve 503 con el error y desde cuándo es la copia;
 - Looker (paso 10);
 - el 1/11, los saldos de apertura (paso 11);
 - los temas para la reunión, arriba.

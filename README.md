@@ -23,7 +23,7 @@ cp .env.example .env    # completar
 | `POST /anular` | el contraasiento de una fila confirmada (§5.19); un traspaso se anula entero |
 | `POST /cierre-semanal` | la línea semanal de gastos personales en el libro del estudio. Idempotente |
 | `POST /consultar` | pagos a un contratista, gasto por obra, certificaciones: números + texto para WhatsApp |
-| `POST /maestros/recargar` | fuerza la relectura del Sheet |
+| `POST /maestros/recargar` | fuerza la relectura del Sheet; 503 si no pudo leerlo y sigue con la copia anterior |
 
 Todos menos `/salud` piden `X-API-Key: $MOTOR_API_KEY`. El contrato completo está en
 `docs/handoff-fachado-core.md` §2.

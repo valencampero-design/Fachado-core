@@ -212,6 +212,10 @@ class Maestros:
     etapas: list[Etapa] = field(default_factory=list)
     cargado_en: float = field(default_factory=time.time)
     advertencias: list[str] = field(default_factory=list)
+    # cargado_en se corre cuando el Sheet falla (para no reintentar en cada request); leido_en
+    # es cuándo se leyó de verdad. error_recarga: por qué falló el último intento, o vacío.
+    leido_en: float = field(default_factory=time.time)
+    error_recarga: str = ""
 
     def etapas_de(self, obra: str | None) -> list[str]:
         """Todas las etapas de la obra, en cualquier estado, en el orden del Sheet. Vacía = la
@@ -543,10 +547,13 @@ def cargar(forzar: bool = False) -> Maestros:
                 _cache = construir(_leer_crudo())
                 logger.info("Maestros cargados: %d obras, %d contratistas, %d rubros, %d alias",
                             len(_cache.obras), len(_cache.contratistas), len(_cache.rubros), len(_cache.alias))
-            except Exception:
+            except Exception as e:
                 if _cache is None:
                     raise
-                # Si el Sheet no responde, seguir con la última copia buena.
+                # Si el Sheet no responde, seguir con la última copia buena, y dejarlo anotado:
+                # /maestros/recargar lo devuelve como error en vez de un 200 con datos viejos.
                 logger.exception("No se pudieron recargar los maestros; se usa la copia en caché")
+                from app.seguridad import redactar
+                _cache.error_recarga = redactar(f"{type(e).__name__}: {e}")[:300]
                 _cache.cargado_en = time.time()
         return _cache
