@@ -48,6 +48,26 @@ los pasos de abajo:
 - **Personal**: «Retiros por mes» usa `mes` y va apilado por `rubro_2`. En «Retiros por destino»,
   `null` es lo que no tiene inmueble.
 
+**Retoques de la tarde del 28/10** (capturas en `docs/tablero/capturas/2026-10-28/`):
+
+- **Tema**: «Acentuado» en los dos informes, con encabezados de tabla oscuros. El fondo de la
+  cabecera de cada página no tomó el color oscuro, así que quedó como estaba.
+- **Tortas por rubro** (anillo, con el porcentaje de cada rubro):
+  - en «Visión general», «En qué se fue la plata, por rubro (obras y estudio)», con
+    `rubro_general` de VISTA_RUBROS y todas las obras;
+  - al final de «Por obra», «Reparto por rubro de la obra elegida»: es la misma torta, pero la
+    filtra el selector de obra;
+  - en el personal, «Reparto de los retiros por rubro».
+- **Tarjetas de la visión general**: los importes van en números compactos ($ 7,49 M).
+- **Nombres legibles**: se renombraron los campos en las fuentes (Semáforo, Último movimiento,
+  Capital propio, Caja por rendir, Importe, Rubro, Rubro general, Contratista, Pagado, Pagos,
+  Ingresos, Saldo acumulado, Fecha, Moneda, Quién pagó, Comprobante, Destino, Mes). Los nombres
+  de la tabla de arriba son los originales: en Data Studio aparecen así. **`obra` no se
+  renombró**, porque el selector filtra las otras fuentes por ese nombre.
+- **Semáforo**: los vacíos se ven como «-» en vez de «null».
+- **La torta de la visión general muestra un 21,5 % «Sin rubro»**: son los movimientos cargados
+  sin rubro (ver `docs/revision-datos-2026-10-28.md`). Se va a achicar a medida que se completen.
+
 ---
 
 ## 0 · Antes de empezar
