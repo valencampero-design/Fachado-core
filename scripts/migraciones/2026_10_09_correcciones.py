@@ -33,6 +33,9 @@ correrlo con `--aplicar` no duplica nada.
     python scripts/migraciones/2026_10_09_correcciones.py --con-ingreso-usd  (simulacro, con el 1)
     python scripts/migraciones/2026_10_09_correcciones.py --tc-m000005 1450  (simulacro, con el 5)
     python scripts/migraciones/2026_10_09_correcciones.py --aplicar [--con-ingreso-usd] [--tc-m000005 N]
+
+Con `--solo M-000001,M-000008,M-000010` corre solo esas (por ejemplo, las de Lennon). Si no hay
+ningún P- entre ellas, no hace falta FACHADO_PERSONAL_SHEET_ID.
 """
 import argparse
 import asyncio
@@ -135,10 +138,16 @@ async def correr(args) -> int:
     simular_usd = caja.moneda != "USD"
     if simular_usd and args.aplicar:
         sys.exit(f"«{CAJA}» sigue en {caja.moneda}: correr antes scripts/migraciones/2026_10_09_caja_lennon_usd.py --aplicar")
-    if not s.personal_sheet_id:
+    solo = {x.strip().upper() for x in args.solo.split(",")} if args.solo else None
+    correcciones = [c for c in CORRECCIONES if solo is None or c.id_mov in solo]
+    if solo and (faltan := solo - {c.id_mov for c in CORRECCIONES}):
+        sys.exit(f"--solo: {', '.join(sorted(faltan))} no están entre las correcciones del 9/10")
+    con_personal = any(c.id_mov.startswith("P-") for c in correcciones)
+    if con_personal and not s.personal_sheet_id:
         sys.exit("Falta FACHADO_PERSONAL_SHEET_ID: P-000001/4/5 están en el libro personal")
 
-    estudio_real, personal_real = LibroSheets(), LibroSheets(s.personal_sheet_id)
+    estudio_real = LibroSheets()
+    personal_real = LibroSheets(s.personal_sheet_id) if con_personal else None
     if args.aplicar:
         from app.main import obtener_archivador
         estudio, personal, archivador = estudio_real, personal_real, obtener_archivador()
@@ -146,6 +155,8 @@ async def correr(args) -> int:
         from tests.dobles import ArchivadorFalso, LibroMemoria
 
         def copia(lib):
+            if lib is None:
+                return None
             filas = lib.leer_movimientos()
             memoria = LibroMemoria(filas[0])
             memoria.filas = [list(f) for f in filas]
@@ -167,7 +178,7 @@ async def correr(args) -> int:
         else:
             print("\n1 · Ingreso de USD 20.000: no se carga (falta que Gabriel lo confirme; usar --con-ingreso-usd)")
         print("\n2, 4 y 5 · Contraasientos y recargas")
-        for c in CORRECCIONES:
+        for c in correcciones:
             if c.pide_tc and not args.tc_m000005:
                 print(f"  · {c.id_mov}: no se toca (falta el tc: --tc-m000005, lo confirma Valen)")
                 continue
@@ -232,6 +243,7 @@ def main() -> int:
                     help="el tipo de cambio de M-000005 (U$S 400 del 3/10), confirmado por Valen")
     ap.add_argument("--con-ingreso-usd", action="store_true",
                     help="cargar también el ingreso de USD 20.000 del 28/09 (solo si Gabriel lo confirmó)")
+    ap.add_argument("--solo", metavar="IDS", help="solo estas correcciones, separadas por coma (M-000001,M-000008)")
     return asyncio.run(correr(ap.parse_args()))
 
 

@@ -912,7 +912,15 @@ manda mensajes repetidos** con un segundo de diferencia.
 - [ ] **La muestra real del PDF de Mercado Pago** (`Archivos Muestra/Muestra 3/`): el parser
       está hecho contra un formato armado; cuando llegue, ajustarlo (`test_conciliar` la lee
       sola si está).
-- [ ] **Las correcciones del 9/10**, después de que Gabriel conteste las preguntas 1 a 3 del
+- [x] **Las de Lennon, aplicadas el 28/10** (Valen decidió «caja de obra» para la pregunta
+      abierta 1): `--solo M-000001,M-000008,M-000010 --aplicar`. Las anulaciones son
+      M-000034/36/38 y las recargas, contra «Caja obra Lennon» con el tc de cada recibo,
+      M-000035/37/39. La caja quedó con US$ 20.000 ingresados (el adelanto ya estaba cargado),
+      US$ 9.000,66 pagados y US$ 10.999,34 por rendir. Lennon pasó de $ 15,1 M a $ 1,48 M de
+      capital propio y sigue en rojo por M-000013 ($ 3 M desde Banco, que según la revisión del
+      28/10 probablemente pagó Lennon directo). Los comprobantes no se movieron de carpeta en
+      Drive, porque el token OAuth local está vencido; los links siguen andando.
+- [ ] **El resto de las correcciones del 9/10** (M-000005 y P-000001/4/5), después de que Gabriel conteste las preguntas 1 a 3 del
       guion del 9/10, y con el tc de M-000005 confirmado por Valen (preguntas abiertas 1 y 2 del
       handoff del 9/10 antes): `FACHADO_PERSONAL_SHEET_ID` en el entorno y
       `scripts/migraciones/2026_10_09_correcciones.py --aplicar`, con `--con-ingreso-usd`
