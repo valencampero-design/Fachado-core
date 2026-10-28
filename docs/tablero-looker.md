@@ -12,6 +12,42 @@
 El informe del estudio tiene tres páginas: **Visión general**, **Por obra** y **Proveedores**.
 El personal va en un informe aparte.
 
+## Cómo quedó (28/10)
+
+Los dos informes están armados con valencampero@gmail.com y **no están compartidos** (ver el
+punto 4):
+
+- «Fachado — Tablero del estudio»:
+  <https://datastudio.google.com/reporting/2c7984bd-2bae-4e34-a492-b48a9bf2fd73>;
+- «Fachado — Personal»:
+  <https://datastudio.google.com/reporting/d9779551-7295-4456-9f76-589fc0777da9>.
+
+Las capturas en 400 px están en `docs/tablero/capturas/2026-10-27/`. Lo que quedó distinto de
+los pasos de abajo:
+
+- **Las fuentes** conservan el nombre que les pone Data Studio («FACHADO - Gestion de Obras -
+  VISTA_GENERAL»). Usan las credenciales del propietario, que es lo que pide el punto 4.
+- **El tamaño**: en vez del lienzo de 400 px, los dos informes usan **Diseño adaptable**. En el
+  celular las tarjetas van de a dos por fila y el resto en una columna.
+- **Visión general**:
+  - la tabla del semáforo va debajo de los saldos y antes de las cajas de obra;
+  - no hay tarjeta de `diferencia_libro_banco_ars` ni tabla de `ultimo_extracto`: esas
+    columnas están vacías hasta los saldos de apertura del 1/11 y Data Studio no crea campos
+    para columnas vacías. Después del 1/11: fuente VISTA_GENERAL → **Actualizar campos** y se
+    agregan con el punto 5 de la página 1;
+  - tampoco están la tabla `obras_en_*_lista` (la del semáforo ya lo muestra por obra) ni la
+    serie de evolución (era opcional).
+- **Por obra**:
+  - el selector arranca en **Lennon**;
+  - el gráfico de ingresos y pagos usa `mes` (texto, ordenado de menor a mayor) en lugar de
+    `mes_fecha`: las etiquetas se leen mejor;
+  - el detalle muestra `comprobante_url` como link entero, sin el campo «ver»;
+  - no hay tarjetas de ingresos y pagos en dólares sin convertir.
+- **Proveedores**: el período es el control de la cabecera (todas las fechas, no «Este año»).
+  Los selectores de obra y de contratista van arriba, y lo pagado por mes es en barras.
+- **Personal**: «Retiros por mes» usa `mes` y va apilado por `rubro_2`. En «Retiros por destino»,
+  `null` es lo que no tiene inmueble.
+
 ---
 
 ## 0 · Antes de empezar

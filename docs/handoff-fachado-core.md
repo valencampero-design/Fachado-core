@@ -29,7 +29,7 @@
 | ⏳ Semana 8 (20/10), el motor | Commiteado **sin pushear** (M1 a M4): CC_ de todas las obras y de los inmuebles personales; **Mercado Pago y las cuatro cuentas del banco** con traspasos entre cuentas propias, lote en dólares y `GET /conciliar/estado`; saldos de apertura en un paso; `VISTA_OBRAS_MES` y `VISTA_GENERAL`, la guía de Looker para el celular y el cron de vistas paso a paso. Resultado, supuestos y orden de deploy al final de `docs/handoff-semana-8-2026-10-20.md` |
 | ✅ Semana 8 y fix de la carga | Desplegados (22/10) y terminados el 27/10: rubros de estructura, recarga de maestros y pruebas en producción (final de `docs/handoff-fix-carga-2026-10-21.md`) |
 | ✅ Rubros del estudio (27/10) | La lista oficial (§5.4 v1.13) en RUBROS, el motor y las vistas; desplegado (`d9e6b84`). Mapa para Gabriel en `docs/maestros/mapa-rubros-2026-10-27.md`; resultado al final de `docs/handoff-rubros-tablero-2026-10-27.md` |
-| ⏳ Tablero en Data Studio (ex Looker Studio) | Falta armarlo: la autorización de Sheets la tiene que dar Valen (ventana emergente). Guía: `docs/tablero-looker.md` |
+| ✅ Tablero en Data Studio (ex Looker Studio) | Armado el 28/10: «Fachado — Tablero del estudio» (3 páginas) y «Fachado — Personal», sin compartir. Links y diferencias con la guía en `docs/tablero-looker.md` («Cómo quedó (28/10)») |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |

@@ -154,17 +154,20 @@ que pide §5.21 y corregís la guía.
 
 Una línea por tema; la opción que tomé es la conservadora.
 
-- **El tablero quedó sin armar**:
-  - Data Studio (así se llama ahora Looker Studio) pidió «Autorizar» el acceso a Google Sheets
-    en una **ventana emergente de Google**;
-  - Claude in Chrome no la puede manejar (queda fuera de sus pestañas) y no le busqué la vuelta:
-    es un permiso de tu cuenta;
-  - **Hacé vos**: lookerstudio.google.com → **Crear** → **Informe** → **Hojas de cálculo de
-    Google** → **Autorizar** → valencampero@gmail.com → **Permitir**. Después cerrá el informe
-    en blanco sin guardarlo;
-  - con eso, una sesión nueva arma los dos informes siguiendo `docs/tablero-looker.md` (ya al
-    día con los rubros nuevos);
-  - la «Autoriza la API de Data Studio» del arranque sí la acepté (Continuar), con tu cuenta.
+- **El tablero (28/10)**: lo armé después de que autorizaste Sheets en Data Studio. Los dos
+  informes **no están compartidos con nadie**; compartirlos es tuyo:
+  - «Fachado — Tablero del estudio»:
+    <https://datastudio.google.com/reporting/2c7984bd-2bae-4e34-a492-b48a9bf2fd73>. Compartir →
+    Gabriel y Petrus como «Lector»;
+  - «Fachado — Personal»:
+    <https://datastudio.google.com/reporting/d9779551-7295-4456-9f76-589fc0777da9>. Solo con
+    Gabriel. Es el «Informe sin título» que creaste al autorizar: lo usé para no dejar uno vacío;
+  - las fuentes usan **tus credenciales** (las de quien las creó), así que quien mire no necesita
+    acceso al Sheet. Si un día ves «sin acceso», es eso;
+  - lo que quedó distinto de la guía está en `docs/tablero-looker.md`, en «Cómo quedó (28/10)».
+    Lo principal: falta la tarjeta de diferencia contra el banco (las columnas están vacías hasta
+    los saldos de apertura del 1/11; después, «Actualizar campos» en la fuente VISTA_GENERAL y
+    se agrega).
 - **El cierre semanal del lunes 26/10 falló** (401, clave del motor vieja):
   - el cron seguía con su deploy del 22/10, anterior a la rotación;
   - con el push de hoy Railway lo redesplegó y ya tiene la clave nueva;
@@ -249,7 +252,7 @@ Una línea por tema; la opción que tomé es la conservadora.
 | **1** | `d9e6b84` | Aplicada en el Master con respaldo; `scripts/respaldar_hojas.py`; migraciones en lote; snapshot regenerado |
 | **1** | (deploy) | Push y deploy de `web` (Railway, `d9e6b84`), `/salud` y `/salud/auth` ok, `/maestros/recargar` con 170 rubros. En producción: «Austral/contador» → Asesorías externas › Contador; «Moreno/Tucu zinguería» → Materiales › Zinguería; «Retiro/súper» → Personal › Súper; «Austral/Mathias» → la lista de Austral |
 | **2** | — | El cron «Vistas» ya existía, sin cambios; corrida a mano, con 26 hojas al día |
-| **3** | — | **Sin hacer**: la autorización de Sheets en Data Studio la tiene que dar Valen (ver «Para Valen») |
+| **3** | — | Hecho el 28/10, después de que Valen autorizó Sheets en Data Studio: 8 fuentes, los dos informes y 5 capturas en 400 px (ver «Los informes») |
 | **4** | (este commit) | `docs/handoff-fachado-core.md` y `docs/tablero-looker.md` al día; este resultado |
 
 **La migración** (`scripts/migraciones/2026_10_27_rubros_estudio.py`).
@@ -305,15 +308,32 @@ Todas «Actualizado: 27/10/2026 20:28».
 
 ### Los informes
 
-**No hay links**: los informes no se crearon (ver abajo).
+Armados el 28/10 (el 27/10 faltaba la autorización de Sheets, que dio Valen). **Ninguno está
+compartido.**
+
+| Informe | Link | Páginas |
+|---|---|---|
+| Fachado — Tablero del estudio | <https://datastudio.google.com/reporting/2c7984bd-2bae-4e34-a492-b48a9bf2fd73> | Visión general, Por obra, Proveedores |
+| Fachado — Personal | <https://datastudio.google.com/reporting/d9779551-7295-4456-9f76-589fc0777da9> | Retiros |
+
+- **Fuentes**: una por hoja, 8 en total (las 7 `VISTA_*` del Master y `VISTA_PERSONAL`), con
+  los importes como Moneda (ARS o USD), `comprobante_url` como URL y `saldo` de VISTA_SALDOS en
+  promedio. El informe del estudio no tiene `VISTA_PERSONAL`.
+- **Diseño adaptable** en los dos: en el celular, las tarjetas van de a dos y el resto en una
+  columna.
+- **Capturas** en 400 px de ancho, en `docs/tablero/capturas/2026-10-27/`: visión general,
+  por obra (arriba y abajo), proveedores y personal.
+- **Comprobado con datos**: Lennon da $11,1 M de mano de obra y $6,1 M de materiales, sale en
+  rojo con $15,1 M de capital propio, y el selector de obra filtra los gráficos de todas las
+  fuentes.
+- Lo que quedó distinto de la guía, en `docs/tablero-looker.md` («Cómo quedó (28/10)»).
 
 ### Lo que no se pudo y por qué
 
-- **La parte 3, el tablero en Data Studio, y por lo tanto sus capturas y links.** Data Studio
-  pide autorizar el acceso a Google Sheets en una ventana emergente de Google, fuera de las
-  pestañas que maneja Claude in Chrome. No se puede completar sin un clic de Valen, y no es algo
-  para resolver por otro camino: es un permiso de su cuenta. La guía (`docs/tablero-looker.md`)
-  quedó al día para armarlo apenas esté la autorización.
+- **La tarjeta de diferencia contra el banco y la tabla de `ultimo_extracto`**: esas tres
+  columnas de VISTA_GENERAL están vacías hasta los saldos de apertura del 1/11, y Data Studio no
+  crea campos para columnas vacías. Después: fuente VISTA_GENERAL → «Actualizar campos» y se
+  agregan.
 - **Crear las fuentes por URL (Linking API)** no sirve sin un informe plantilla: Data Studio
   responde «ds0 no es un alias de fuente de datos válido». Queda anotado en la guía.
 - **No toqué** MOVIMIENTOS ni el libro personal (salvo `VISTA_*` y `CC_*`), `CONCILIACION_DESDE`
