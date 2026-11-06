@@ -920,6 +920,11 @@ manda mensajes repetidos** con un segundo de diferencia.
       capital propio y sigue en rojo por M-000013 ($ 3 M desde Banco, que según la revisión del
       28/10 probablemente pagó Lennon directo). Los comprobantes no se movieron de carpeta en
       Drive, porque el token OAuth local está vencido; los links siguen andando.
+- [x] **M-000013, aplicada el 6/11** (Valen confirmó que lo pagó Lennon directo):
+      `scripts/migraciones/2026_11_06_lennon_m000013.py --aplicar`. M-000046 lo anula y
+      M-000047 lo recarga contra «Pagado por el comitente». Lennon quedó **en verde**: el estudio
+      pagó $ 553.000, el comitente $ 3.000.000 directo y aportó $ 2.144.066, con saldo
+      +$ 1.591.066 y capital propio en $ 0. La caja sigue con US$ 10.999,34 por rendir.
 - [ ] **El resto de las correcciones del 9/10** (M-000005 y P-000001/4/5), después de que Gabriel conteste las preguntas 1 a 3 del
       guion del 9/10, y con el tc de M-000005 confirmado por Valen (preguntas abiertas 1 y 2 del
       handoff del 9/10 antes): `FACHADO_PERSONAL_SHEET_ID` en el entorno y
