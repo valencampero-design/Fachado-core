@@ -250,8 +250,8 @@ def _saldos_banco_por_dia(banco: list[dict], m: Maestros) -> dict[str, list[tupl
         if x.get("saldo") in ("", None) or not x.get("cuenta_banco"):
             continue
         cuenta = cuenta_de_linea(x, m)
-        if cuenta is None:
-            continue
+        if cuenta is None or cuenta.es_personal:
+            continue  # §5.20 v1.14: la CA 48 no es del estudio
         clave = (str(x.get("fecha"))[:10], str(x.get("importado_ts") or ""), -int(numero(x.get("orden"))))
         salida.setdefault(cuenta.nombre, []).append((clave[0], x["cuenta_banco"], clave, numero(x.get("saldo"))))
     for lista in salida.values():

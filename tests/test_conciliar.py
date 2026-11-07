@@ -533,6 +533,14 @@ async def _correr() -> int:
             pend = (await cli.get("/conciliar/pendientes", params={"telefono": titular.telefono})).json()
             check("… y el retiro ya no está pendiente", not [p for p in pend["pendientes"] if p["tipo"] == "retiro"],
                   [(p["tipo"], p["texto"]) for p in pend["pendientes"]])
+        from app.conciliar import resumen as resumen_banco
+        viejas = [{"hash_id": "c" * 64, "fecha": "2026-10-16", "descripcion": "X", "debito": 1, "credito": "",
+                   "saldo": 1844628.72, "estado": "ANTERIOR", "cuenta_banco": "CA $ 48-69556582-001", "moneda": "ARS",
+                   "orden": 0, "importado_ts": "2026-10-17 15:30:00", "origen": "banco_patagonia"}]
+        rb = resumen_banco(viejas, [], m)
+        check("el resumen contra el banco no suma lo de la CA 48 que quedó en BANCO_RAW (ni como cuenta ni en el total)",
+              "Banco personal (CA 48)" not in [c["cuenta"] for c in rb["por_cuenta"]] and rb["saldo_banco"] == 0,
+              rb)
         os.environ["CONCILIACION_DESDE"] = "2026-10-01"
         estudio2, personal2 = LibroMemoria(encabezado), LibroMemoria(encabezado)
         montar(estudio2, personal2)

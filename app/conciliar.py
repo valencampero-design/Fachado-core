@@ -511,8 +511,8 @@ def resumen(banco: list[dict], movs: list[dict], m: Maestros) -> dict:
         grupos[banco_ars.nombre] = {"cuenta": banco_ars, "banco": {}}
     for k, (saldo, fecha, moneda, origen) in saldos.items():
         cuenta = cuenta_de_linea({"cuenta_banco": k, "moneda": moneda, "origen": origen}, m)
-        if cuenta is None:
-            continue
+        if cuenta is None or cuenta.es_personal:
+            continue  # §5.20 v1.14: lo de la CA 48 que quedó en BANCO_RAW no es del estudio
         grupos.setdefault(cuenta.nombre, {"cuenta": cuenta, "banco": {}})["banco"][k] = (saldo, fecha)
     por_cuenta = []
     for nombre, g in grupos.items():
