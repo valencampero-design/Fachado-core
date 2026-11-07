@@ -514,7 +514,7 @@ a una pregunta pendiente.
   - **Por obra**: un selector de obra arriba, lo pagado por rubro en barras, ingresos contra pagos por mes, los proveedores principales y el detalle con link al comprobante.
   - **Proveedores**: el ranking y la evolución de lo pagado.
 - **Lo personal tiene su propio tablero** («Retiros»), que solo ven las personas habilitadas.
-- Valen te comparte los links. *(A la fecha de este manual todavía no están compartidos.)*
+- El link del tablero del estudio (lo compartió Valen el 6/11): <https://datastudio.google.com/reporting/2c7984bd-2bae-4e34-a492-b48a9bf2fd73>. Si te pide permiso, avisale a Valen.
 
 ### Mensajes que te puede mandar el bot
 
@@ -667,7 +667,7 @@ Lo que quedó a confirmar o donde el código y la spec (`CONTEXTO-FACHADO.md` v1
 9. **Corregir un certificado**: no se puede (CERTIFICADOS no tiene número de movimiento y anular es solo para movimientos). Si alguien carga mal un certificado, hoy no tiene cómo arreglarlo por el bot.
 10. **Series de certificados de Moreno** («cert.pintura», «certificado 18 obra»): el sistema las trata como números distintos; falta definir si son series.
 11. **Correcciones del 9/10 sin correr**: los pagos de Lennon contra Efectivo (unos $ 13,6 M) y M-000005 (US$ 400 cargado en pesos). Mientras tanto, **Lennon aparece en rojo en el tablero** con unos $ 15 M de capital propio. Conviene correrlas antes de compartir el tablero.
-12. **El tablero**: los dos informes no están compartidos todavía; falta la tarjeta de diferencia contra el banco (después del 1/11, «Actualizar campos» en la fuente VISTA_GENERAL). El «capital propio inmovilizado» está a validar con Gabriel. Cuando se compartan, sumar los links al manual.
+12. **El tablero**: el del estudio está compartido con Gabriel y Petrus desde el 6/11; falta la tarjeta de diferencia contra el banco (después del 1/11, «Actualizar campos» en la fuente VISTA_GENERAL). El «capital propio inmovilizado» está a validar con Gabriel. Cuando se compartan, sumar los links al manual.
 13. **Reporte de Mercado Pago**: el lector del PDF está armado contra un formato supuesto; falta la muestra real. Puede que el primer reporte no se reconozca.
 14. **Lennon con una transferencia sin el CUIT del comitente legible**: hoy va a Banco (el comprobante le gana a la obra). ¿Debería ir a «Pagado por el comitente»?
 15. **`al_dia` del pedido de extractos**: una cuenta sin movimientos en la semana figura como faltante aunque Petrus mande el extracto.

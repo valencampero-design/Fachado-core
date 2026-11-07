@@ -14,7 +14,7 @@ El personal va en un informe aparte.
 
 ## Cómo quedó (28/10)
 
-Los dos informes están armados con valencampero@gmail.com y **no están compartidos** (ver el
+Los dos informes están armados con valencampero@gmail.com. **El del estudio lo compartió Valen con Gabriel y Petrus el 6/11**; el personal, solo con quien diga Valen (ver el
 punto 4):
 
 - «Fachado — Tablero del estudio»:
