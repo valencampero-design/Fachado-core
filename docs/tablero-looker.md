@@ -68,6 +68,64 @@ los pasos de abajo:
 - **La torta de la visión general muestra un 21,5 % «Sin rubro»**: son los movimientos cargados
   sin rubro (ver `docs/revision-datos-2026-10-28.md`). Se va a achicar a medida que se completen.
 
+**Lo del 7/11: más interactivo** (lo pidió Gabriel en la reunión del 6/11; capturas en celular en
+`docs/tablero/capturas/2026-11-07/`):
+
+- **Filtro cruzado** (en la interfaz en español se llama **«Multifiltro»**: el gráfico →
+  Configuración → abajo de todo, «Gráficos interactivos» → Multifiltro) **prendido en todos los
+  gráficos y tablas** de los dos informes. Estaba apagado en todos.
+- **Controles arriba de cada página**, en filas propias debajo del título (en el celular quedan
+  apilados, antes de los números):
+
+  | Página | Controles |
+  |---|---|
+  | Visión general | período (ya estaba), obra, contratista, rubro general, cuenta |
+  | Por obra | período y obra (ya estaban), contratista, rubro general |
+  | Proveedores | período, obra y contratista (ya estaban) |
+  | Personal | período (ya estaba), rubro, destino |
+
+  Los controles filtran **todas las fuentes de la página** que tengan ese campo con el mismo
+  nombre (verificado: «obra = Gessel» deja el semáforo y los movimientos solo en Gessel). El
+  período arranca en «Período automático», que es todo.
+- **Visión general**: tabla nueva al final, **«Movimientos (tocá una fila para filtrar)»**, de
+  VISTA_DETALLE (cuenta, fecha, obra, contratista, importe). Sin ella, los controles de contratista
+  y de cuenta no tenían nada que filtrar en esa página.
+- **Desglose** (drill down) **Rubro general → Rubro** (`rubro_general` → `rubro_2`) en la torta de
+  la visión general, en las barras y en la torta de «Por obra». En el celular: mantener apretada
+  la barra (en la compu, clic derecho) → **«Desglosar información»**; para volver,
+  **«Agregar información»**. En el personal no hace falta: el rubro general es siempre «Retiros» y
+  los gráficos ya van por rubro.
+- **Botón «Restablecer filtros»** en cada página (Añadir un control → Botón → Acciones de
+  informes → **Borrar filtros**; ojo: la acción que viene por defecto es «Invitar a usuarios»).
+  Además, arriba a la derecha queda el «Restablecer» de Data Studio.
+- **Gessel y Belelli** aparecen en el selector de obra y en el semáforo del estudio (y en sus CC del
+  Master), y ya no en el personal. No hizo falta «Actualizar campos»: las vistas no cambiaron de
+  columnas.
+
+**Cómo se usa el filtro cruzado** (y lo que no hace):
+
+- Tocás una barra, una porción de la torta, una fila de una tabla: el resto de la página se filtra
+  a eso. Tocás lo mismo otra vez (o **Restablecer filtros**) para volver.
+- **Entre fuentes distintas filtra solo si la otra fuente tiene todos los campos del gráfico que
+  tocaste.** Probado el 7/11:
+  - en «Por obra», tocar «Materiales» en las barras filtra la torta **y** el detalle (las dos
+    tienen `rubro_general`);
+  - en «Proveedores», tocar un proveedor filtra la evolución;
+  - en el personal todo usa la misma fuente: tocar «Familia» filtra todo;
+  - **en la Visión general, tocar una obra del semáforo filtra solo el semáforo**: esa tabla tiene
+    tres dimensiones (obra, semáforo, último movimiento) y la de movimientos no tiene las dos
+    últimas. Para filtrar esa página por obra, el control de obra de arriba. Está en «Para Valen»
+    del handoff del 6/11, con la forma de resolverlo.
+- El control de rubro general de «Por obra» dice `rubro_general` (el campo de VISTA_DETALLE no
+  está renombrado); filtra igual.
+
+**Párrafo para el manual** (ya está en `docs/manual-usuarios.md`, «El tablero»): *«Tocá una barra
+para filtrar.* En cualquier gráfico o tabla, tocá un rubro, una obra o un proveedor y el resto de la
+página se filtra a eso. Tocalo otra vez, o el botón Restablecer filtros, para volver a ver todo.
+Arriba de cada página hay filtros: período, obra, rubro, contratista (y cuenta en la visión
+general). En las barras y la torta de rubros, mantené apretado un rubro y elegí «Desglosar
+información» para ver su detalle.»
+
 ---
 
 ## 0 · Antes de empezar

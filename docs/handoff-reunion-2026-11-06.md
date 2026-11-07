@@ -210,4 +210,167 @@ Lo que pidió Gabriel: **hacer clic en los gráficos y filtrar**. En los dos inf
 
 ## Para Valen
 
+Lo que necesita tu decisión. En cada caso quedó tomada la opción más conservadora; nada de esto
+bloqueó el resto.
+
+1. **P-000001 no se movió a Moreno** (contradice M2.1, a propósito). El comprobante (en Drive,
+   `P-000001 Tucu $184.000…`) es una transferencia de **$ 184.000 a «FACHADO, SOFIA»** (CUIT
+   27-47181632-4) **desde la CA 48**, concepto «Varios», y el extracto de la 48 tiene esa misma línea
+   el 30/09. En CAPTURA, el mensaje original es «Sofi/Varios»; el «Tucu/Moreno» que llegó después
+   era el texto de **otra** imagen, la transferencia de **$ 200.000 a Orellana del 28/09**, que ya
+   está cargada como **M-000020** (Moreno · Marcelo Orellana). Pasarla al estudio cargaría a Moreno
+   (obra de terceros) un pago a la hija. **Quedó como está.** Propuesta: corregirla dentro del
+   libro personal (contraasiento y una fila nueva con Sofía Fachado, Personal › Familia, sin obra),
+   con un script de una corrida; la dejo lista si la aprobás. Mientras tanto, «Moreno» sigue
+   apareciendo como destino en el tablero personal.
+2. **Filas personales dudosas, sin mover** (M2.2):
+   - **P-000018** · 16/10 · $ 350.000 · Nacho Sanitarista · «Mano de obra › Especialistas» · sin
+     obra (cargó Petrus). Propuesta: preguntarle a Gabriel la obra; si es de una obra, mismo pase
+     que Gessel/Belelli.
+   - **P-000006** · 09/10 · $ 80.000 · el comprobante dice «FACHADO, SOFIA» y el contratista quedó
+     **Sofía Cervera** (es de la hija; Familia está bien). Propuesta: contraasiento y recarga con
+     Sofía Fachado en el personal.
+   - **P-000003** (01/10, Camuzzi, $ 237.101,98) y **P-000013** (15/10, EPEN, $ 411.022,46):
+     personales sin obra con rubro de obra («Servicios públicos»). Gonzalo y Hua Huan pagan Camuzzi
+     y EPEN desde el estudio; estos pueden ser de una casa o de una obra. Preguntar.
+   - **El script del 9/10 (`2026_10_09_correcciones.py`) no debe correrse para los P-**: P-000004 y
+     P-000005 ya están anulados por el pase, y su corrección de P-000001 ponía «Sofia Cervera»,
+     que según §7 v1.10 es incorrecto.
+3. **Supuestos de la CA 48** (§5.7 v1.14, anotados como pidió M3.2):
+   - un retiro **de Petrus** sin cuenta de origen va a **Banco (supuesto)**, como hasta ahora; uno
+     **de Gabriel**, desde el 1/11, a **Banco personal (CA 48) (supuesto)**;
+   - en el extracto de la 273, una **«TRANSFERENCIA ELECTRONICA» sin destinatario** desde el 1/11 se
+     toma como el pase a la 48 (es como aparecían los pases entre la 273 y la 48 en octubre). Si
+     Gabriel tuviera otra cuenta propia en el mismo banco, habría que distinguirla;
+   - la fecha de corte vive en `fecha_apertura` de la cuenta (2026-11-01): cambiarla ahí, sin deploy.
+4. **P-000010 (ahora M-000050) no tiene contratista**: el original tampoco (el ítem es «GRANJERI
+   ROBERTO OSCAR»). Lo dejé igual. Propuesta: dar de alta a Granjeri en CONTRATISTAS (Materiales ›
+   pisos); no lo hice porque CONTRATISTAS no estaba entre las hojas autorizadas.
+5. **Rubros «a confirmar» que quedaron como estaban** en las filas nuevas (sin código en la lista
+   del estudio): «Servicios públicos › Metrogas» (M-000048), «Servicios públicos › Agua» de Edesur
+   (M-000049, pregunta abierta desde el 9/10) y «Materiales › pisos» (M-000050). El medio de pago de
+   M-000048/49 quedó «Otro», igual que el original (la corrección a «Mercado Pago» del 9/10 nunca se
+   aplicó).
+6. **Tablero: el semáforo de la Visión general no filtra el resto de la página al tocarlo.** El
+   filtro cruzado de Data Studio entre fuentes distintas solo funciona si la otra fuente tiene todos
+   los campos del gráfico, y la tabla del semáforo tiene obra + semáforo + último movimiento. El
+   resto anda (barras ↔ torta ↔ detalle en «Por obra», proveedores ↔ evolución, todo el personal) y
+   el control de obra filtra la página entera. Opciones: dejarlo así (tomada), o sacar «Semáforo» y
+   «Último movimiento» de las dimensiones de esa tabla (perdería el color por fila). También: en
+   «Proveedores» no agregué el control de rubro general (VISTA_PROVEEDORES no tiene rubro: no
+   filtraría nada), y el control de rubro de «Por obra» se lee `rubro_general`.
+7. **Drive**: el token OAuth local sigue vencido (`invalid_grant`), así que los tres comprobantes
+   los moví y renombré con el conector de Drive de tu cuenta. Las carpetas nuevas
+   `comprobantes/Gessel/2026-08` y `comprobantes/Belelli/2026-10` las creó esa otra app: el motor
+   (con `drive.file`) puede no verlas y crear otra «Gessel»/«Belelli» la próxima vez que archive ahí.
+   Propuesta: regenerar el token (`scripts/get_google_token.py`) y, si aparece una carpeta doble,
+   juntarlas.
+8. **Push del gateway**: en `chatbot-contable` había un commit tuyo local sin pushear de hoy
+   (`dc8565a`, docs de Belakay, solo documentación). Salió junto con el mío.
+9. **Revisión en el celular**: la ventana de Chrome está maximizada y no se pudo achicar; las
+   capturas son del informe con la página limitada a 420 px de ancho (el diseño adaptable responde
+   igual), no de un teléfono. Conviene mirarlo una vez en el celular de Gabriel.
+
 ## Resultado
+
+*7/11/2026, en el orden de la parte 4.* Todo aplicado y desplegado, salvo lo de «Para Valen».
+
+### Filas movidas (M1.2 y M2)
+
+| Original (personal) | Fecha | Importe | Obra | Fila nueva (estudio) | Contraasiento (personal) | Ajuste del cierre semanal |
+|---|---|---|---|---|---|---|
+| **P-000004** · Metro Gas | 08/10 | $ 6.692,55 | Belelli | **M-000048** (vínculo P-000024) | **P-000024** (anula P-000004) | **M-000052** · 2026-W41 · Mercado Pago · INGRESO **$ 38.667,30** (P-000004 + P-000005; baja M-000018) |
+| **P-000005** · Edesur | 08/10 | $ 31.974,75 | Belelli | **M-000049** (vínculo P-000025) | **P-000025** (anula P-000005) | **M-000052** (el mismo) |
+| **P-000010** · Granjeri | 31/08 | $ 1.440.740,00 | Gessel | **M-000050** (vínculo P-000026) | **P-000026** (anula P-000010) | **M-000051** · 2026-W36 · Banco · INGRESO **$ 1.440.740** (baja M-000026) |
+| P-000001 · «Tucu» | 30/09 | $ 184.000,00 | Moreno | — no se movió (Para Valen 1) | — | — |
+
+- Simulacro antes de cada `--aplicar`, con el mismo resultado; la segunda corrida no escribe nada.
+- El cierre semanal se corrió en simulacro sobre copias de los dos libros (2 filas, las de la
+  tabla; una segunda corrida, 0) y después en producción (`POST /cierre-semanal` 2026-W44): escribió
+  exactamente M-000051 y M-000052, sin avisos. Una nueva llamada no escribe nada.
+- Comprobantes movidos y renombrados (el link no cambia): `comprobantes/Belelli/2026-10/M-000048
+  Metro Gas $6.692,55.jpg`, `…/M-000049 Edesur $31.974,75.jpg` y `comprobantes/Gessel/2026-08/
+  M-000050 GRANJERI ROBERTO OSCAR $1.440.740.jpg`.
+- Saldo del estudio: sin cambio neto (cada fila nueva del estudio se compensa con su ajuste).
+
+### Maestros (M3.1, M1.1)
+
+- **Respaldos** (antes de tocar nada): `OBRAS_bak_2026-11-07`, `CUENTAS_bak_2026-11-07` y
+  `ALIAS_bak_2026-11-07` en el Master; `CC_GESSEL_bak_2026-11-07` y `CC_BELELLI_bak_2026-11-07` en el
+  personal; MOVIMIENTOS y BANCO_RAW del Master y MOVIMIENTOS y VISTA_PERSONAL del personal, a
+  archivo en `A&C/Fachado/respaldos/2026-11-07/` (fuera de los repos), verificados contra el Sheet.
+- `2026_11_07_cuenta_48.py --aplicar`: **CUENTAS** +1 fila («Banco personal (CA 48)»: personal, ARS,
+  no concilia, `fecha_apertura` 2026-11-01, `cuentas_banco` CA $ 48-69556582-001) y 1 celda (la 48
+  sale de `Banco.cuentas_banco`).
+- `2026_11_07_gessel_belelli.py --aplicar`: **OBRAS** 4 celdas (Gessel y Belelli → `obra_propia`,
+  con la nota del 6/11; servicio y comitente ya estaban) y **ALIAS** +1 (`gesell` → Gessel;
+  `belleli` y `gessel` ya estaban).
+- `/maestros/recargar` en producción: 17 obras, 16 cuentas, 54 alias; solo las advertencias de
+  siempre.
+
+### Código
+
+- **Motor** (`fachado-core`, `d9a8040` y `a81d79c`): R1 v1.14; ninguna ficha con obra del estudio
+  en el libro personal (cascada y 422 en `/confirmar`; P-000001 reproducido en `test_casos`); la CA
+  48 (cuenta de origen del comprobante, supuesto para Gabriel, cierre semanal, extracto ignorado,
+  retiro en la conciliación, resumen contra el banco sin la 48); CC_ viejas del personal borradas
+  por `recalcular`; migraciones, script del pase y respaldo a archivo. Detalle en
+  `docs/handoff-fachado-core.md` («Lo del 7/11»).
+- **Gateway** (`chatbot-contable`, `a785895`): el extracto de la 48 se avisa y no cuenta como
+  importado; tests del retiro a la 48 con Confirmar y del pedido con tres extractos + Mercado Pago
+  (sin rótulos fijos). `docs/handoff-fachado.md` §14.
+- **Tests**: motor — reglas 25, casos 265, confirmar 182, conciliar 75, vistas 56, apertura 17,
+  seguridad 21: todo OK. Gateway — obras, pedido de extractos, HENSEL, alertas, caché, canonize,
+  respuesta, lunes y seguridad: todo OK.
+- **La métrica** (corpus de siempre, contra el snapshot):
+
+  | | Antes | Después |
+  |---|---|---|
+  | Obra / contratista / las dos sin preguntar | 90 % · 86 % · 76 % | 90 % · 86 % · 76 % |
+  | Con las preguntas de diseño | 90 % | 90 % |
+  | Necesitaron LLM | 6/55 | 6/55 |
+  | Preguntas por movimiento (todos · con obra + contratista + comprobante) | 1,57 · 1,26 | 1,56 · 1,21 |
+  | Casos obligatorios | 5/6 («Austral/Sofi» esperaba la pregunta de dual de antes del 15/10) | 6/6 (expectativa al día con §7 v1.10) |
+  | Invariantes | 0 · 0 | 0 · 0 |
+
+### Deploy
+
+- Push de los dos repos a `main`; Railway desplegó `web`, `Vistas` y `cierre-semanal` del motor
+  (15:01 y, con el arreglo del resumen, 15:07) y el gateway (15:01). `/salud` del motor y del
+  gateway: ok.
+- En producción, con `/interpretar` (no escribe): «Retiro/Gessel 50000» → Gessel, obra, con «Gessel
+  es una obra propia: lo cargo en el estudio»; «Belleli/Metrogas» y «Gesell/Granjeri» → obra;
+  «Retiro/Sofi» de Gabriel → Banco personal (CA 48) (supuesto), de Petrus → Banco;
+  `/conciliar/estado` → «Me faltan: CA $, CC $, CA U$S y Mercado Pago».
+
+### Vistas y cuentas corrientes (M1.5)
+
+- `POST /vistas/recalcular` en simulacro y después aplicado: **CC_GESSEL** ($ 1.440.740) y
+  **CC_BELELLI** ($ 38.667,30) en el Master, con el semáforo; **borradas del personal** las dos
+  viejas (quedan sus `_bak_`). VISTA_PERSONAL sin Gessel ni Belelli (destinos: sin destino,
+  Abucoque y Moreno por P-000001). El cron de la noche las vuelve a escribir igual.
+
+### El tablero (parte 3)
+
+- Multifiltro en todos los gráficos y tablas de los dos informes; controles arriba de cada página;
+  desglose Rubro general → Rubro en barras y tortas; botón «Restablecer filtros» en cada página;
+  tabla «Movimientos» nueva en la Visión general. Probado en modo lectura (controles entre fuentes,
+  clic en barras, desglose, restablecer). Detalle y límites en `docs/tablero-looker.md` («Lo del
+  7/11»); capturas en `docs/tablero/capturas/2026-11-07/`. Los permisos de los informes no se
+  tocaron.
+
+### Lo que no se pudo hacer
+
+- Mover P-000001 (no correspondía: Para Valen 1).
+- Que el semáforo de la Visión general filtre la página al tocarlo (Para Valen 6).
+- Mirarlo en un teléfono de verdad (Para Valen 9).
+- Mover los comprobantes con el motor (token local vencido: Para Valen 7).
+
+### Links
+
+- Tablero del estudio: <https://datastudio.google.com/reporting/2c7984bd-2bae-4e34-a492-b48a9bf2fd73>
+- Tablero personal: <https://datastudio.google.com/reporting/d9779551-7295-4456-9f76-589fc0777da9>
+- Master: <https://docs.google.com/spreadsheets/d/1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A>
+- Libro personal: <https://docs.google.com/spreadsheets/d/1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY>
+- Repos: <https://github.com/valencampero-design/Fachado-core> ·
+  <https://github.com/valencampero-design/chatbot-contable>
