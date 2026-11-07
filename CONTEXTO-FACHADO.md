@@ -8,7 +8,7 @@ que hacer el sistema y por qué. Vive en tres lugares y tiene que ser idéntico 
 - `chatbot-contable/docs/clientes/fachado/CONTEXTO-FACHADO.md` — ese repo atiende a **cinco
   clientes**, así que lo de Fachado vive en su carpeta, no en la raíz.
 
-**Versión 1.13 · 27 de octubre de 2026.** Si estás leyendo una copia con fecha anterior a
+**Versión 1.14 · 7 de noviembre de 2026.** Si estás leyendo una copia con fecha anterior a
 la del proyecto, está vieja: pedí la actualizada antes de tomar decisiones de modelo.
 
 ---
@@ -133,7 +133,7 @@ Código, no prompt. Se evalúa en orden, gana la primera que matchea, y la ficha
 
 | # | Condición | Resultado |
 |---|---|---|
-| R1 | Aparece `retiro`, `casa`, `particular`, o una obra con `tipo = personal` | **personal.** Señal fuerte: le gana a cualquier contratista de obra. El contratista se conserva |
+| R1 | Aparece `retiro`, `casa`, `particular`, o una obra con `tipo = personal` | **personal.** Señal fuerte: le gana a cualquier contratista de obra. El contratista se conserva. **Excepción** *(6/11)*: si el mensaje nombra una **obra propia** (Gessel, Belelli, Gonzalo…), va a esa obra aunque diga «Retiro», y la ficha lo avisa |
 | R2 | El contratista está marcado DUAL | Pregunta: ¿obra o personal? |
 | R3 | El rubro resuelto es `Personal › …` | **personal** |
 | R4 | Hay obra identificada | El `tipo` de esa obra |
@@ -231,6 +231,20 @@ queda inactivo en `CONTRATISTAS` justamente por esto: su lugar es `medio_pago`.
 
 Con tramos en pesos y en dólares. Caja de ahorro y cuenta corriente son una división
 operativa del banco. **La conciliación es global.**
+
+**La caja de ahorro en pesos 48 pasa a ser personal** *(definido 6/11, reunión del 6/11)*.
+Desde el 1/11 Gabriel la usa para **sus gastos personales**, y las otras cuentas quedan para el
+estudio:
+- La cuenta **`Banco`** del estudio son la caja de ahorro y la cuenta corriente en pesos 273
+  (más `Banco USD`). La 48 es otra cuenta, **`Banco personal (CA 48)`**, que vive solo en el
+  libro personal: **no concilia**, no lleva saldo de apertura y no entra en el cierre semanal.
+- **Lo que el estudio le pasa a la 48 es un retiro de Gabriel**: sale del estudio como gasto
+  personal. En el extracto del estudio aparece como transferencia a la 48 y se carga así, sin
+  preguntar a qué obra.
+- **Los gastos que Gabriel paga desde la 48 se siguen cargando por el bot** con «Retiro», como
+  siempre: van al libro personal con la cuenta `Banco personal (CA 48)`. Son el detalle de lo
+  que retiró: no se cuentan otra vez como salida del estudio.
+- El extracto de la 48 **no se manda**. Si llega, no se pregunta nada por él.
 
 **«Personal» no es una cuenta, es una clasificación.** La plata sale del mismo banco. En
 cambio **el efectivo sí es una cuenta**: sacar del cajero es `TRASPASO`, no un gasto.
@@ -503,13 +517,19 @@ administración va a pasar por él, a través del bot.** Hasta acá todo el dise
   tablero**. Solo lo ven los usuarios con `ve_personal = sí`.
 - Para cerrar la caja del estudio, **una vez por semana** se escribe en el libro del estudio
   **una línea «Gastos personales · semana N» por cuenta** (Banco, Efectivo…) que resume todo
-  lo personal de esa semana. El estudio ve cuánto salió, no en qué.
+  lo personal de esa semana. El estudio ve cuánto salió, no en qué. Lo pagado desde
+  `Banco personal (CA 48)` no entra: esa plata ya salió del estudio con el retiro (§5.7).
 - Esa línea **no concilia contra el banco**: el banco se cruza contra las filas del libro
   personal, una por una. Si concilia la línea resumen, se cuenta dos veces.
 - Consecuencia a tener en cuenta: el saldo del estudio **va hasta una semana atrasado** en
   lo personal, hasta que se escribe la línea semanal.
 - Los maestros (obras, contratistas, rubros, alias) son **uno solo** y viven en el archivo
   del estudio. El libro personal no tiene maestros propios.
+
+**Un gasto de obra cargado como personal se pasa al estudio** *(6/11)*: en el tablero personal
+apareció una línea de Moreno (el pago a Tucu del 30/09, cargado como «Personal › Familia»). Lo
+que en el libro personal tenga una obra del estudio se anula ahí y se carga en el estudio, con
+su ajuste en el cierre semanal.
 
 ### 5.15 · Etapas de obra
 
@@ -599,10 +619,10 @@ una fuente de errores y pasa a ser el detector de lo que no se cargó.
   primer mes que se cierra contra el banco**. Nada anterior al 1/11 se concilia.
 - **El extracto entra por el bot, y lo manda Petrus** *(reunión 7, 15/10)*. **El bot se lo
   pide una vez por semana**, y Petrus le manda los archivos directo por WhatsApp. Son
-  **cuatro extractos del banco, todos del estudio**: dos cajas de ahorro en pesos, una caja
-  de ahorro en dólares y una cuenta corriente en pesos (una de las cajas en pesos está a
-  nombre de Gabriel, pero es del estudio). **Más el reporte de Mercado Pago, que se baja en
-  PDF.** Se concilia todo junto (§5.7). Los extractos se superponen; una línea ya importada
+  **tres extractos del banco** *(desde el 6/11)*: la caja de ahorro y la cuenta corriente en
+  pesos 273 y la caja de ahorro en dólares. La caja de ahorro en pesos 48 pasó a ser la
+  cuenta personal de Gabriel y su extracto no se manda (§5.7). **Más el reporte de Mercado
+  Pago, que se baja en PDF.** Se concilia todo junto (§5.7). Los extractos se superponen; una línea ya importada
   no se duplica.
 - **Las preguntas de lo no identificado se las hace a Petrus**, que es quien manda el
   extracto, de a una.
@@ -681,11 +701,15 @@ evolución de lo pagado).
 | Grigera Galpón | obra_propia | todo | El arquitecto |
 | **Tres Cerros** | obra_propia | **todo** | El arquitecto |
 | Austral | estructura | — | Indirectos del estudio |
-| Sur · Abucoque · Belelli · Gessel | personal | — | Inmuebles personales. Gessel se sumó el 29/09; «Belleli» es otra forma de escribir Belelli |
+| **Gessel** | obra_propia | todo | El arquitecto · *era inmueble personal hasta el 6/11*. «Gesell» es otra forma de escribirlo |
+| **Belelli** | obra_propia | todo | El arquitecto · *era inmueble personal hasta el 6/11*. «Belleli» es otra forma de escribirlo |
+| Sur · Abucoque | personal | — | Inmuebles personales |
 | Jardín Maternal | obra_terceros | administración | **cerrada** · obra de referencia |
 
-**Las cuatro obras propias —Gonzalo, Hua Huan, Grigera Galpón y Tres Cerros— son
-inversiones**, no consumo. El costo se sigue como **capital inmovilizado** y el resultado se
+**Las obras propias —Gonzalo, Hua Huan, Grigera Galpón, Tres Cerros y, desde el 6/11,
+Gessel y Belelli— son inversiones**, no consumo. Gessel y Belelli dejan el libro personal
+*(reunión del 6/11)*: lo ya cargado de ellas pasa al libro del estudio (se anula en el
+personal y se carga en el estudio, sin editar filas), con su cuenta corriente en el estudio. El costo se sigue como **capital inmovilizado** y el resultado se
 mide contra la venta. No van al circuito personal, y se quedan en el libro del estudio, no en el libro
 personal (§5.14; confirmado 29/09).
 

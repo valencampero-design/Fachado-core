@@ -44,7 +44,7 @@ RUBRO_COMBUSTIBLE = ("Estructura del estudio", "Combustible")
 # El medio de pago que corresponde a una cuenta cuando nadie lo dijo (§5.7). «Pagado por el
 # comitente» no está: cómo pagó el comitente no se sabe.
 MEDIO_POR_TIPO_DE_CUENTA = {"banco": "Transferencia", "efectivo": "Efectivo", "caja_obra": "Efectivo",
-                            "chequera": "Cheque", "billetera": "Mercado Pago"}
+                            "chequera": "Cheque", "billetera": "Mercado Pago", "personal": "Transferencia"}
 # §5.8 v1.8: respuestas a «¿A qué tipo de cambio?» cuando la cuenta está en dólares.
 RE_SIN_CONVERSION = re.compile(r"\b(?:dolar(?:es)?|usd|no hay|sin tipo|sin tc|no se convierte)\b")
 
@@ -81,6 +81,42 @@ def _cuenta_del_comprobante(comp, obra, moneda: str | None, m: Maestros):
     if "transferencia" in medio or "debito" in medio:
         return _cuenta_de_tipo(m, "banco", moneda)
     return None
+
+
+def _cuenta_personal(campos: dict, origen: dict, advertencias: list[str], comp, req: InterpretarIn,
+                     m: Maestros, s: Settings, poner) -> None:
+    """§5.7 v1.14 (reunión del 6/11): la caja de ahorro 48 es la cuenta personal de Gabriel desde
+    su fecha de corte (`fecha_apertura` de «Banco personal (CA 48)»). En un gasto personal que
+    salió del banco en pesos —y que el usuario no dijo de qué cuenta—:
+
+    1. Si el comprobante dice la cuenta de origen: la 48 → `Banco personal (CA 48)`; otra →
+       queda `Banco`.
+    2. Si no se sabe y lo carga Gabriel (el titular), desde la fecha de corte: la 48, marcada
+       «supuesto».
+    3. Si lo carga Petrus: `Banco`, como hasta ahora (supuesto anotado para Valen)."""
+    cuenta = m.cuenta(campos.get("cuenta"))
+    if cuenta is None or cuenta.tipo != "banco" or cuenta.moneda != "ARS" or origen.get("cuenta") == "texto":
+        return
+    personales = m.cuentas_personales()
+    if not personales:
+        return
+    origen_cta = getattr(comp, "cuenta_origen", None) if comp is not None else None
+    if origen_cta:
+        personal = m.cuenta_personal_de(origen_cta)
+        if personal:
+            poner("cuenta", personal.nombre, "comprobante")
+            advertencias[:] = [a for a in advertencias if not a.startswith("Cuenta asumida")]
+        return
+    usuario = m.usuario(req.telefono)
+    if usuario is None or normalizar(usuario.rol) != "titular" or len(personales) != 1:
+        return
+    personal = personales[0]
+    fecha = campos.get("fecha") or (f.isoformat() if (f := _fecha_local(req, s)) else None)
+    if personal.fecha_apertura and (not fecha or str(fecha)[:10] < personal.fecha_apertura):
+        return
+    poner("cuenta", personal.nombre, "supuesto")
+    advertencias[:] = [a for a in advertencias if not a.startswith("Cuenta asumida")]
+    advertencias.append(f"Cuenta asumida: {personal.nombre}")
 
 
 def _decidir_etapa(obra, pedida: str | None, ya: str | None, extras: dict, m: Maestros
@@ -991,6 +1027,14 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
                                       opciones=["Reactivar", "Es otro"], motivo="inactivo"))
     if obra:
         poner("comitente", obra.comitente, "maestro")
+    # §5.4 R1 v1.14 (6/11): una obra propia nombrada le gana a «Retiro». Desde acá el gasto es
+    # del lado obra (el rubro, la cascada), y la ficha lo avisa.
+    propia_gana_a_retiro = marcador_personal and obra is not None and obra.tipo == "obra_propia"
+    if propia_gana_a_retiro:
+        advertencias.append(f"{obra.nombre} es una obra propia: lo cargo en el estudio")
+        marcador_personal = False
+        if semilla and semilla.get("clasificacion") == "personal":
+            semilla = {**semilla, "clasificacion": None}
 
     # El rubro (§5.12 v1.8): el habitual del contratista; si no tiene, el de la última vez que se
     # le pagó (origen «supuesto»: Gabriel lo ve y lo corrige); si no, el que sugiera el LLM.
@@ -1031,7 +1075,9 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
         poner("rubro_2", rubro.rubro_2, origen.get("rubro_2", "inferido"))
 
     # ── 5. Cascada de clasificación (código, no LLM) ──────────────────────────
-    res = clasificador.clasificar(m, tipo, obra, contratista, rubro, marcador_personal)
+    # Con una obra propia y «Retiro», la cascada recibe el «Retiro» para que la regla diga por qué
+    # va al estudio (R1, excepción v1.14).
+    res = clasificador.clasificar(m, tipo, obra, contratista, rubro, marcador_personal or propia_gana_a_retiro)
     if semilla and semilla.get("clasificacion") == "obra" and res.preguntar == "clasificacion":
         # El usuario contestó «Obra» (no personal) a la pregunta de un dual (R2): sigue la
         # cascada como si no fuera dual. Con obra, manda su tipo (R4): Austral es estructura.
@@ -1181,6 +1227,9 @@ def _armar(seg: Segmento, comp, req: InterpretarIn, m: Maestros, s: Settings, di
                 if not campos["medio_pago"]:
                     poner("medio_pago", "Transferencia", "supuesto")
                 advertencias.append(f"Cuenta asumida: {banco.nombre}")
+    # §5.7 v1.14 (6/11): desde el 1/11 Gabriel paga lo personal desde la CA 48.
+    if res.clasificacion == "personal" and tipo == "EGRESO":
+        _cuenta_personal(campos, origen, advertencias, comp, req, m, s, poner)
     # El medio de pago que corresponde a la cuenta, si nadie lo dijo.
     cuenta_elegida = m.cuenta(campos["cuenta"])
     if cuenta_elegida and not campos["medio_pago"] and tipo in ("INGRESO", "EGRESO"):

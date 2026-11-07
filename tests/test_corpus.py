@@ -101,7 +101,9 @@ def _p(resp, campo):
 
 CASOS = {
     "Felipe J/Lennon": lambda r, f: f["campos"]["obra"] == "Lennon" and f["campos"]["contratista"] == "Felipe Andrés Scherer",
-    "Austral/Sofi": lambda r, f: f["campos"]["obra"] == "Austral" and f["campos"]["contratista"] == "Sofia Cervera" and _p(r, "clasificacion"),
+    # §7 v1.10 (15/10): con Austral, «Sofi» es Sofía Cervera, estructura del estudio, sin preguntar (antes era dual).
+    "Austral/Sofi": lambda r, f: f["campos"]["obra"] == "Austral" and f["campos"]["contratista"] == "Sofia Cervera"
+                                 and f["campos"]["tipo_gasto"] == "estructura" and not _p(r, "clasificacion"),
     "Retiro/club/cuota 3 esquí": lambda r, f: f["campos"]["tipo_gasto"] == "personal" and f["campos"]["rubro_2"] == "Club y deporte",
     # CONTEXTO-FACHADO.md §5.4: «Retiro» manda siempre. Es material eléctrico para su casa,
     # no una obra sin imputar; el proveedor se conserva y no se pregunta la obra.

@@ -24,7 +24,7 @@ from app.resolver import parsear_importe
 logger = logging.getLogger(__name__)
 
 CAMPOS = ["fecha", "fecha_pago", "importe", "moneda", "razon_social", "cuit", "cuenta_destino",
-          "id_operacion", "numero_cheque", "medio_pago", "tipo_comprobante", "cuit_originante", "tc", "pagado_con"]
+          "id_operacion", "numero_cheque", "medio_pago", "tipo_comprobante", "cuit_originante", "tc", "pagado_con", "cuenta_origen"]
 
 
 @dataclass
@@ -47,6 +47,9 @@ class DatosComprobante:
     # §5.7 v1.12: en un comprobante de Mercado Pago, con qué se pagó: «dinero en cuenta»,
     # «débito» (la plata salió del banco: Epen, 13/10) o «crédito». None si no lo dice.
     pagado_con: str | None = None
+    # §5.7 v1.14: la cuenta de la que salió la plata («CA $ 048-069556582-001», o su CBU), si el
+    # comprobante la trae. Distingue la caja de ahorro 48 (personal de Gabriel) de la 273.
+    cuenta_origen: str | None = None
     sha256: str | None = None        # del archivo: la referencia más fuerte para duplicados (§5.16)
     fuente: dict[str, str] = field(default_factory=dict)  # campo → nombre_archivo | pdf_texto | vision
     uso_llm: bool = False
@@ -225,6 +228,9 @@ def parsear_texto(texto: str) -> dict:
     m = re.search(r"\b(\d{22})\b", plano)
     if m:
         datos["cuenta_destino"] = m.group(1)
+    origen = cuenta_origen(texto)
+    if origen:
+        datos["cuenta_origen"] = origen
 
     m = re.search(r"(?:n[uú]mero de operaci[oó]n|nro\.? de operaci[oó]n|id de operaci[oó]n|n[uú]mero de transacci[oó]n|"
                   r"c[oó]digo de (?:operaci[oó]n|transferencia)|referencia)\s*:?\s*([A-Za-z0-9-]{5,})", plano, re.I)
@@ -242,6 +248,25 @@ def parsear_texto(texto: str) -> dict:
     if pagado:
         datos["pagado_con"] = pagado
     return datos
+
+
+# §5.7 v1.14: «Origen  FACHADO, GABRIEL FEDERICO CA $ 048-069556582-001» (Banco Patagonia),
+# «Cuenta origen: …», «Cuenta débito: …», «Desde la cuenta …». Se toma el primer número de cuenta
+# (con guiones) o CBU que aparece después de esa etiqueta y antes de la del destino.
+RE_ETIQUETA_ORIGEN = re.compile(r"\b(?:cuenta\s+(?:de\s+)?(?:origen|d[eé]bito)|origen|desde\s+(?:la\s+)?cuenta)\b", re.I)
+RE_NUMERO_CUENTA = re.compile(r"(?:(?:CA|CC)\s*(?:\$|U\$S|USD)?\s*)?\d{2,4}-\d{5,10}-\d{1,4}|\b\d{22}\b")
+
+
+def cuenta_origen(texto: str | None) -> str | None:
+    if not texto:
+        return None
+    for m in RE_ETIQUETA_ORIGEN.finditer(texto):
+        # Hasta la etiqueta del destino: el número de cuenta del destinatario no es el de origen.
+        tramo = re.split(r"(?i)\bdestin", texto[m.end():m.end() + 160])[0]
+        n = RE_NUMERO_CUENTA.search(tramo)
+        if n:
+            return re.sub(r"\s+", " ", n.group(0)).strip()
+    return None
 
 
 # ─── Orquestación ──────────────────────────────────────────────────────────────
@@ -338,6 +363,7 @@ def leer_bytes(contenido: bytes, nombre: str, mime: str, datos: DatosComprobante
         extraido["cuit_originante"] = formatear_cuit(extraido.get("cuit_originante"))
         extraido["tc"] = extraido.get("tipo_cambio")
         extraido["pagado_con"] = normalizar_pagado_con(extraido.get("pagado_con"))
+        extraido["cuenta_origen"] = extraido.get("cuenta_origen") or None
         datos.completar(extraido, "vision" if not texto else "pdf_llm")
     else:
         datos.error = uso.get("error")

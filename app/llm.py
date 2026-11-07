@@ -215,6 +215,9 @@ ESQUEMA_COMPROBANTE = {
         "cuenta_destino": {"type": ["string", "null"], "description": "CBU, CVU, alias o número de cuenta de destino"},
         "razon_social_originante": {"type": ["string", "null"]},
         "cuit_originante": {"type": ["string", "null"]},
+        "cuenta_origen": {"type": ["string", "null"],
+                          "description": "La cuenta de la que salió la plata, tal como figura («CA $ 048-069556582-001»), "
+                                         "o su CBU. null si el comprobante no la muestra"},
         "id_operacion": {"type": ["string", "null"]},
         "numero_cheque": {"type": ["string", "null"]},
         "tipo_cambio": {"type": ["number", "null"],
@@ -226,7 +229,7 @@ ESQUEMA_COMPROBANTE = {
     },
     "required": ["es_comprobante", "tipo_comprobante", "medio_pago", "fecha", "fecha_pago", "importe", "moneda",
                  "razon_social_destinatario", "cuit_destinatario", "cuenta_destino", "razon_social_originante",
-                 "cuit_originante", "id_operacion", "numero_cheque", "tipo_cambio", "pagado_con"],
+                 "cuit_originante", "cuenta_origen", "id_operacion", "numero_cheque", "tipo_cambio", "pagado_con"],
     "additionalProperties": False,
 }
 

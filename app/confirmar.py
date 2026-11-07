@@ -156,6 +156,14 @@ def armar_fila(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dict, l
         raise falta("tipo_gasto", f"«{c['tipo_gasto']}» no es obra, estructura ni personal")
     if not obra and not tipo_gasto:
         raise falta("obra", "Hace falta la obra o el tipo_gasto (un gasto personal puede no tener obra)")
+    # §5.14 v1.14 (6/11): una ficha con una obra del estudio nunca va al libro personal; solo un
+    # inmueble personal (Sur, Abucoque) puede ir ahí. Así quedó P-000001 con obra Moreno.
+    if tipo_gasto == "personal" and obra is not None and obra.tipo != "personal":
+        raise falta("obra", f"Un gasto personal no lleva la obra «{obra.nombre}» ({obra.tipo}): "
+                            f"es del estudio. Va al estudio o va sin obra")
+    # §5.7 v1.14: la cuenta personal de Gabriel (la CA 48) vive solo en el libro personal.
+    if cuenta.es_personal and tipo_gasto != "personal":
+        raise falta("cuenta", f"«{cuenta.nombre}» es la cuenta personal de Gabriel: solo para gastos personales")
 
     # §5.8: una caja de obra solo mueve plata de su propia obra.
     if cuenta.tipo == "caja_obra":
@@ -274,7 +282,7 @@ async def confirmar(req: ConfirmarIn, libro: Libro, archivador: Archivador,
     if tipo == "CERTIFICADO":
         return await confirmar_certificado(req, libro, archivador, m, usuario)
     if tipo == "TRASPASO":
-        return await confirmar_traspaso(req, libro, archivador, m, usuario)
+        return await confirmar_traspaso(req, libro, archivador, m, usuario, libro_personal)
 
     fila, advertencias = armar_fila(req, m, usuario)
     clave = fila["msg_id"]
@@ -507,6 +515,12 @@ def armar_traspaso(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dic
     co, cd = cuentas["cuenta_origen"], cuentas["cuenta_destino"]
     if co.nombre == cd.nombre:
         raise falta("cuenta_destino", f"Origen y destino son la misma cuenta ({co.nombre})")
+    # §5.7 v1.14: la cuenta personal (CA 48) solo se cruza con una cuenta del estudio: el pase del
+    # estudio a la 48 es un retiro de Gabriel. Nunca con una caja de obra (plata de terceros).
+    for cuenta, otra in ((co, cd), (cd, co)):
+        if cuenta.es_personal and not otra.suma_al_saldo_del_estudio:
+            raise falta("cuenta_destino" if cuenta is co else "cuenta_origen",
+                        f"«{cuenta.nombre}» solo puede recibir o mandar plata a una cuenta del estudio, no a «{otra.nombre}»")
     # §5.7 (v1.7): entre dólares y pesos, dos filas, cada una en su moneda, con el mismo tipo de
     # cambio. El importe de la ficha está en su `moneda` (por defecto, la de la cuenta de
     # origen); la otra fila lo convierte. `importe_ars` es el mismo en las dos: el total del
@@ -544,14 +558,25 @@ def armar_traspaso(req: ConfirmarIn, m: Maestros, usuario: Usuario) -> tuple[dic
 
 
 async def confirmar_traspaso(req: ConfirmarIn, libro: Libro, archivador: Archivador, m: Maestros,
-                             usuario: Usuario) -> ConfirmarOut:
+                             usuario: Usuario, libro_personal: Libro | None = None) -> ConfirmarOut:
     """Dos filas vinculadas en **una sola escritura** (§5.18): o quedan las dos o ninguna.
-    Cada una lleva en `vinculo` el id_mov de la otra. Van siempre al libro del estudio."""
+    Cada una lleva en `vinculo` el id_mov de la otra. Van al libro del estudio, salvo el pase
+    a la cuenta personal de Gabriel (§5.7 v1.14: el retiro a la CA 48), que va al libro
+    personal: el cierre semanal lo cuenta como salida del estudio."""
     salida, entrada = armar_traspaso(req, m, usuario)
     advertencias: list[str] = []
+    personal = any(m.cuenta(f["cuenta"]).es_personal for f in (salida, entrada))
+    if personal and not usuario.ve_personal:
+        raise ErrorConfirmar(403, "cuenta", f"{usuario.nombre} no tiene acceso a lo personal (ve_personal = no)")
+    if personal and libro_personal is None:
+        raise ErrorConfirmar(503, "libro_personal", "El libro personal no está configurado. "
+                                                    "Lo personal nunca se escribe en el libro del estudio")
+    libro_destino, nombre_libro = (libro_personal, "personal") if personal else (libro, "estudio")
     # 20/10: un traspaso entre cuentas propias que salió de la conciliación trae las dos líneas
-    # del banco (la que sale y la que entra): las dos filas se escriben ya conciliadas.
-    ids_banco = [str(h) for h in (req.ficha.extras.get("ids_banco") or []) if h]
+    # del banco (la que sale y la que entra): las dos filas se escriben ya conciliadas. El retiro
+    # a la 48 trae una sola (la 48 no se concilia): llega como `ids_banco` de uno o `id_banco`.
+    ids_banco = [str(h) for h in (req.ficha.extras.get("ids_banco") or []) if h] \
+        or ([str(req.ficha.extras["id_banco"])] if req.ficha.extras.get("id_banco") else [])
     lineas_banco: dict[str, dict] = {}
     if ids_banco:
         from app import conciliar
@@ -559,11 +584,11 @@ async def confirmar_traspaso(req: ConfirmarIn, libro: Libro, archivador: Archiva
         sale = next((h for h in ids_banco if numero(lineas_banco.get(h, {}).get("debito")) > 0), ids_banco[0])
         entra = next((h for h in ids_banco if h != sale), None)
         for fila_, h in ((salida, sale), (entrada, entra)):
-            if h:
+            if h and m.cuenta(fila_["cuenta"]).concilia_contra_banco:
                 fila_["id_banco"], fila_["estado_conc"] = h, "CONCILIADO"
 
     async with _lock:
-        encabezado, filas, movs = await asyncio.to_thread(_leer_libro, libro, "estudio")
+        encabezado, filas, movs = await asyncio.to_thread(_leer_libro, libro_destino, nombre_libro)
         if "vinculo" not in encabezado:
             raise ErrorConfirmar(500, "MOVIMIENTOS", "Falta la columna «vinculo» en MOVIMIENTOS. Correr scripts/preparar_sheet.py")
         # La idempotencia reconoce el par completo: la clave de la primera fila alcanza.
@@ -573,11 +598,12 @@ async def confirmar_traspaso(req: ConfirmarIn, libro: Libro, archivador: Archiva
             entrada = next((mov for mov in movs if mov.get("msg_id") == salida["msg_id"] + SUFIJO_VINCULADA), {})
             ya_existia = True
         else:
-            salida["id_mov"] = _siguiente_id(movs, "M")
-            entrada["id_mov"] = _siguiente_id(movs + [salida], "M")
+            prefijo = PREFIJO_ID[nombre_libro]
+            salida["id_mov"] = _siguiente_id(movs, prefijo)
+            entrada["id_mov"] = _siguiente_id(movs + [salida], prefijo)
             salida["vinculo"], entrada["vinculo"] = entrada["id_mov"], salida["id_mov"]
             numero_fila = len(filas) + 1
-            await asyncio.to_thread(libro.escribir_filas, numero_fila,
+            await asyncio.to_thread(libro_destino.escribir_filas, numero_fila,
                                     [[f.get(col, "") for col in encabezado] for f in (salida, entrada)])
             movs += [salida, entrada]
             ya_existia = False
@@ -603,7 +629,7 @@ async def confirmar_traspaso(req: ConfirmarIn, libro: Libro, archivador: Archiva
         saldo, avisos = saldo_obra(movs, obra, m)
         advertencias += avisos
     return ConfirmarOut(id_mov=salida["id_mov"], id_mov_vinculado=entrada.get("id_mov") or None, fila=numero_fila,
-                        comprobante_url=comprobante_url, obra=saldo, ya_existia=ya_existia, libro="estudio",
+                        comprobante_url=comprobante_url, obra=saldo, ya_existia=ya_existia, libro=nombre_libro,
                         cargado_por=str(salida.get("cargado_por") or usuario.nombre), advertencias=advertencias)
 
 

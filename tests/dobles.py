@@ -107,6 +107,13 @@ class LibroMemoria:
                 fila.append("")
             fila[i] = valor
 
+    def hojas_derivadas(self):
+        return [h for h in self.hojas if h.startswith("CC_") or h.startswith("VISTA_")]
+
+    def borrar_hoja_derivada(self, hoja):
+        assert hoja.startswith("CC_"), hoja
+        self.hojas.pop(hoja, None)
+
     def escribir_hoja(self, hoja, filas):
         assert hoja.startswith(("VISTA_", "CC_")), f"«{hoja}» no es una hoja derivada"
         self.hojas[hoja] = [list(f) for f in filas]
@@ -160,3 +167,29 @@ def cuenta_en_moneda(nombre: str, moneda: str):
     finally:
         maestros._leer_crudo = original
         maestros.cargar(forzar=True)
+
+
+def snapshot_antes_del_6_11(original) -> str:
+    """El snapshot de los maestros como estaba antes de la reunión del 6/11 (v1.14): la CA 48 en
+    `Banco.cuentas_banco` y sin «Banco personal (CA 48)». Los extractos reales de agosto son de
+    cuando la 48 era del estudio: las pruebas de la conciliación que los usan corren contra esto.
+    Devuelve la ruta de una copia temporal (el snapshot de verdad no se toca)."""
+    import json
+    import tempfile
+    from pathlib import Path
+    datos = json.loads(Path(original).read_text(encoding="utf-8"))
+    cuentas = datos["CUENTAS"]
+    enc = cuentas[0]
+    i_cuenta, i_tipo, i_cb = enc.index("cuenta"), enc.index("tipo"), enc.index("cuentas_banco")
+    nuevas = [enc]
+    for f in cuentas[1:]:
+        f = list(f) + [""] * (len(enc) - len(f))
+        if f[i_tipo] == "personal":
+            continue
+        if f[i_cuenta] == "Banco" and "48-69556582" not in f[i_cb]:
+            f[i_cb] = f[i_cb] + "; CA $ 48-69556582-001"
+        nuevas.append(f)
+    datos["CUENTAS"] = nuevas
+    ruta = Path(tempfile.gettempdir()) / "fachado_maestros_antes_del_6_11.json"
+    ruta.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+    return str(ruta)

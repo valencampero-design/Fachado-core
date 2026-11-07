@@ -37,6 +37,10 @@ def clasificar(
     # 1. El destino manda sobre el proveedor: retiro / casa / particular / obra personal.
     # «Retiro» manda siempre: le gana a cualquier contratista de obra, y el contratista se
     # conserva para poder separar dentro de su cuenta lo de obra de lo personal.
+    # Excepción (§5.4 R1 v1.14, reunión del 6/11): una obra PROPIA nombrada le gana a «Retiro»
+    # (Gessel, Belelli, Gonzalo…: son inversiones, van al estudio). La ficha lo avisa.
+    if marcador_personal and obra and obra.tipo == "obra_propia":
+        return Resultado("obra", f"R1: «{obra.nombre}» es una obra propia: le gana a «Retiro» (v1.14)")
     if marcador_personal or (obra and obra.tipo == "personal"):
         return Resultado("personal", "R1: destino personal (retiro, casa, particular u obra personal)")
 
@@ -49,8 +53,11 @@ def clasificar(
     if contratista and contratista.dual:
         return Resultado(None, f"R2: «{contratista.nombre}» es dual", preguntar="clasificacion")
 
-    # 3. El rubro resuelto afecta lo personal.
-    if rubro and rubro.afecta == "personal":
+    # 3. El rubro resuelto afecta lo personal. Pero una obra del estudio identificada le gana a
+    # un rubro personal (§5.14 v1.14, 6/11): una ficha con obra del estudio nunca va al libro
+    # personal salvo que la obra sea personal. P-000001 quedó personal con obra Moreno porque el
+    # rubro «Personal › Familia» de la ficha anterior ganó por R3 antes de mirar la obra.
+    if rubro and rubro.afecta == "personal" and not obra:
         return Resultado("personal", f"R3: rubro «{rubro.rubro_2}» afecta personal")
 
     # La obra identificada define la clasificación por su tipo.

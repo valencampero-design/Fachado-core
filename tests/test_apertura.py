@@ -84,16 +84,16 @@ def main() -> int:
     check("control solo para las que concilian: Banco, Banco USD y Mercado Pago", set(ctl) == {"Banco", "Banco USD", "Mercado Pago"},
           list(ctl))
     check("Banco: suma CA $ 273 (1.000.000, la del 31/10, no la de noviembre ni la conciliable) + CC $ (50.000); "
-          "avisa que falta la CA $ 48",
+          "la CA $ 48 ya no es del Banco del estudio (§5.7 v1.14): ni suma ni se pide",
           ctl["Banco"]["banco"] == 1050000.0 and ctl["Banco"]["diferencia"] == 0
-          and ctl["Banco"]["faltan"] == ["CA $ 48-69556582-001"], ctl["Banco"])
+          and ctl["Banco"]["faltan"] == [] and "CA $ 48-69556582-001" not in ctl["Banco"]["partes"], ctl["Banco"])
     check("Banco USD: 98,05 contra 98,05 → sin diferencia", ctl["Banco USD"]["banco"] == 98.05 and ctl["Banco USD"]["diferencia"] == 0,
           ctl["Banco USD"])
     check("Mercado Pago: la diferencia (124.000 − 124.172,89 = −172,89) se avisa pero no frena",
           ctl["Mercado Pago"]["diferencia"] == -172.89 and not plan["errores"], ctl["Mercado Pago"])
     salida = ap.informe(plan)
     check("el informe muestra las tres cosas", "AVISO: diferencia -$ 172,89" in salida and "Banco: cargado $ 1.050.000,00" in salida
-          and "sin extracto de CA $ 48-69556582-001" in salida, salida)
+          and "CA $ 48" not in salida, salida)
     import copy
     import dataclasses
     viejo = copy.copy(m)

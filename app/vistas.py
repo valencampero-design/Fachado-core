@@ -596,4 +596,23 @@ def recalcular(libro: Libro, libro_personal: Libro | None, solo_cc: bool = False
             if not simulacro:
                 libro_destino.escribir_hoja(hoja, filas)
             escritas[f"{prefijo}{hoja}"] = len(filas) - 1
-    return {"simulacro": True, "escribiria": escritas} if simulacro else {"escritas": escritas}
+    borradas = cc_viejas_del_personal(libro_personal, hojas["personal"])
+    if not simulacro:
+        for hoja in borradas:
+            libro_personal.borrar_hoja_derivada(hoja)
+    salida = {"simulacro": True, "escribiria": escritas} if simulacro else {"escritas": escritas}
+    if borradas:
+        salida["borraria" if simulacro else "borradas"] = [f"personal:{h}" for h in borradas]
+    return salida
+
+
+def cc_viejas_del_personal(libro_personal: Libro | None, calculadas: dict, m: Maestros | None = None) -> list[str]:
+    """§6 v1.14 (6/11): la CC_ de un inmueble que pasó a ser obra del estudio (Gessel, Belelli)
+    queda en el libro personal con números viejos: es derivada, se borra. Su CC nueva está en el
+    Master. Solo las de obras que hoy no son personales: una CC_ que no se reconoce no se toca."""
+    if libro_personal is None or not hasattr(libro_personal, "hojas_derivadas"):
+        return []
+    m = m or maestros.cargar()
+    del_estudio = {nombre_hoja_cc(o.nombre) for o in m.obras if o.tipo != "personal"}
+    return sorted(h for h in libro_personal.hojas_derivadas()
+                  if h.startswith("CC_") and h not in calculadas and h in del_estudio)

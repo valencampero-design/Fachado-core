@@ -622,11 +622,11 @@ def main() -> int:
     check("«banco usd» es el nombre de la cuenta: el importe sigue en pesos", c["moneda"] == "ARS", c["moneda"])
 
     # ── Fix del arranque · 4 maestro ──────────────────────────────────────────
-    print("\nFix del arranque · 4 Gessel y «belleli» (§6 v1.7)")
+    print("\nFix del arranque · 4 Gessel y «belleli» (§6 v1.7; obras propias desde el 6/11, §6 v1.14)")
     for texto, obra in (("Edesur/Gessel", "Gessel"), ("Edesur/gessel", "Gessel"), ("Metrogas/Belleli", "Belelli")):
         r, f, c = leer(texto + " $10.000")
-        check(f"«{texto}» → {obra}, inmueble personal: circuito personal (R1)",
-              (c["obra"], c["tipo_gasto"]) == (obra, "personal"), (c["obra"], c["tipo_gasto"], f.regla))
+        check(f"«{texto}» → {obra}, obra propia desde el 6/11: va al estudio (R4)",
+              (c["obra"], c["tipo_gasto"]) == (obra, "obra"), (c["obra"], c["tipo_gasto"], f.regla))
 
     # ── Conversación (9/10) · D: pocas preguntas (§5.12 v1.8) ─────────────────
     print("\nConversación · D «Lennon/Miguel» + comprobante = cero preguntas (§5.12 v1.8)")
@@ -691,8 +691,9 @@ def main() -> int:
     check("un personal no lleva la obra de un tercero (P-000001): la obra se descarta y se avisa",
           c["tipo_gasto"] == "personal" and c["obra"] is None and any("personal" in a for a in f.extras.get("advertencias", [])),
           (c["obra"], f.extras.get("advertencias")))
-    r, f, c = leer("Edesur/Belleli $1.000")
-    check("… pero un inmueble personal sí (Belelli)", c["obra"] == "Belelli", c["obra"])
+    r, f, c = leer("Retiro/Edesur/Abucoque $1.000")
+    check("… pero un inmueble personal sí (Abucoque)", (c["obra"], c["tipo_gasto"]) == ("Abucoque", "personal"),
+          (c["obra"], c["tipo_gasto"]))
 
     print("\nConversación · F «efectivo» en una obra con caja = esa caja (§5.8 v1.8)")
     caja_lennon = m.caja_de_obra("Lennon")
@@ -1017,10 +1018,11 @@ def main() -> int:
     print("\n21/10 · M2 «¿A qué obra?» completa y un destino dicho no se repregunta (capturas 07-09)")
     r, f = leer_con("Pago $ 5.000")
     obra_p = next((p for p in r.preguntas if p.campo == "obra"), None)
-    check("las opciones de «¿A qué obra?»: todas las activas y Austral (con Tres Cerros, la undécima); Jardín "
-          "Maternal no (cerrada), los inmuebles personales no",
-          obra_p is not None and {"Austral", "Tres Cerros"} <= set(obra_p.opciones) and "Jardín Maternal" not in obra_p.opciones
-          and not {"Sur", "Abucoque", "Belelli", "Gessel"} & set(obra_p.opciones) and len(obra_p.opciones) == 12,
+    check("las opciones de «¿A qué obra?»: todas las activas y Austral (con Tres Cerros, Gessel y Belelli, obras propias "
+          "desde el 6/11); Jardín Maternal no (cerrada), los inmuebles personales no",
+          obra_p is not None and {"Austral", "Tres Cerros", "Gessel", "Belelli"} <= set(obra_p.opciones)
+          and "Jardín Maternal" not in obra_p.opciones
+          and not {"Sur", "Abucoque"} & set(obra_p.opciones) and len(obra_p.opciones) == 14,
           obra_p and obra_p.opciones)
     usada = libro(dict(id_mov="M-000001", fecha="2026-10-19", tipo="EGRESO", importe=1000, obra="Tonga", contratista="Tucu",
                        ts="2026-10-19 10:00:00"))
@@ -1126,6 +1128,114 @@ def main() -> int:
                     libros={"estudio": libro(), "personal": None})
     check("una ficha anterior con un rubro viejo (Contratistas) vuelve con el nuevo (Contratista principal)",
           r.fichas[0].campos["rubro_2"] == "Contratista principal", r.fichas[0].campos["rubro_2"])
+
+    # ── Reunión del 6/11 (v1.14) ──────────────────────────────────────────────
+    print("\n6/11 · R1 v1.14: una obra propia le gana a «Retiro» (Gessel y Belelli, §5.4 y §6)")
+    r, f = leer_con("Retiro/Gessel 50000")
+    check("«Retiro/Gessel 50000» → Gessel, obra (no personal), con la advertencia «Gessel es una obra propia: lo cargo en "
+          "el estudio» y sin preguntar obra ni clasificación",
+          (f.campos["obra"], f.campos["tipo_gasto"], f.campos["importe"]) == ("Gessel", "obra", 50000)
+          and "Gessel es una obra propia: lo cargo en el estudio" in f.extras.get("advertencias", [])
+          and not campos_de(r, "obra", "clasificacion") and f.regla.startswith("R1"),
+          (f.campos["obra"], f.campos["tipo_gasto"], f.regla, f.extras.get("advertencias"), [p.campo for p in r.preguntas]))
+    check("… y la cuenta no es la personal (CA 48): es del estudio", f.campos["cuenta"] == "Banco", f.campos["cuenta"])
+    granjeri = Adjunto(url="https://drive.google.com/file/d/GRANJERIxxxxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="t.jpg")
+    r, f = leer_con("Gesell/Granjeri", adjuntos=[granjeri],
+                    lector=lector_con(importe=1440740, fecha="2026-08-31", razon_social="GRANJERI ROBERTO OSCAR",
+                                      medio_pago="Transferencia", tipo_comprobante="Transferencia",
+                                      cuenta_origen="CA $ 048-069556582-001"))
+    check("«Gesell/Granjeri» + comprobante → Gessel (alias «gesell»), obra, importe del comprobante; nunca personal",
+          (f.campos["obra"], f.campos["tipo_gasto"], f.campos["importe"]) == ("Gessel", "obra", 1440740)
+          and f.campos["cuenta"] == "Banco", (f.campos["obra"], f.campos["tipo_gasto"], f.campos["importe"], f.campos["cuenta"]))
+    r, f = leer_con("Belleli/Metrogas")
+    check("«Belleli/Metrogas» → Belelli, obra (con el rubro de obra, no uno personal)",
+          (f.campos["obra"], f.campos["tipo_gasto"]) == ("Belelli", "obra")
+          and (f.campos["rubro_1"] or "") != "Personal", (f.campos["obra"], f.campos["tipo_gasto"], f.campos["rubro_1"]))
+    r, f = leer_con("Retiro/Belleli/Metrogas")
+    check("«Retiro/Belleli/Metrogas» → Belelli, obra: la obra propia le gana a «Retiro»",
+          (f.campos["obra"], f.campos["tipo_gasto"]) == ("Belelli", "obra"), (f.campos["obra"], f.campos["tipo_gasto"]))
+    r, f = leer_con("Retiro/Sofi/Lennon $1.000")
+    check("una obra de TERCEROS no le gana a «Retiro» (§5.12 v1.8 sigue): personal, sin obra",
+          f.campos["tipo_gasto"] == "personal" and f.campos["obra"] is None, (f.campos["tipo_gasto"], f.campos["obra"]))
+
+    print("\n6/11 · M2.3 P-000001: una ficha con obra del estudio nunca va al libro personal (§5.14 v1.14)")
+    # Así pasó el 30/09: «Sofi/Varios» + la transferencia a FACHADO, SOFIA ($ 184.000) quedó como ficha
+    # personal (Sofía Fachado, Personal › Familia); después llegó «Tucu/Moreno» (el texto de OTRO
+    # comprobante, el de Orellana) y se aplicó como corrección de esa ficha. Ganó R3 (rubro Familia)
+    # antes de mirar la obra y se escribió P-000001 personal con obra Moreno.
+    sofia = Adjunto(url="https://drive.google.com/file/d/SOFIAVARIOSxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="s.jpg")
+    r0, f0 = leer_con("Retiro/Sofi", adjuntos=[sofia],
+                      lector=lector_con(importe=184000, fecha="2026-09-30", razon_social="FACHADO, SOFIA",
+                                        cuit="27-47181632-4", medio_pago="Transferencia", tipo_comprobante="Transferencia",
+                                        cuenta_origen="CA $ 048-069556582-001"))
+    check("«Retiro/Sofi» + la transferencia a FACHADO, SOFIA → Sofía Fachado, personal (Familia)",
+          (f0.campos["contratista"], f0.campos["tipo_gasto"], f0.campos["rubro_2"]) == ("Sofía Fachado", "personal", "Familia"),
+          (f0.campos["contratista"], f0.campos["tipo_gasto"], f0.campos["rubro_2"]))
+    r1 = interpretar(InterpretarIn(texto="Tucu/Moreno", fecha_mensaje="2026-09-30T19:19:36Z", telefono=titular.telefono,
+                                   contexto_previo=f0.model_dump()), libros={"estudio": libro(), "personal": None})
+    f1 = r1.fichas[0]
+    check("«Tucu/Moreno» aplicado a esa ficha (lo que pasó el 30/09): con obra Moreno ya NO es personal (antes ganaba R3)",
+          f1.campos["obra"] == "Moreno" and f1.campos["tipo_gasto"] == "obra" and f1.campos["rubro_1"] != "Personal",
+          (f1.campos["obra"], f1.campos["tipo_gasto"], f1.campos["rubro_1"], f1.campos["rubro_2"], f1.regla))
+    from app import clasificador
+    familia = next(x for x in m.rubros if x.afecta == "personal" and x.rubro_2 == "Familia")
+    for obra in (o for o in m.obras if o.tipo != "personal" and o.estado != "cerrada"):
+        res = clasificador.clasificar(m, "EGRESO", obra, None, familia, False)
+        if res.clasificacion == "personal":
+            check(f"la cascada con obra {obra.nombre} ({obra.tipo}) y rubro Familia no da personal", False, res)
+            break
+    else:
+        check("la cascada: ninguna obra del estudio con un rubro personal da «personal» (solo un inmueble personal)", True)
+    res = clasificador.clasificar(m, "EGRESO", m.obra("Abucoque"), None, familia, False)
+    check("… y un inmueble personal sí (Abucoque + Familia → personal)", res.clasificacion == "personal", res)
+
+    print("\n6/11 · M3.2 la caja de ahorro 48 es la cuenta personal de Gabriel (§5.7 v1.14)")
+    petrus = next(u for u in m.usuarios if u.rol != "titular" and u.activo)
+    personal_48 = m.cuentas_personales()
+    check("CUENTAS: «Banco personal (CA 48)», tipo personal, no concilia, corte 2026-11-01, la CA 48 en cuentas_banco; "
+          "Banco ya no la tiene",
+          [(c.nombre, c.concilia_contra_banco, c.fecha_apertura) for c in personal_48]
+          == [("Banco personal (CA 48)", False, "2026-11-01")]
+          and personal_48[0].es_cuenta_del_banco("CA $ 048-069556582-001")
+          and not m.cuenta("Banco").es_cuenta_del_banco("CA $ 48-69556582-001")
+          and not personal_48[0].suma_al_saldo_del_estudio,
+          [(c.nombre, c.tipo, c.cuentas_banco) for c in m.cuentas if c.tipo in ("banco", "personal")])
+    transf = Adjunto(url="https://drive.google.com/file/d/TRANSF48xxxxxxxxxxxxxxxxx/view", mime="image/jpeg", nombre="t.jpg")
+
+    def retiro(origen_cta, telefono, fecha):
+        leido = dict(importe=80000, fecha=fecha, razon_social="FACHADO, SOFIA", cuit="27-47181632-4",
+                     medio_pago="Transferencia", tipo_comprobante="Transferencia")
+        if origen_cta:
+            leido["cuenta_origen"] = origen_cta
+        r = interpretar(InterpretarIn(texto="Retiro/Sofi", fecha_mensaje=f"{fecha}T15:00:00Z", telefono=telefono,
+                                      adjuntos=[transf]),
+                        libros={"estudio": libro(), "personal": None}, lector=lector_con(**leido))
+        return r.fichas[0]
+    f = retiro("CA $ 048-069556582-001", titular.telefono, "2026-11-03")
+    check("un retiro con comprobante de la CA 48 → «Banco personal (CA 48)», del comprobante",
+          (f.campos["cuenta"], f.origen_campo.get("cuenta")) == ("Banco personal (CA 48)", "comprobante")
+          and f.campos["concilia"] == "FALSO", (f.campos["cuenta"], f.origen_campo.get("cuenta"), f.campos["concilia"]))
+    f = retiro("CA $ 273-125852351-000", titular.telefono, "2026-11-03")
+    check("… desde la 273 → Banco (del estudio)", f.campos["cuenta"] == "Banco", f.campos["cuenta"])
+    f = retiro(None, titular.telefono, "2026-11-03")
+    check("… sin cuenta de origen, cargado por Gabriel desde el 1/11 → la 48 como supuesto, con el aviso",
+          (f.campos["cuenta"], f.origen_campo.get("cuenta")) == ("Banco personal (CA 48)", "supuesto")
+          and "Cuenta asumida: Banco personal (CA 48)" in f.extras.get("advertencias", [])
+          and "Cuenta asumida: Banco" not in f.extras.get("advertencias", []),
+          (f.campos["cuenta"], f.origen_campo.get("cuenta"), f.extras.get("advertencias")))
+    f = retiro(None, titular.telefono, "2026-10-30")
+    check("… antes del 1/11 (la fecha de corte de CUENTAS) → Banco, como antes", f.campos["cuenta"] == "Banco", f.campos["cuenta"])
+    f = retiro(None, petrus.telefono, "2026-11-03")
+    check(f"… cargado por {petrus.nombre} → Banco, como hoy (supuesto anotado para Valen)", f.campos["cuenta"] == "Banco",
+          f.campos["cuenta"])
+    r, f = leer_con("Retiro/Sofi/efectivo $ 5.000")
+    check("… un retiro en efectivo no se toca", f.campos["cuenta"] == "Efectivo", f.campos["cuenta"])
+    texto_cp = "Origen\n\nFACHADO, GABRIEL FEDERICO CA $ 048-069556582-001\n\nDestino\n\nFACHADO, SOFIA /\n\n" \
+               "Número de cuenta\n\n273125859895000\n\nCBU/CVU: 0340273508125859895008"
+    check("el lector saca la cuenta de origen del texto del comprobante (no la del destino)",
+          comprobante.parsear_texto(texto_cp).get("cuenta_origen") == "CA $ 048-069556582-001"
+          and comprobante.cuenta_origen("Destino: CA $ 273-125852351-000") is None,
+          comprobante.parsear_texto(texto_cp).get("cuenta_origen"))
 
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"21/10 · ninguna ficha con la obra resuelta trae la pregunta «obra» ({len(obra_repreguntada)} con problemas)",

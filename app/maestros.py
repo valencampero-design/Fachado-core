@@ -116,7 +116,12 @@ class Rubro:
 TIPOS_CUENTA_DEL_ESTUDIO = {"banco", "efectivo", "chequera", "billetera"}
 # `caja_obra` es plata del comitente en poder del arquitecto y `externa` es plata que el
 # comitente paga directo: las dos son de terceros.
-TIPOS_CUENTA_FUERA_DEL_ESTUDIO = {"caja_obra", "externa"}
+TIPOS_CUENTA_FUERA_DEL_ESTUDIO = {"caja_obra", "externa", "personal"}
+# §5.7 v1.14 (reunión del 6/11): una cuenta de Gabriel, no del estudio (la caja de ahorro 48,
+# «Banco personal (CA 48)»). Vive solo en el libro personal: no concilia, no lleva saldo de
+# apertura y no entra en el cierre semanal. Su `fecha_apertura` es la fecha de corte: desde ese
+# día la usa para lo personal.
+TIPO_CUENTA_PERSONAL = "personal"
 TIPOS_CUENTA = TIPOS_CUENTA_DEL_ESTUDIO | TIPOS_CUENTA_FUERA_DEL_ESTUDIO
 # La cuenta de lo que paga el comitente directo (§5.9). El contexto la nombra: también es la
 # cuenta de un depósito «en negro» (§5.17).
@@ -143,6 +148,34 @@ class Cuenta:
         """Falso para las cajas de obra (un pasivo, no patrimonio) y para cualquier tipo
         que no sea uno de los del estudio."""
         return self.tipo in TIPOS_CUENTA_DEL_ESTUDIO
+
+    @property
+    def es_personal(self) -> bool:
+        """§5.7 v1.14: la cuenta personal de Gabriel (la CA 48). Solo en el libro personal."""
+        return self.tipo == TIPO_CUENTA_PERSONAL
+
+    def es_cuenta_del_banco(self, texto: str | None) -> bool:
+        """¿`texto` (la cuenta de origen de un comprobante, una descripción del extracto) es una de
+        las cuentas del banco de esta cuenta del libro (`cuentas_banco`)?"""
+        return any(misma_cuenta_banco(texto, cb) for cb in self.cuentas_banco)
+
+
+def _tramos(texto: str | None) -> list[int]:
+    return [int(x) for x in re.findall(r"\d+", str(texto or ""))]
+
+
+def misma_cuenta_banco(a: str | None, b: str | None) -> bool:
+    """«CA $ 048-069556582-001» y «CA $ 48-69556582-001» son la misma cuenta: se comparan los
+    números de cada tramo sin los ceros de adelante. Contra un número largo sin guiones (un CBU,
+    «4869556582001»), alcanza con que aparezca el tramo central (el número de la cuenta)."""
+    ta, tb = _tramos(a), _tramos(b)
+    if not ta or not tb:
+        return False
+    if len(ta) >= 2 and len(tb) >= 2:
+        return ta == tb
+    largo, partido = (ta, tb) if len(ta) == 1 else (tb, ta)
+    nucleo = max(partido, key=lambda x: len(str(x)))
+    return len(partido) >= 2 and len(str(nucleo)) >= 6 and str(nucleo) in re.sub(r"\D", "", str(a if largo is ta else b))
 
 
 @dataclass
@@ -320,6 +353,15 @@ class Maestros:
     def obra_de_caja(self, cuenta: str | None) -> Obra | None:
         """La inversa: de qué obra es una caja de obra. None si la cuenta no es una caja."""
         return next((o for o in self.obras if (c := self.caja_de_obra(o.nombre)) and normalizar(c.nombre) == normalizar(cuenta)), None)
+
+    def cuentas_personales(self) -> list[Cuenta]:
+        """§5.7 v1.14: las cuentas de Gabriel (hoy, la CA 48), activas."""
+        return [c for c in self.cuentas if c.activa and c.es_personal]
+
+    def cuenta_personal_de(self, texto: str | None) -> Cuenta | None:
+        """La cuenta personal cuyo número de banco es `texto` (una cuenta de origen, una cuenta
+        del extracto), o None."""
+        return next((c for c in self.cuentas_personales() if c.es_cuenta_del_banco(texto)), None)
 
     def cuentas_del_estudio(self) -> list[Cuenta]:
         """Las que suman al saldo de caja del estudio. Cualquier cálculo de saldo sale de

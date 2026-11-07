@@ -77,16 +77,24 @@ async def cierre_semanal(libro: Libro, libro_personal: Libro, semana: str | None
         gastado: dict[tuple[str, str], list[float]] = {}
         for mov in personales:
             f = _fecha(mov.get("fecha"))
-            if mov.get("tipo") != "EGRESO" or f is None or semana_de(f) > semana:
+            tipo = mov.get("tipo")
+            if tipo not in ("EGRESO", "TRASPASO") or f is None or semana_de(f) > semana:
                 continue
             cuenta = m.cuenta(mov.get("cuenta"), incluir_inactivas=True)
+            if cuenta is not None and cuenta.es_personal:
+                # §5.14 v1.14: lo pagado desde la cuenta personal (la CA 48) ya salió del estudio con
+                # el retiro; y la entrada del retiro en la 48 no es del estudio. No entra, sin aviso.
+                continue
             if cuenta is None or not cuenta.suma_al_saldo_del_estudio:
                 advertencias.append(f"{mov.get('id_mov')}: la cuenta «{mov.get('cuenta')}» no es del estudio; "
                                     f"no entra en el cierre")
                 continue
+            # Un EGRESO suma su importe; la pata del estudio de un traspaso del libro personal (el
+            # retiro a la 48, §5.7 v1.14) viene en negativo: sale del estudio por −importe.
+            signo = -1 if tipo == "TRASPASO" else 1
             acum = gastado.setdefault((semana_de(f), cuenta.nombre), [0.0, 0.0])
-            acum[0] += numero(mov.get("importe"))
-            acum[1] += numero(mov.get("importe_ars"))
+            acum[0] += signo * numero(mov.get("importe"))
+            acum[1] += signo * numero(mov.get("importe_ars"))
 
         # Lo ya cerrado, por semana y cuenta, sumando las filas de cierre existentes.
         cerrado: dict[tuple[str, str], tuple[float, int]] = {}
@@ -119,7 +127,10 @@ async def cierre_semanal(libro: Libro, libro_personal: Libro, semana: str | None
                 "tc": tc,
                 "importe_ars": round(abs(diferencia) * tc, 2),
                 "cuenta": cuenta.nombre,
-                "descripcion": f"Gastos personales · semana {sem}" + (" · ajuste por carga atrasada" if ajuste else ""),
+                # Un ajuste a la baja es una anulación (§5.19) o un pase al estudio (§5.14 v1.14).
+                "descripcion": f"Gastos personales · semana {sem}" + (
+                    "" if not ajuste else " · ajuste por carga atrasada" if diferencia > 0
+                    else " · ajuste por anulación o pase al estudio"),
                 "origen": ORIGEN_CIERRE,
                 "concilia": "FALSO",
                 "estado_conc": "SOLO_CAJA",

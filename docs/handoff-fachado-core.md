@@ -1,6 +1,6 @@
 # Handoff — `fachado-core`, el motor de imputación de Fachado
 
-> **Estado técnico del repo al 2026-10-09**, después de las cinco tandas del handoff del
+> **Estado técnico del repo al 2026-11-07** (lo del 6/11 en «Lo del 7/11», abajo), después de las cinco tandas del handoff del
 > proyecto (`docs/handoff-proyecto-2026-09-25.md`), de la tanda 6
 > (`docs/handoff-tanda-6-2026-09-25.md`), del fix del arranque
 > (`docs/handoff-fix-arranque-2026-09-30.md`: «Falta cuenta», etapas, dólares, Gessel) y de
@@ -8,7 +8,7 @@
 > pocas preguntas, cajas de obra en dólares, correcciones por contraasiento).
 > Qué está hecho, qué falta, cómo se corre y qué variables hacen falta.
 >
-> **Las reglas de negocio NO viven acá: viven en `CONTEXTO-FACHADO.md`** (v1.8), que se edita
+> **Las reglas de negocio NO viven acá: viven en `CONTEXTO-FACHADO.md`** (v1.14), que se edita
 > en el proyecto de Claude de A&C y baja a los dos repos. Si este documento y el contexto se
 > contradicen, **gana el contexto**. Este handoff dice dónde está implementada cada regla, no
 > cuál es.
@@ -30,6 +30,7 @@
 | ✅ Semana 8 y fix de la carga | Desplegados (22/10) y terminados el 27/10: rubros de estructura, recarga de maestros y pruebas en producción (final de `docs/handoff-fix-carga-2026-10-21.md`) |
 | ✅ Rubros del estudio (27/10) | La lista oficial (§5.4 v1.13) en RUBROS, el motor y las vistas; desplegado (`d9e6b84`). Mapa para Gabriel en `docs/maestros/mapa-rubros-2026-10-27.md`; resultado al final de `docs/handoff-rubros-tablero-2026-10-27.md` |
 | ✅ Tablero en Data Studio (ex Looker Studio) | Armado el 28/10: «Fachado — Tablero del estudio» (3 páginas) y «Fachado — Personal». El del estudio, compartido con Gabriel y Petrus el 6/11. Links y diferencias con la guía en `docs/tablero-looker.md` («Cómo quedó (28/10)») |
+| ✅ Reunión del 6/11 (v1.14) | Gessel y Belelli obras propias, la CA 48 personal, tres extractos, el pase de libro y P-000001. Aplicado y desplegado el 7/11: resultado, tabla de filas y lo que quedó para Valen al final de `docs/handoff-reunion-2026-11-06.md` |
 | ✅ Libro personal | «FACHADO — Personal» (`1O4bMJXi4kooBvZZ6Wn-SlGhn2g2QjlANrmw3L7rCcZY`), compartido con la service account, con el encabezado de MOVIMIENTOS. `FACHADO_PERSONAL_SHEET_ID` cargada |
 | ✅ Cron del cierre semanal | Servicio `cierre-semanal` en el mismo proyecto (`0 11 * * 1`) |
 | ✅ GitHub | `valencampero-design/Fachado-core`, rama `main` |
@@ -249,6 +250,61 @@ Detalle y conteos al final de `docs/handoff-rubros-tablero-2026-10-27.md`.
 - **Migraciones** (`_comun.py`): las celdas van en un `batchUpdate` y las filas nuevas en un
   `append` por hoja.
 
+### Lo del 7/11: la reunión del 6/11 (v1.14)
+
+Detalle, filas movidas y supuestos al final de `docs/handoff-reunion-2026-11-06.md`.
+
+- **R1 v1.14, una obra propia le gana a «Retiro»** (§5.4): `clasificador.clasificar` (rama
+  «R1: … es una obra propia»), y en `interpretar._armar` el `propia_gana_a_retiro` (la
+  advertencia «Gessel es una obra propia: lo cargo en el estudio», el rubro del lado obra).
+- **Una ficha con obra del estudio nunca va al libro personal** (§5.14 v1.14, M2.3):
+  - R3 (rubro personal) ya no le gana a una obra identificada (`clasificador`, `and not obra`);
+  - `/confirmar` rechaza con 422 `{campo: obra}` un personal con una obra que no sea de tipo
+    `personal` (`confirmar.armar_fila`).
+  - **Cómo pasó P-000001** (reconstruido de CAPTURA, 30/09): «Sofi/Varios» con la transferencia
+    de $ 184.000 a FACHADO, SOFIA (desde la CA 48) quedó como ficha personal (Familia); el
+    «Tucu/Moreno» que Gabriel mandó después para OTRO comprobante (el de Orellana, $ 200.000, que
+    ya es M-000020) entró como corrección de esa ficha: obra Moreno + rubro Familia → R3 ganó
+    antes de mirar la obra. Desde el 9/10 el motor ya sacaba la obra de un personal; desde el
+    7/11 la obra gana y `/confirmar` nunca escribe esa combinación. Test en `test_casos` y
+    `test_confirmar`.
+- **La CA 48, cuenta personal** (§5.7 v1.14):
+  - CUENTAS: tipo nuevo `personal` (`maestros.TIPO_CUENTA_PERSONAL`, fuera del saldo del
+    estudio), `Cuenta.es_personal`, `es_cuenta_del_banco`, `Maestros.cuentas_personales`,
+    `cuenta_personal_de`, `misma_cuenta_banco` («CA $ 048-069556582-001» = «CA $ 48-69556582-001»).
+    **La fecha de corte es `fecha_apertura` de la cuenta** (2026-11-01), no está en el código.
+  - El lector saca la **cuenta de origen** (`DatosComprobante.cuenta_origen`;
+    `comprobante.cuenta_origen` del texto y el campo nuevo del esquema del lector, que cambia
+    `llm.version_lector`: la caché local de comprobantes se vuelve a llenar una vez).
+  - `interpretar._cuenta_personal`: retiro desde Banco en pesos, sin cuenta dicha → la 48 si el
+    comprobante lo dice; si no se sabe, la 48 (supuesto) solo para el titular desde el corte.
+  - `/confirmar`: la cuenta personal solo con `tipo_gasto = personal` (422 `{campo: cuenta}`);
+    un TRASPASO con la cuenta personal va al **libro personal** (`confirmar_traspaso`, que ahora
+    recibe `libro_personal`), solo contra una cuenta del estudio; acepta `extras.id_banco` además
+    de `ids_banco`.
+  - `cierre.cierre_semanal`: lo de la cuenta personal no entra (sin aviso); la pata del estudio
+    de un TRASPASO del libro personal (el retiro a la 48) sale por −importe. El ajuste a la baja
+    dice «ajuste por anulación o pase al estudio».
+  - Conciliación: `procesar_extracto` no importa las líneas de una cuenta personal y, si son todas,
+    devuelve `extracto_personal` (`ignorado = "cuenta_personal"`, todo en cero, el texto «Ese
+    extracto es de tu cuenta personal: no hace falta mandarlo»); `emparejar` y el respaldo de
+    `estado` no la usan. `retiro_a_personal`: una salida de Banco en pesos que nombra la cuenta
+    personal, o una «TRANSFERENCIA ELECTRONICA» sin destinatario desde la fecha de corte →
+    `pendientes[]` de `tipo: "retiro"` (`texto_retiro`, `ficha_de_retiro`: TRASPASO Banco →
+    Banco personal (CA 48), `extras.ids_banco = [hash]`, `extras.retiro`, sin preguntas).
+- **Vistas**: `recalcular` borra del libro personal las `CC_` de obras que ya no son personales
+  (`cc_viejas_del_personal`, `Libro.hojas_derivadas` / `borrar_hoja_derivada`,
+  `sheets.borrar_hoja_derivada`: solo `CC_*`, nunca un `_bak_`); devuelve `borradas` (o
+  `borraria` en simulacro). VISTA_PERSONAL ya no contaba los TRASPASO.
+- **Scripts**: `respaldar_hojas.py` (`--libro personal`, `--archivo CARPETA` para MOVIMIENTOS),
+  `migraciones/2026_11_07_cuenta_48.py`, `2026_11_07_gessel_belelli.py`,
+  `2026_11_07_pase_de_libro.py` (simulacro sobre copias en memoria; `--aplicar`, `--mover`).
+- **Tests**: `test_conciliar` corre sus secciones viejas con `dobles.snapshot_antes_del_6_11`
+  (los extractos de agosto son de cuando la 48 era del estudio) y suma la 12 (v1.14).
+  `test_corpus`: «Austral/Sofi» esperaba la pregunta de dual de antes del 15/10; ahora espera
+  Sofía Cervera / estructura (§7 v1.10). Métrica igual (90 % · 86 % · 76 % · 90 %), 1,57 → 1,56
+  preguntas por movimiento.
+
 ### Endpoints
 
 | Ruta | Estado |
@@ -261,11 +317,11 @@ Detalle y conteos al final de `docs/handoff-rubros-tablero-2026-10-27.md`.
 | `POST /cierre-semanal` | Escribe las líneas semanales de gastos personales. Idempotente. Lo dispara el cron |
 | `POST /consultar` | Las tres preguntas del arquitecto. Solo lee |
 | `POST /maestros/recargar` | Relee el Sheet y devuelve las advertencias. Si el Sheet no responde, 503 con el error y `copia_leida_en`: el motor sigue con la copia anterior (desde el 28/10) |
-| `POST /conciliar/extracto` | Importa un extracto (Excel del banco o PDF de Mercado Pago) a BANCO_RAW, concilia y devuelve resumen, lotes y pendientes. Solo escribe BANCO_RAW y `id_banco`/`estado_conc` |
-| `GET /conciliar/pendientes` | Lo que falta conciliar: líneas, traspasos y lotes. Solo lee |
+| `POST /conciliar/extracto` | Importa un extracto (Excel del banco o PDF de Mercado Pago) a BANCO_RAW, concilia y devuelve resumen, lotes y pendientes. Solo escribe BANCO_RAW y `id_banco`/`estado_conc`. El de una cuenta personal (la CA 48): 200 con `ignorado = "cuenta_personal"` y nada importado (v1.14) |
+| `GET /conciliar/pendientes` | Lo que falta conciliar: líneas, traspasos, retiros a la CA 48 (`tipo: "retiro"`, v1.14) y lotes. Solo lee |
 | `POST /conciliar/lote` | Carga un lote (gastos bancarios, MeLi); con `tipo_cambio` si es en dólares |
 | `GET /conciliar/estado` | Qué fuentes llegaron en la semana y cuáles faltan. Solo lee |
-| `POST /vistas/recalcular` | Reescribe VISTA_* y CC_ (`{"simulacro": true}`: no escribe). Lo dispara el cron |
+| `POST /vistas/recalcular` | Reescribe VISTA_* y CC_ (`{"simulacro": true}`: no escribe) y borra del libro personal las CC_ de obras que dejaron de ser personales (`borradas`). Lo dispara el cron |
 
 Todos menos `/salud` piden `X-API-Key` contra `MOTOR_API_KEY`: el único cliente HTTP es el
 gateway. Las personas son otra cosa: viven en `USUARIOS` y se identifican por el `telefono`
@@ -535,7 +591,10 @@ El contexto dice **qué**; esta tabla dice **dónde**. Si cambia una regla allá
 | §5.12 · nada se escribe sin confirmación; período de prueba | Solo `/confirmar` escribe; `interpretar._requiere_confirmacion` con `USUARIOS.auto_confirmar` |
 | §5.13 · un teléfono fuera de USUARIOS no escribe | `confirmar.confirmar` → 403 antes de tocar nada; `cargado_por` = `Usuario.nombre` |
 | §5.13 y §5.14 · lo personal, por persona y en otro libro | `confirmar.confirmar` (ruteo, 403, 503), `consultas._visibles`, `interpretar._marcar_duplicados` |
-| §5.14 · la línea semanal | `cierre.cierre_semanal`; `filtros.para_conciliacion` la excluye |
+| §5.14 · la línea semanal | `cierre.cierre_semanal`; `filtros.para_conciliacion` la excluye. v1.14: sin lo de la cuenta personal, con el retiro a la 48 |
+| §5.4 R1 v1.14 · una obra propia le gana a «Retiro» | `clasificador.clasificar`; `interpretar._armar` (`propia_gana_a_retiro`) |
+| §5.14 v1.14 · obra del estudio nunca en el personal | `clasificador` (R3 sin obra), `confirmar.armar_fila` (422) |
+| §5.7 v1.14 · la CA 48 personal | `maestros` (`TIPO_CUENTA_PERSONAL`, `cuentas_personales`), `interpretar._cuenta_personal`, `confirmar.armar_fila` / `confirmar_traspaso`, `cierre`, `conciliar.retiro_a_personal` / `extracto_personal` |
 | §5.15 · etapas (v1.7: estado, nombre, una en curso) | `Maestros.etapas_en_curso` / `etapa_por_nombre`; `resolver._obra_con_sufijo` (`Lennon1`), `_obra_con_etapa` (`Moreno extras`); `interpretar._decidir_etapa` y `_etapa_del_certificado`; `confirmar.validar_etapa` y `_activar_etapa` |
 | §5.7 (v1.7) · de qué cuenta salió | `interpretar._cuenta_del_comprobante`, `Obra.cuenta_habitual` y el bloque «De qué cuenta salió» de `_armar` (origen `supuesto`) |
 | §5.7 (v1.7) · nunca Confirmar con un obligatorio vacío | `app/obligatorios.py` (la lista única) e `interpretar._completar_preguntas`; lo verifica `tests/test_corpus.py` (invariante) |
@@ -982,7 +1041,18 @@ no dependen de la moneda del snapshot.
 - **Respaldo previo** en el mismo libro: `RUBROS_bak_2026-10-27`, `ALIAS_bak_2026-10-27` y
   `CONTRATISTAS_bak_2026-10-27`. Se pueden borrar a mano cuando Gabriel confirme el mapa.
 
-Falta el paso 6, el 1/11.
+Falta el paso 6, el 1/11 (los saldos de apertura todavía no están cargados).
+
+**Aplicado el 7/11** (reunión del 6/11; respaldo previo: `OBRAS_bak_2026-11-07`,
+`CUENTAS_bak_2026-11-07`, `ALIAS_bak_2026-11-07` en el Master; `CC_GESSEL_bak_2026-11-07` y
+`CC_BELELLI_bak_2026-11-07` en el personal; MOVIMIENTOS y BANCO_RAW de los dos libros a archivo en
+`A&C/Fachado/respaldos/2026-11-07/`, fuera de los repos):
+
+- `2026_11_07_cuenta_48.py --aplicar`: «Banco personal (CA 48)» y la 48 fuera de Banco.
+- `2026_11_07_gessel_belelli.py --aplicar`: Gessel y Belelli `obra_propia`, alias `gesell`.
+- `2026_11_07_pase_de_libro.py --aplicar`, el cierre semanal y las vistas: ver el resultado al
+  final de `docs/handoff-reunion-2026-11-06.md`.
+- El snapshot de los tests tiene las dos migraciones de maestros.
 
 **Pendiente del 15/10** (simulacro por defecto; lo aplica Valen, en este orden):
 

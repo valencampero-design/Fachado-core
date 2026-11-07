@@ -77,8 +77,13 @@ def main() -> int:
                          importe_ars=80000, contratista="Sofía Fachado", rubro_1="Personal", rubro_2="Familia",
                          cuenta="Banco", tipo_gasto="personal", **b)
         personal.sembrar(id_mov="P-000002", fecha="2026-10-11", tipo="EGRESO", importe=30000, moneda="ARS", tc=1,
-                         importe_ars=30000, obra="Belelli", contratista="Edesur", rubro_1="Servicios públicos",
+                         importe_ars=30000, obra="Abucoque", contratista="Edesur", rubro_1="Servicios públicos",
                          rubro_2="Agua", cuenta="Mercado Pago", tipo_gasto="personal", **b)
+        # §5.7 v1.14: el retiro a la CA 48 (un traspaso en el libro personal) no es un gasto
+        personal.sembrar(id_mov="P-000003", fecha="2026-10-12", tipo="TRASPASO", importe=-500000, moneda="ARS", tc=1,
+                         importe_ars=-500000, cuenta="Banco", vinculo="P-000004", **b)
+        personal.sembrar(id_mov="P-000004", fecha="2026-10-12", tipo="TRASPASO", importe=500000, moneda="ARS", tc=1,
+                         importe_ars=500000, cuenta="Banco personal (CA 48)", vinculo="P-000003", **b)
         return estudio, personal
 
     with cuenta_en_moneda("Caja obra Lennon", "USD"):
@@ -94,21 +99,25 @@ def main() -> int:
         check("hojas: VISTA_SALDOS, VISTA_OBRAS, VISTA_RUBROS, VISTA_PROVEEDORES, VISTA_DETALLE",
               {"VISTA_SALDOS", "VISTA_OBRAS", "VISTA_RUBROS", "VISTA_PROVEEDORES", "VISTA_DETALLE"} <= set(master),
               sorted(master))
-        check("§5.21 v1.11: 13 CC_ en el Master (las 11 obras de §6, Austral y Jardín Maternal aunque esté cerrada)",
+        check("§5.21 v1.11 y §6 v1.14: 15 CC_ en el Master (las 13 obras de §6, Gessel y Belelli incluidas desde el 6/11, "
+              "Austral y Jardín Maternal aunque esté cerrada)",
               cc_master == {"CC_LENNON", "CC_MORENO", "CC_CERRO_BAYO", "CC_LUMAIA", "CC_MUELLE_DE_PIEDRA", "CC_TONGA",
                             "CC_MOQUEHUE", "CC_GONZALO", "CC_HUA_HUAN", "CC_GRIGERA_GALPON", "CC_TRES_CERROS",
-                            "CC_AUSTRAL", "CC_JARDIN_MATERNAL"}, sorted(cc_master))
-        check("… y 4 en el libro personal (Sur, Abucoque, Belelli, Gessel); ninguna personal en el Master",
-              cc_personal == {"CC_SUR", "CC_ABUCOQUE", "CC_BELELLI", "CC_GESSEL"} and not cc_master & cc_personal,
+                            "CC_AUSTRAL", "CC_JARDIN_MATERNAL", "CC_GESSEL", "CC_BELELLI"}, sorted(cc_master))
+        check("… y 2 en el libro personal (Sur, Abucoque); ninguna personal en el Master",
+              cc_personal == {"CC_SUR", "CC_ABUCOQUE"} and not cc_master & cc_personal,
               sorted(cc_personal))
         cerro = master["CC_CERRO_BAYO"]
         check("una obra sin movimientos tiene igual su hoja, con los totales en cero (Cerro Bayo)",
               cerro[4][:3] == [0.0, 0.0, 0.0], cerro[4])
-        belelli = hojas["personal"]["CC_BELELLI"]
+        belelli = hojas["personal"]["CC_ABUCOQUE"]
         k = next(i for i, f in enumerate(belelli) if f[:1] == ["DETALLE CRONOLÓGICO"])
-        check("CC_BELELLI (personal): el pago de Edesur en el detalle, con el mismo formato (por contratista, por rubro)",
+        check("CC_ABUCOQUE (personal): el pago de Edesur en el detalle, con el mismo formato (por contratista, por rubro)",
               any("P-000002" in map(str, f) for f in belelli[k:]) and ["POR CONTRATISTA"] in belelli
               and ["POR RUBRO"] in belelli, belelli[:6])
+        vp = [dict(zip(hojas["personal"]["VISTA_PERSONAL"][0], f)) for f in hojas["personal"]["VISTA_PERSONAL"][1:]]
+        check("§5.7 v1.14: VISTA_PERSONAL no cuenta el retiro a la CA 48 (un traspaso) como gasto: solo 80.000 + 30.000",
+              round(sum(float(r["importe_ars"]) for r in vp), 2) == 110000.0, vp)
         detalle = reg("VISTA_DETALLE")
         ids = {r["id_mov"] for r in detalle}
         check("VISTA_DETALLE: sin el par anulado y sin la fila personal colada; con la línea semanal",
@@ -152,7 +161,7 @@ def main() -> int:
               miguel and miguel[0]["cantidad_pagos"] == 3, miguel)
         vp = [dict(zip(hojas["personal"]["VISTA_PERSONAL"][0], f)) for f in hojas["personal"]["VISTA_PERSONAL"][1:]]
         check("VISTA_PERSONAL (en el libro personal): mes × rubro × destino",
-              {(r["rubro_2"], r["destino"], r["importe_ars"]) for r in vp} == {("Familia", "", 80000), ("Agua", "Belelli", 30000)}, vp)
+              {(r["rubro_2"], r["destino"], r["importe_ars"]) for r in vp} == {("Familia", "", 80000), ("Agua", "Abucoque", 30000)}, vp)
         print("\n§5.4 v1.13 · los rubros viejos se muestran con la lista del estudio (27/10)")
         lennon_r = next(r for r in rubros if r["obra"] == "Lennon" and r["rubro_2"] == "Contratista principal")
         check("VISTA_RUBROS: el pago cargado con «Mano de obra › Contratistas» (inactivo) sale como 2.1 Contratista "
@@ -286,12 +295,27 @@ def main() -> int:
         r = TestClient(app).post("/vistas/recalcular", headers={"X-API-Key": "test-local"})
         check("escribe las hojas derivadas en el Master y las personales (VISTA_PERSONAL, su detalle, sus CC_) en el personal",
               r.status_code == 200 and set(estudio.hojas) == set(master) and set(personal.hojas) == set(hojas["personal"])
-              and {"VISTA_PERSONAL", "VISTA_DETALLE", "CC_BELELLI"} <= set(personal.hojas),
+              and {"VISTA_PERSONAL", "VISTA_DETALLE", "CC_ABUCOQUE"} <= set(personal.hojas),
               (r.status_code, r.text[:300]))
         check("… y nunca toca MOVIMIENTOS", estudio.filas == movs_antes)
         r2 = TestClient(app).post("/vistas/recalcular", headers={"X-API-Key": "test-local"})
         check("es idempotente: dos corridas dejan lo mismo (salvo la hora en las CC)",
               r2.json()["escritas"] == r.json()["escritas"])
+
+        print("\n§6 v1.14 · las CC_ de Gessel y Belelli dejan el libro personal (M1.5)")
+        for h in ("CC_GESSEL", "CC_BELELLI", "CC_SUR", "CC_DESCONOCIDA", "CC_GESSEL_bak_2026-11-07"):
+            personal.hojas[h] = [["vieja"]]
+        rs = TestClient(app).post("/vistas/recalcular", json={"simulacro": True}, headers={"X-API-Key": "test-local"})
+        check("simulacro: dice que borraría CC_BELELLI y CC_GESSEL del personal, y no las borra",
+              rs.json().get("borraria") == ["personal:CC_BELELLI", "personal:CC_GESSEL"]
+              and {"CC_GESSEL", "CC_BELELLI"} <= set(personal.hojas), rs.json().get("borraria"))
+        r3 = TestClient(app).post("/vistas/recalcular", headers={"X-API-Key": "test-local"})
+        check("recalcular: borra CC_GESSEL y CC_BELELLI del personal (derivadas, quedarían viejas) y las escribe en el Master",
+              r3.json().get("borradas") == ["personal:CC_BELELLI", "personal:CC_GESSEL"]
+              and not {"CC_GESSEL", "CC_BELELLI"} & set(personal.hojas) and {"CC_GESSEL", "CC_BELELLI"} <= set(estudio.hojas),
+              (r3.json().get("borradas"), sorted(personal.hojas)))
+        check("… una CC_ que no es de una obra del estudio, la de un inmueble y un respaldo «_bak_» no se tocan",
+              {"CC_SUR", "CC_DESCONOCIDA", "CC_GESSEL_bak_2026-11-07"} <= set(personal.hojas), sorted(personal.hojas))
         app.dependency_overrides.clear()
 
     print("\n§5.21 · scripts/recalcular_vistas.py (el cron): código de salida y mensaje claro")

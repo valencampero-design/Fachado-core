@@ -18,7 +18,10 @@ RAIZ = Path(__file__).resolve().parent
 
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
-    os.environ["MAESTROS_SNAPSHOT"] = str(RAIZ / "maestros_snapshot.json")
+    # Las secciones 1 a 11 usan los extractos de agosto y octubre, de cuando la CA 48 era del
+    # estudio: corren con el maestro de antes del 6/11. La 12 usa el de hoy (v1.14).
+    from tests.dobles import snapshot_antes_del_6_11
+    os.environ["MAESTROS_SNAPSHOT"] = snapshot_antes_del_6_11(RAIZ / "maestros_snapshot.json")
     os.environ["LLM_HABILITADO"] = "false"
     os.environ["LEER_ADJUNTOS"] = "false"
     os.environ["MOTOR_API_KEY"] = "test-local"
@@ -31,7 +34,8 @@ async def _correr() -> int:
     from app import maestros
     from app.extracto import ExtractoNoReconocido, leer_extracto
     from app.main import app, obtener_archivador, obtener_descargador, obtener_libro, obtener_libro_personal
-    from tests.dobles import ArchivadorFalso, LibroMemoria
+    from tests.dobles import ArchivadorFalso, LibroMemoria, snapshot_antes_del_6_11
+    from tests.fixtures.generar_muestras_armadas import extracto_banco
 
     fallas: list[str] = []
 
@@ -461,6 +465,94 @@ async def _correr() -> int:
               and (("diferencia −$" in linea_banco) == (banco_r["diferencia"] < 0)), (linea_banco, banco_r))
         check("… y en las consultas: «−$7.166.358,10», no «$-7.166.358,10»", consultas_pesos(-7166358.1) == "−$7.166.358,10"
               and consultas_pesos(1000) == "$1.000", consultas_pesos(-7166358.1))
+
+        # ── 12 · v1.14: la CA 48 es la cuenta personal de Gabriel ───────────────
+        print("\n12 · 6/11: la CA 48 es personal (§5.7, §5.14 y §5.20 v1.14)")
+        os.environ["MAESTROS_SNAPSHOT"] = str(RAIZ / "maestros_snapshot.json")
+        os.environ.pop("CONCILIACION_DESDE", None)
+        m = maestros.cargar(forzar=True)
+        estudio, personal = LibroMemoria(encabezado), LibroMemoria(encabezado)
+        montar(estudio, personal)
+        r48 = await extracto("CompartirDetalleMovimiento-20260820091012.xlsx")
+        j48 = r48.json()
+        check("un extracto de la CA 48: 200, «Ese extracto es de tu cuenta personal: no hace falta mandarlo», no importa nada",
+              r48.status_code == 200 and j48.get("ignorado") == "cuenta_personal"
+              and j48["texto"] == "Ese extracto es de tu cuenta personal: no hace falta mandarlo"
+              and j48["importadas"] == 0 and not estudio.banco_dicts() and not j48["pendientes"], (r48.status_code, j48))
+        est = (await cli.get("/conciliar/estado", params={"telefono": titular.telefono})).json()
+        check("/conciliar/estado: tres fuentes del banco más Mercado Pago, sin la 48",
+              [f["rotulo"] for f in est["fuentes"]] == ["CA $", "CC $", "CA U$S", "Mercado Pago"]
+              and "48" not in est["texto"], ([f["rotulo"] for f in est["fuentes"]], est["texto"]))
+        archivos["noviembre-273.xlsx"] = extracto_banco("CA $ 273-125852351-000", "$\xa0", [
+            ("03/11/2026", "TRANSFERENCIA ELECTRONICA", "500.000,00", "", "1.000.000,00"),
+            ("03/11/2026", "TRANSFERENCIA ENTRE CUENTAS VAR 20929415044 MARAGAÑO GUERRERO MARCELO", "30.000,00", "",
+             "1.500.000,00"),
+        ])
+        rn = (await extracto("noviembre-273.xlsx")).json()
+        retiros = [p for p in rn["pendientes"] if p["tipo"] == "retiro"]
+        check("el pase de la 273 a la 48 (TRANSFERENCIA ELECTRONICA, sin destinatario, desde el 1/11) es un retiro: "
+              "«Vi que le pasaste $ 500.000 a tu cuenta personal (CA 48) el 03/11. Lo cargo como retiro»",
+              len(retiros) == 1 and retiros[0]["texto"] ==
+              "Vi que le pasaste $ 500.000 a tu cuenta personal (CA 48) el 03/11. Lo cargo como retiro",
+              [(p["tipo"], p["texto"]) for p in rn["pendientes"]])
+        fr = retiros[0]["interpretacion"] if retiros else {"fichas": [{}], "preguntas": [None]}
+        ficha_r = fr["fichas"][0]
+        check("… una ficha TRASPASO Banco → Banco personal (CA 48), sin preguntas (ni la obra)",
+              not fr["preguntas"] and ficha_r.get("campos", {}).get("tipo") == "TRASPASO"
+              and (ficha_r["campos"]["cuenta_origen"], ficha_r["campos"]["cuenta_destino"]) == ("Banco", "Banco personal (CA 48)"),
+              ficha_r)
+        check("… el pago a Maragaño sigue siendo una línea con su pregunta de siempre",
+              any(p["tipo"] == "linea" and "MARAGAÑO" in p["texto"].upper() or "Maragaño" in p["texto"] for p in rn["pendientes"]),
+              [(p["tipo"], p["texto"]) for p in rn["pendientes"]])
+        if retiros:
+            rc = await cli.post("/confirmar", json={"msg_id": f"banco:{retiros[0]['hash_id']}", "telefono": titular.telefono,
+                                                    "ficha": {"campos": ficha_r["campos"], "extras": ficha_r["extras"]},
+                                                    "ficha_indice": 0})
+            jc = rc.json()
+            filas_p = personal.movimientos()
+            check("Confirmar: dos filas TRASPASO en el libro PERSONAL (P-), vinculadas; nada en el del estudio",
+                  rc.status_code == 200 and jc["libro"] == "personal" and jc["id_mov"].startswith("P-")
+                  and [(x["tipo"], x["cuenta"], float(x["importe"])) for x in filas_p]
+                  == [("TRASPASO", "Banco", -500000.0), ("TRASPASO", "Banco personal (CA 48)", 500000.0)]
+                  and not estudio.movimientos(), (rc.status_code, jc, filas_p))
+            linea = next(x for x in estudio.banco_dicts() if x["hash_id"] == retiros[0]["hash_id"])
+            check("… la pata del Banco queda conciliada con la línea y la línea CONCILIADO; la de la 48 no concilia",
+                  filas_p and filas_p[0]["estado_conc"] == "CONCILIADO" and filas_p[0]["id_banco"] == retiros[0]["hash_id"]
+                  and filas_p[1]["concilia"] == "FALSO" and linea["estado"] == "CONCILIADO" and linea["id_mov"] == jc["id_mov"],
+                  (filas_p, linea))
+            personal.sembrar(id_mov="P-000003", fecha="2026-11-04", tipo="EGRESO", importe=120000, moneda="ARS", tc=1,
+                             importe_ars=120000, cuenta="Banco personal (CA 48)", tipo_gasto="personal", rubro_1="Personal",
+                             rubro_2="Súper", origen="WHATSAPP", cargado_por=titular.nombre, concilia="FALSO",
+                             estado_conc="SOLO_CAJA")
+            rk = (await cli.post("/cierre-semanal", json={"semana": "2026-W45"})).json()
+            cierre = [x for x in estudio.movimientos() if x.get("origen") == "CIERRE"]
+            check("el cierre semanal cuenta el retiro como salida del estudio ($ 500.000 en Banco) y no suma lo pagado desde la "
+                  "48 ($ 120.000), sin avisos",
+                  [(x["cuenta"], x["tipo"], float(x["importe"])) for x in cierre] == [("Banco", "EGRESO", 500000.0)]
+                  and not rk["advertencias"], (cierre, rk))
+            pend = (await cli.get("/conciliar/pendientes", params={"telefono": titular.telefono})).json()
+            check("… y el retiro ya no está pendiente", not [p for p in pend["pendientes"] if p["tipo"] == "retiro"],
+                  [(p["tipo"], p["texto"]) for p in pend["pendientes"]])
+        os.environ["CONCILIACION_DESDE"] = "2026-10-01"
+        estudio2, personal2 = LibroMemoria(encabezado), LibroMemoria(encabezado)
+        montar(estudio2, personal2)
+        archivos["octubre-273.xlsx"] = extracto_banco("CA $ 273-125852351-000", "$\xa0", [
+            ("28/10/2026", "TRANSFERENCIA ELECTRONICA", "50.000,00", "", "1.000.000,00")])
+        ro = (await extracto("octubre-273.xlsx")).json()
+        check("antes del corte (28/10), una TRANSFERENCIA ELECTRONICA no se toma como retiro a la 48",
+              not [p for p in ro["pendientes"] if p["tipo"] == "retiro"], [(p["tipo"], p["texto"]) for p in ro["pendientes"]])
+        os.environ.pop("CONCILIACION_DESDE", None)
+        from app.conciliar import retiro_a_personal
+        base_linea = {"hash_id": "x" * 64, "fecha": "2026-11-05", "debito": 1000, "credito": "", "moneda": "ARS",
+                      "cuenta_banco": "CA $ 273-125852351-000", "cuit": "", "nombre": ""}
+        check("una línea que nombra la CA 48 en la descripción también es un retiro; una con destinatario, no",
+              retiro_a_personal({**base_linea, "descripcion": "TRANSF. A CTA 048-069556582-001"}, m) is not None
+              and retiro_a_personal({**base_linea, "descripcion": "TRANSFERENCIA ELECTRONICA", "cuit": "20929415044",
+                                     "nombre": "MARAGAÑO"}, m) is None
+              and retiro_a_personal({**base_linea, "descripcion": "TRANSFERENCIA ELECTRONICA", "debito": "",
+                                     "credito": 1000}, m) is None)
+        os.environ["MAESTROS_SNAPSHOT"] = snapshot_antes_del_6_11(RAIZ / "maestros_snapshot.json")
+        m = maestros.cargar(forzar=True)
 
         print("\n7 · Errores")
         app.dependency_overrides[obtener_descargador] = lambda: (lambda adj: b"no es un excel")

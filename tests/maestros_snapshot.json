@@ -158,12 +158,12 @@
     [
       "Belelli",
       "Belelli",
-      "personal",
+      "obra_propia",
       "todo",
       "El arquitecto",
       "activa",
       "",
-      "Inmueble personal. Recibe las facturas de Edesur y Metrogas"
+      "Recibe las facturas de Edesur y Metrogas. Obra propia desde el 6/11 (reunión del 6/11, §6 v1.14): hasta entonces, inmueble personal"
     ],
     [
       "Jardín Maternal",
@@ -178,12 +178,12 @@
     [
       "Gessel",
       "Gessel",
-      "personal",
+      "obra_propia",
       "todo",
       "El arquitecto",
       "activa",
       "",
-      "Remodelación de departamento"
+      "Remodelación de departamento. Obra propia desde el 6/11 (reunión del 6/11, §6 v1.14): hasta entonces, inmueble personal"
     ]
   ],
   "CONTRATISTAS": [
@@ -2055,7 +2055,7 @@
       "Una sola cuenta. Caja de ahorro y cuenta corriente son tramos del mismo banco",
       "activa",
       "",
-      "CA $ 273-125852351-000; CC $ 273-125852351-000; CA $ 48-69556582-001"
+      "CA $ 273-125852351-000; CC $ 273-125852351-000"
     ],
     [
       "Banco USD",
@@ -2186,6 +2186,17 @@
       "0,00",
       "Plata del comitente en poder del arquitecto (contexto §5.8). No suma al saldo del estudio",
       "activa"
+    ],
+    [
+      "Banco personal (CA 48)",
+      "personal",
+      "ARS",
+      "no",
+      "",
+      "Cuenta personal de Gabriel desde el 1/11/2026 (fecha_apertura = la fecha de corte; §5.7 v1.14, reunión del 6/11). Solo en el libro personal: no concilia, no lleva saldo de apertura y no entra en el cierre semanal. Lo que el estudio le pasa es un retiro",
+      "activa",
+      "2026-11-01",
+      "CA $ 48-69556582-001"
     ]
   ],
   "ALIAS": [
@@ -2458,6 +2469,11 @@
       "generales",
       "Gastos generales",
       "rubro"
+    ],
+    [
+      "gesell",
+      "Gessel",
+      "obra"
     ]
   ],
   "USUARIOS": [

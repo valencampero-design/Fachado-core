@@ -1,6 +1,6 @@
 # Manual del bot de Fachado
 
-*Para Gabriel, Petrus y quien se sume al estudio. Versión del 28/10/2026.*
+*Para Gabriel, Petrus y quien se sume al estudio. Versión del 7/11/2026 (Gessel y Belelli como obras, la CA 48 personal, tres extractos, depósitos y pagos del comitente, filtros del tablero).*
 
 Este manual cuenta cómo usar el bot de WhatsApp del estudio: qué mandarle, cómo lo entiende,
 qué te va a preguntar y dónde queda todo después. Está armado a partir de cómo funciona hoy el
@@ -74,6 +74,16 @@ El bot decide la cuenta en este orden:
    - un comprobante de Mercado Pago pagado **con tarjeta de débito** → **Banco** (la plata salió del banco).
 3. **Lo que dice la obra**: en Lennon, el comitente paga directo, así que va como **«Pagado por el comitente»**.
 4. Si nada lo dice, el bot pone **Banco / transferencia** y en la ficha aparece marcado **(supuesto)**. Si no fue así, corregilo.
+
+**La caja de ahorro 48 es la cuenta personal de Gabriel** (desde el 1/11). El **Banco** del
+estudio son la caja de ahorro y la cuenta corriente 273 (y la de dólares). En un **retiro**:
+
+- si el comprobante dice que salió de la **CA 48**, la ficha dice **«Banco personal (CA 48)»**;
+- si dice la 273, **Banco**;
+- si no se sabe y lo carga **Gabriel**, va a la **CA 48 (supuesto)**; si lo carga **Petrus**, a **Banco (supuesto)**. Si no fue así, corregilo.
+
+Lo que se paga desde la 48 va a la planilla personal y **no entra en el cierre semanal**: esa
+plata ya salió del estudio cuando se pasó a la 48 (ver «Extractos del banco»).
 
 ### Dólares
 
@@ -281,7 +291,16 @@ Retiro/Abucoque + comprobante
 ```
 
 - Va a la **planilla personal**, no a la del estudio. Los números empiezan con **P-**.
-- A un gasto personal **no se le pregunta la obra**. Si nombrás un inmueble personal (Sur, Abucoque, Belelli, Gessel), queda imputado a ese inmueble.
+- A un gasto personal **no se le pregunta la obra**. Si nombrás un inmueble personal (Sur, Abucoque), queda imputado a ese inmueble.
+- **Gessel y Belelli son obras del estudio desde el 6/11** (obras propias, como Gonzalo o Tres Cerros): aunque escribas «Retiro», si nombrás **una obra propia** va a esa obra, en la planilla del estudio, y la ficha te avisa: «Gessel es una obra propia: lo cargo en el estudio». Se escriben también «Gesell» y «Belleli».
+
+  ```
+  Gesell/Granjeri + comprobante       → obra Gessel
+  Belleli/Metrogas + comprobante      → obra Belelli
+  Retiro/Gessel $50.000               → obra Gessel (con el aviso)
+  ```
+
+- Un pago de una **obra de terceros** (Moreno, Lennon…) nunca queda en la planilla personal: si la ficha tiene obra del estudio, va al estudio.
 - Los rubros que ofrece son los personales (Súper, Casa, Club y deporte…).
 - Si el destinatario no está en la planilla, **no se da de alta**: queda en la descripción.
 - Lo personal solo lo ven las personas habilitadas para verlo. Si Petrus escribe «Retiro», es lo personal de Gabriel.
@@ -335,11 +354,20 @@ Si escribís el nombre exacto de alguien que figura como inactivo, pregunta «X 
 ### Pagos que hace el comitente
 
 - **Lennon**: el comitente paga directo. Mandá el comprobante con `Lennon/Contratista` y el bot lo carga como **«Pagado por el comitente»**. Sirve para seguir lo que se pagó en la obra; no mueve la caja del estudio.
-- **Depósito** («en negro»): escribí `Depósito` y queda como pago informal del comitente, fuera del banco y del IVA:
+- **El comitente le paga directo al proveedor** (en cualquier obra):
+  - **sin factura** («en negro») es un **Depósito**: escribí `Deposito`, el proveedor, la obra y el importe. Queda como pago informal del comitente, fuera del banco y del IVA:
 
-  ```
-  Deposito Marcelo/Moreno $300.000
-  ```
+    ```
+    Deposito Marcelo/Moreno $300.000
+    ```
+
+  - **con factura**: `Obra/Proveedor/pagado por el comitente`, con ese tramo entre barras, y el comprobante:
+
+    ```
+    Moreno/Marcelo Orellana/pagado por el comitente + comprobante
+    ```
+
+  - **En Lennon no hace falta ninguno de los dos**: el bot ya sabe que paga el comitente. Solo si el comprobante no muestra el CUIT del comitente, agregá `pagado por el comitente`.
 
 ### Cajas de obra (plata del comitente en efectivo)
 
@@ -432,7 +460,8 @@ Lo de octubre se importa pero no se pregunta.*
 
 **Qué mandar, una vez por semana:**
 
-- Los **cuatro extractos del banco** en Excel (las tres cuentas en pesos y la de dólares), tal como los baja el homebanking.
+- Los **tres extractos del banco** en Excel: la caja de ahorro y la cuenta corriente en pesos 273, y la caja de ahorro en dólares, tal como los baja el homebanking.
+- **La caja de ahorro 48 no**: desde el 1/11 es la cuenta personal de Gabriel. Si la mandás igual, el bot contesta «Ese extracto es de tu cuenta personal: no hace falta mandarlo» y no hace nada con ella.
 - El **reporte de Mercado Pago** en PDF.
 
 **Cómo mandarlos:**
@@ -451,6 +480,7 @@ Lo de octubre se importa pero no se pregunta.*
    - **Un pago que puede ser de dos movimientos**: botones con los dos y **Ninguno**.
    - **Un pago que no está cargado**: «Vi un pago de $ 165.700 a Grimau el 25/10 que no tengo cargado.» y pregunta lo que falte, como una ficha más, con **Confirmar**.
    - **Un pase entre cuentas**: «Vi que pasaste $ 300.000 del banco a Mercado Pago el 28/10. ¿Lo cargo como traspaso?».
+   - **Un pase a la cuenta personal de Gabriel (la 48)**: es un **retiro**, sin pregunta de obra: «Vi que le pasaste $ 500.000 a tu cuenta personal (CA 48) el 03/11. Lo cargo como retiro» → **Confirmar**. Va a la planilla personal y el cierre semanal lo cuenta como plata que salió del estudio. Lo que después se paga desde la 48 se sigue cargando con «Retiro», como siempre.
 4. Las preguntas le llegan **a quien mandó el extracto**.
 5. Si tocás **Después** o te vas a otra cosa, retomás escribiendo `banco`.
 
@@ -505,6 +535,8 @@ a una pregunta pendiente.
 - **Los lunes a la mañana** (8:00), el sistema escribe en la planilla del estudio **una línea por cuenta** que resume lo personal de la semana anterior: el estudio ve cuánto salió, no en qué.
 - Por eso el saldo del estudio puede ir **hasta una semana atrasado** en lo personal.
 - Si cargás algo personal de una semana ya cerrada, el lunes siguiente se suma un ajuste.
+- Si algo personal se anula o se pasa al estudio (como lo de Gessel y Belelli el 7/11), el lunes siguiente se escribe un **ajuste a la baja** de esa semana.
+- Lo pagado desde la **CA 48** no entra; el **pase del estudio a la 48** sí (es el retiro).
 
 ### El tablero (Data Studio)
 
@@ -513,7 +545,8 @@ a una pregunta pendiente.
   - **Visión general**: saldo por cuenta, semáforo de obras (rojo: caja de obra en negativo o el estudio poniendo plata en la obra; gris: sin movimientos en 30 días) y las cajas de obra.
   - **Por obra**: un selector de obra arriba, lo pagado por rubro en barras, ingresos contra pagos por mes, los proveedores principales y el detalle con link al comprobante.
   - **Proveedores**: el ranking y la evolución de lo pagado.
-- **Lo personal tiene su propio tablero** («Retiros»), que solo ven las personas habilitadas.
+- **Tocá una barra para filtrar.** En cualquier gráfico o tabla, tocá un rubro, una obra del semáforo o un proveedor y el resto de la página se filtra a eso. Tocalo otra vez (o el botón **Restablecer**, arriba a la derecha) para volver a ver todo. Arriba de cada página hay **filtros**: período, obra, rubro, contratista (y cuenta en la visión general). En las barras y la torta de rubros, tocá un rubro general para ver su detalle (por ejemplo, Mano de obra → Albañil) y usá la flecha para volver.
+- **Lo personal tiene su propio tablero** («Retiros»), que solo ven las personas habilitadas. Tiene filtros de período, rubro y destino.
 - El link del tablero del estudio (lo compartió Valen el 6/11): <https://datastudio.google.com/reporting/2c7984bd-2bae-4e34-a492-b48a9bf2fd73>. Si te pide permiso, avisale a Valen.
 
 ### Mensajes que te puede mandar el bot

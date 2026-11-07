@@ -61,6 +61,10 @@ def main() -> int:
     print(f"{titulo} {len(hojas)} hojas:")
     for hoja, filas in hojas.items():
         print(f"  · {hoja}: {filas} filas")
+    # §6 v1.14: las CC_ de un inmueble que pasó a ser obra del estudio se borran del libro personal.
+    borradas = cuerpo.get("borraria" if args.simulacro else "borradas") or []
+    if borradas:
+        print(f"{'Borraría' if args.simulacro else 'Borradas'} {len(borradas)} hojas viejas: {', '.join(borradas)}")
     if not hojas:
         print("ERROR: el motor no escribió ninguna hoja")
         return 1

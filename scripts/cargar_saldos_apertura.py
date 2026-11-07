@@ -14,7 +14,9 @@ moneda, saldo, fecha`); Valen la carga el 1/11 en un paso:
 - **Control** contra el banco: para cada cuenta que concilia (Banco, Banco USD, Mercado Pago)
   muestra el saldo del extracto al 31/10 —la última línea `ANTERIOR` de BANCO_RAW con fecha
   ≤ la fecha de apertura, si ya está importada— contra el saldo cargado, y la diferencia. Las
-  tres cuentas del banco en pesos suman en `Banco`. Si la diferencia no es cero, avisa pero no
+  cuentas del banco en pesos de `CUENTAS.cuentas_banco` de `Banco` (la CA y la CC 273) suman en
+  `Banco`. Desde el 6/11 la CA 48 es la cuenta personal de Gabriel (§5.7 v1.14): no suma, no
+  lleva saldo de apertura y no está en la plantilla. Si la diferencia no es cero, avisa pero no
   frena: el saldo lo deciden ellos.
 
 Plantilla nueva (lee las cuentas de CUENTAS, con el saldo vacío):

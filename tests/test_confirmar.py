@@ -590,6 +590,87 @@ async def _correr() -> int:
         check("sin la columna «anula» en el Sheet: 500 y no escribe nada",
               r.status_code == 500 and len(sin_anula.filas) == 2, (r.status_code, r.json()))
 
+        # ── Reunión del 6/11 (v1.14) ──────────────────────────────────────────
+        print("\n6/11 · una ficha con obra del estudio nunca va al libro personal (§5.14 v1.14, M2.3)")
+        libro, _ = preparar()
+        personal = personal_actual["libro"]
+        antes_e, antes_p = len(libro.filas), len(personal.filas)
+        r = await confirmar("wamid.P1", ficha(obra="Moreno", etapa="1", contratista="Tucu", rubro_1="Personal",
+                                              rubro_2="Familia", cuenta="Banco", tipo_gasto="personal"))
+        check("personal con obra Moreno (lo que fue P-000001): 422 {campo: obra} y no escribe en ningún libro",
+              r.status_code == 422 and r.json()["detail"]["campo"] == "obra"
+              and (len(libro.filas), len(personal.filas)) == (antes_e, antes_p), (r.status_code, r.json()))
+        r = await confirmar("wamid.P2", ficha(obra="Gessel", contratista="Edesur", rubro_1="Servicios públicos",
+                                              rubro_2="Agua", cuenta="Banco", tipo_gasto="personal"))
+        check("… tampoco con una obra propia (Gessel desde el 6/11)", r.status_code == 422, (r.status_code, r.json()))
+        r = await confirmar("wamid.P3", ficha(obra="Abucoque", contratista="Edesur", rubro_1="Servicios públicos",
+                                              rubro_2="Agua", cuenta="Banco", tipo_gasto="personal"))
+        check("… un inmueble personal (Abucoque) sí va al personal", r.status_code == 200 and r.json()["libro"] == "personal",
+              (r.status_code, r.json()))
+
+        print("\n6/11 · la cuenta personal (CA 48) solo en el libro personal (§5.7 v1.14)")
+        r = await confirmar("wamid.CA48a", ficha(obra="Gonzalo", contratista="Tucu", rubro_1="Mano de obra",
+                                                 rubro_2="Jornales", cuenta="Banco personal (CA 48)", tipo_gasto="obra"))
+        check("un pago de obra con la cuenta «Banco personal (CA 48)»: 422 {campo: cuenta}",
+              r.status_code == 422 and r.json()["detail"]["campo"] == "cuenta", (r.status_code, r.json()))
+        r = await confirmar("wamid.CA48b", ficha(obra=None, contratista="Sofía Fachado", rubro_1="Personal",
+                                                 rubro_2="Familia", cuenta="Banco personal (CA 48)", tipo_gasto="personal"))
+        fila48 = personal.movimientos()[-1] if personal.movimientos() else {}
+        check("un retiro desde la 48: al libro personal, no concilia",
+              r.status_code == 200 and r.json()["libro"] == "personal" and fila48.get("cuenta") == "Banco personal (CA 48)"
+              and fila48.get("concilia") == "FALSO", (r.status_code, fila48))
+        r = await confirmar("wamid.CA48c", {"campos": {"tipo": "TRASPASO", "fecha": "2026-11-03", "importe": 1000, "moneda": "ARS",
+                                                       "cuenta_origen": "Caja obra Lennon",
+                                                       "cuenta_destino": "Banco personal (CA 48)"}, "extras": {}})
+        check("un traspaso entre una caja de obra y la 48: 422 (plata de terceros a la cuenta personal)",
+              r.status_code == 422, (r.status_code, r.json()))
+
+        print("\n6/11 · el pase de libro (M1.2) y el ajuste del cierre semanal (M1.3)")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "pase", Path(__file__).resolve().parent.parent / "scripts" / "migraciones" / "2026_11_07_pase_de_libro.py")
+        pase = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pase)
+        libro, _ = preparar()
+        personal = personal_actual["libro"]
+        personal.sembrar(id_mov="P-000001", fecha="2026-08-31", tipo="EGRESO", importe=1440740, moneda="ARS", tc=1,
+                         importe_ars=1440740, obra="Gessel", comitente="El arquitecto", item="GRANJERI ROBERTO OSCAR",
+                         rubro_1="Materiales", rubro_2="pisos", medio_pago="Transferencia", cuenta="Banco",
+                         tipo_gasto="personal", origen="WHATSAPP", cargado_por="Petrus", concilia="VERDADERO",
+                         estado_conc="PENDIENTE", descripcion="Op. 1914316737", ref_comprobante="op:1914316737",
+                         comprobante_url="https://drive.google.com/file/d/18wuurcB3GISWNA9DJYbbLc7q1-5gz6Th/view",
+                         msg_id="wamid.GESSEL#0")
+        personal.sembrar(id_mov="P-000002", fecha="2026-09-01", tipo="EGRESO", importe=5000, moneda="ARS", tc=1,
+                         importe_ars=5000, obra="Abucoque", rubro_1="Personal", rubro_2="Casa", cuenta="Banco",
+                         tipo_gasto="personal", origen="WHATSAPP", cargado_por="Petrus")
+        r0 = (await cli.post("/cierre-semanal", json={"semana": "2026-W36"})).json()
+        cand = pase.candidatas([dict(zip(personal.encabezado, f)) for f in personal.filas[1:]], m)
+        check("candidatas: solo la fila con obra del estudio (Gessel), no la del inmueble personal",
+              [c["id_mov"] for c in cand] == ["P-000001"], [c["id_mov"] for c in cand])
+        res = await pase.pasar(cand[0], libro, personal, m)
+        fm, fc = res["fila_m"], res["contra"]
+        check("en el estudio, una fila nueva con los mismos datos, tipo_gasto obra, la nota del pase y vinculada al contraasiento",
+              (fm["obra"], fm["tipo_gasto"], fm["importe"], fm["cuenta"], fm["item"], fm["comprobante_url"].endswith("Th/view"),
+               fm["vinculo"]) == ("Gessel", "obra", 1440740, "Banco", "GRANJERI ROBERTO OSCAR", True, fc["id_mov"])
+              and "pasado del libro personal (P-000001) el 7/11" in fm["descripcion"] and fm["id_mov"].startswith("M-"), fm)
+        check("en el personal, el contraasiento (anula = P-000001, importe negativo) vinculado a la fila del estudio",
+              (fc["anula"], fc["importe"], fc["vinculo"], fc["origen"]) == ("P-000001", -1440740, fm["id_mov"], "ANULACION"), fc)
+        n_e, n_p = len(libro.filas), len(personal.filas)
+        res2 = await pase.pasar(cand[0], libro, personal, m)
+        check("idempotente: la segunda corrida no escribe nada", (len(libro.filas), len(personal.filas)) == (n_e, n_p)
+              and res2["ya_existia"], (len(libro.filas) - n_e, len(personal.filas) - n_p))
+        check("… y ya no es candidata", not pase.candidatas([dict(zip(personal.encabezado, f)) for f in personal.filas[1:]], m))
+        r1 = (await cli.post("/cierre-semanal", json={"semana": "2026-W45"})).json()
+        check("el cierre siguiente escribe el ajuste a la baja de la semana del original (W36, Banco, INGRESO 1.440.740)",
+              [(e["semana"], e["cuenta"], e["tipo"], e["importe"], e["ajuste"]) for e in r1["escritas"]]
+              == [("2026-W36", "Banco", "INGRESO", 1440740, True)]
+              and r0["escritas"] and r0["escritas"][0]["importe"] == 1445740, (r0["escritas"], r1["escritas"]))
+        ajuste = next(mv for mv in libro.movimientos() if mv.get("msg_id") == "cierre:2026-W36:Banco#1")
+        check("… con la descripción del ajuste por anulación o pase", "ajuste por anulación o pase al estudio" in ajuste["descripcion"],
+              ajuste["descripcion"])
+        r2 = (await cli.post("/cierre-semanal", json={"semana": "2026-W45"})).json()
+        check("… y no lo duplica: la corrida siguiente no escribe nada", not r2["escritas"], r2["escritas"])
+
         # ── Tanda 5 · CERTIFICADOS ────────────────────────────────────────────
         print("\nTanda 5 · el certificado va a CERTIFICADOS, no a MOVIMIENTOS (§5.11)")
 

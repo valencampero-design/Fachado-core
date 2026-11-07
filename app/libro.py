@@ -197,3 +197,11 @@ class LibroSheets:
     # ── §5.21: hojas derivadas (VISTA_*, CC_*), se reescriben enteras ────────────
     def escribir_hoja(self, hoja: str, filas: list[list]) -> None:
         sheets.reemplazar_hoja(self.sheet_id, hoja, filas)
+
+    def hojas_derivadas(self) -> list[str]:
+        """Las CC_* y VISTA_* que hay en el libro (sin los respaldos «_bak_»)."""
+        return [h for h in sheets.estructura(self.sheet_id)
+                if (h.startswith("CC_") or h.startswith("VISTA_")) and "_bak_" not in h]
+
+    def borrar_hoja_derivada(self, hoja: str) -> None:
+        sheets.borrar_hoja_derivada(self.sheet_id, hoja)

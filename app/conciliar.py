@@ -289,6 +289,8 @@ def emparejar(lineas: list[dict], m: Maestros) -> list[tuple[str, dict, dict]]:
     pares, usadas = [], set()
     for s in sorted(sales, key=lambda x: (str(x.get("fecha")), x["hash_id"])):
         cs = cuenta_de_linea(s, m)
+        if cs is not None and cs.es_personal:
+            continue  # §5.20 v1.14: la CA 48 no se concilia
         mejor = None
         for e in entran:
             if e["hash_id"] in usadas or e["hash_id"] == s["hash_id"] or e.get("cuenta_banco") == s.get("cuenta_banco"):
@@ -296,7 +298,7 @@ def emparejar(lineas: list[dict], m: Maestros) -> list[tuple[str, dict, dict]]:
             if _dias_habiles(s.get("fecha"), e.get("fecha")) > 1:
                 continue
             ce = cuenta_de_linea(e, m)
-            if cs is None or ce is None:
+            if cs is None or ce is None or ce.es_personal:
                 continue
             misma_moneda = str(s.get("moneda") or "ARS") == str(e.get("moneda") or "ARS")
             if misma_moneda and abs(numero(s.get("debito")) - numero(e.get("credito"))) <= 0.01:
@@ -596,6 +598,12 @@ def procesar_extracto(contenido: bytes, telefono: str, libro: Libro, libro_perso
         lineas = leer_extracto(contenido)
     except ExtractoNoReconocido as e:
         raise ErrorConciliar(422, "adjunto", f"No es un extracto del banco que conozca: {e}") from e
+    # §5.7 / §5.20 v1.14: la CA 48 es la cuenta personal de Gabriel. Su extracto no se manda; si
+    # llega, no se importa nada de él y no se pregunta nada.
+    personales = [x for x in lineas if (c := cuenta_de_linea(x.dict(), m)) is not None and c.es_personal]
+    lineas = [x for x in lineas if x not in personales]
+    if personales and not lineas:
+        return extracto_personal(personales[0])
     desde = settings().conciliacion_desde
     ts = _ahora().strftime("%Y-%m-%d %H:%M:%S")  # hora de Argentina: Railway corre en UTC
     libros = _libros(libro, libro_personal, usuario)
@@ -674,7 +682,83 @@ def procesar_extracto(contenido: bytes, telefono: str, libro: Libro, libro_perso
     salida.update({"importadas": len(nuevas_filas), "repetidas": repetidas, "anteriores": anteriores,
                    "conciliadas": conteo[CONCILIADO], "a_revisar": conteo[A_REVISAR], "sin_cargar": conteo[SIN_CARGAR]})
     salida["texto"] = _texto_resumen(salida)
+    if personales:
+        salida["ignoradas_personal"] = len(personales)
+        salida["texto"] += f"\n\n{TEXTO_EXTRACTO_PERSONAL} (no importé sus {len(personales)} líneas)."
     return salida
+
+
+TEXTO_EXTRACTO_PERSONAL = "Ese extracto es de tu cuenta personal: no hace falta mandarlo"
+
+
+def extracto_personal(linea: LineaBanco) -> dict:
+    """La respuesta a un extracto de la cuenta personal (§5.20 v1.14): la misma forma que un
+    extracto importado, con todo en cero, `ignorado = "cuenta_personal"` y el texto para el
+    usuario. No es un error: el gateway lo dice y sigue."""
+    return {"ignorado": "cuenta_personal", "origen": linea.origen, "cuenta_banco": linea.cuenta_banco,
+            "importadas": 0, "repetidas": 0, "anteriores": 0, "conciliadas": 0, "internas": 0, "a_revisar": 0,
+            "sin_cargar": 0, "sin_banco": 0, "lotes": [], "ambiguas": [], "pendientes": [], "resumen": None,
+            "sin_banco_detalle": [], "texto": TEXTO_EXTRACTO_PERSONAL}
+
+
+# ─── El pase del estudio a la cuenta personal: un retiro (§5.7 v1.14) ──────────
+
+# En el extracto de la 273, el pase a otra cuenta propia del mismo banco sale como
+# «TRANSFERENCIA ELECTRONICA», sin CUIT ni nombre (el 28/09 y el 13/10, del lado de la 48, la
+# misma plata entraba con la misma descripción). Con la 48 fuera de la conciliación, una de esas
+# que no se empareja con otra cuenta del estudio es un pase a la 48.
+RE_PASE_SIN_DESTINATARIO = re.compile(r"^\s*transferencia\s+electr[oó]nica\s*$", re.I)
+
+
+def retiro_a_personal(linea: dict, m: Maestros):
+    """La cuenta personal a la que fue la plata, si la línea es un pase del estudio a la cuenta
+    personal de Gabriel (§5.7 v1.14); None si no. Una salida de Banco en pesos que nombra la cuenta
+    personal, o una «TRANSFERENCIA ELECTRONICA» sin destinatario desde la fecha de corte de la
+    cuenta personal (su `fecha_apertura`)."""
+    personales = m.cuentas_personales()
+    if not personales or numero(linea.get("debito")) <= 0 or str(linea.get("moneda") or "ARS") != "ARS":
+        return None
+    cuenta = cuenta_de_linea(linea, m)
+    if cuenta is None or cuenta.tipo != "banco" or cuenta.es_personal:
+        return None
+    desc = str(linea.get("descripcion") or "")
+    nombrada = next((p for p in personales if p.es_cuenta_del_banco(desc)), None)
+    if nombrada:
+        return nombrada
+    if linea.get("cuit") or linea.get("nombre") or not RE_PASE_SIN_DESTINATARIO.match(desc) or len(personales) != 1:
+        return None
+    p = personales[0]
+    return p if not p.fecha_apertura or str(linea.get("fecha"))[:10] >= p.fecha_apertura else None
+
+
+def _nombre_corto(cuenta) -> str:
+    entre = re.search(r"\(([^)]+)\)", cuenta.nombre)
+    return f"tu cuenta personal ({entre.group(1)})" if entre else f"tu cuenta personal «{cuenta.nombre}»"
+
+
+def texto_retiro(linea: dict, personal) -> str:
+    return (f"Vi que le pasaste {_dinero(numero(linea.get('debito')))} a {_nombre_corto(personal)} "
+            f"el {_dia(linea.get('fecha'))}. Lo cargo como retiro")
+
+
+def ficha_de_retiro(linea: dict, personal, m: Maestros) -> dict:
+    """Una ficha TRASPASO del Banco a la cuenta personal, sin preguntas (§5.7 v1.14): va al libro
+    personal; el cierre semanal la cuenta como salida del estudio y VISTA_PERSONAL no la cuenta
+    como gasto (el gasto es el detalle cargado desde la 48). Se confirma con
+    `msg_id = "banco:<hash>"`; `extras.ids_banco` concilia la línea con la pata del Banco."""
+    from app.models import CAMPOS_FICHA_TRASPASO, Ficha, InterpretarOut
+    origen_cta = cuenta_de_linea(linea, m)
+    campos = {c: None for c in CAMPOS_FICHA_TRASPASO}
+    importe = numero(linea.get("debito"))
+    destino = _nombre_corto(personal).replace("tu cuenta", "la cuenta")
+    campos.update({"tipo": "TRASPASO", "fecha": str(linea.get("fecha"))[:10], "importe": importe, "moneda": "ARS",
+                   "tc": 1, "importe_ars": importe, "cuenta_origen": origen_cta.nombre, "cuenta_destino": personal.nombre,
+                   "descripcion": f"Retiro a {destino} · Extracto: {linea.get('descripcion')}"})
+    origen = {k: "comprobante" for k, v in campos.items() if v not in (None, "")}
+    ficha = Ficha(campos=campos, origen_campo=origen, extras={"ids_banco": [linea["hash_id"]], "retiro": True},
+                  regla="§5.7 v1.14: el pase del estudio a la cuenta personal es un retiro")
+    return InterpretarOut(intencion="movimiento", fichas=[ficha], preguntas=[], requiere_confirmacion=True,
+                          diagnostico={"origen": "conciliacion", "clase": "retiro"}).model_dump()
 
 
 def pendientes(telefono: str, libro: Libro, libro_personal: Libro | None, _m: Maestros | None = None) -> dict:
@@ -705,6 +789,9 @@ def pendientes(telefono: str, libro: Libro, libro_personal: Libro | None, _m: Ma
             continue
         elif x.get("lote"):
             lotes.setdefault((x["lote"], str(x.get("moneda") or "ARS")), []).append(x)
+        elif (personal := retiro_a_personal(x, m)) is not None:
+            pendientes_.append({"tipo": "retiro", "hash_id": x["hash_id"], "hash_ids": [x["hash_id"]],
+                                "texto": texto_retiro(x, personal), "interpretacion": ficha_de_retiro(x, personal, m)})
         else:
             pendientes_.append({"tipo": "linea", "hash_id": x["hash_id"], "texto": texto_pendiente(x),
                                 "interpretacion": ficha_de_linea(x, telefono, libros)})
@@ -915,6 +1002,8 @@ def estado(telefono: str, libro: Libro, hoy: date | None = None) -> dict:
         vistas: dict[str, tuple] = {}
         for x in banco:
             cuenta = cuenta_de_linea(x, m)
+            if cuenta is not None and cuenta.es_personal:
+                continue  # §5.20 v1.14: el extracto de la 48 no se pide
             vistas.setdefault(x["cuenta_banco"], (x["cuenta_banco"], cuenta.nombre if cuenta else "",
                                                    x.get("origen") or "banco_patagonia"))
         fuentes = list(vistas.values())

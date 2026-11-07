@@ -186,6 +186,17 @@ def reemplazar_hoja(sheet_id: str, hoja: str, valores: list[list]) -> None:
         escribir_rango(sheet_id, f"'{hoja}'!A1:{columna_a_letra(columnas)}{filas}", ancho)
 
 
+def borrar_hoja_derivada(sheet_id: str, hoja: str) -> None:
+    """Borra una CC_* que quedó vieja (la de un inmueble que pasó a ser obra del estudio, §6
+    v1.14). Solo CC_*, nunca un respaldo «_bak_», MOVIMIENTOS ni un maestro: lo derivado se vuelve a
+    calcular, el resto no."""
+    if not hoja.startswith("CC_") or "_bak_" in hoja:
+        raise ValueError(f"«{hoja}» no es una cuenta corriente derivada: no se borra")
+    hojas = estructura(sheet_id)
+    if hoja in hojas:
+        modificar(sheet_id, [{"deleteSheet": {"sheetId": hojas[hoja]["id"]}}])
+
+
 def _drive():
     return _cliente("drive", "v3").files()
 
