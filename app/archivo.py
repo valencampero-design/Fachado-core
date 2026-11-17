@@ -91,5 +91,9 @@ class ArchivadorDrive:
             padre = sheets.carpeta_drive(nombre, padre)
         actual = sheets.metadata_drive(file_id).get("name", "")
         extension = actual.rsplit(".", 1)[1] if "." in actual else ""
+        # Una foto de WhatsApp llega sin extensión y con el id del mensaje en el nombre
+        # («….HBgNNTQ5…==»): eso no es una extensión y no se copia al nombre nuevo.
+        if not re.fullmatch(r"[A-Za-z0-9]{1,5}", extension):
+            extension = ""
         nombre = f"{nombre_base}.{extension}" if extension else nombre_base
         return sheets.mover_drive(file_id, padre, nombre)
