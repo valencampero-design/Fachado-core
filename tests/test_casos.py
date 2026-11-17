@@ -1237,6 +1237,79 @@ def main() -> int:
           and comprobante.cuenta_origen("Destino: CA $ 273-125852351-000") is None,
           comprobante.parsear_texto(texto_cp).get("cuenta_origen"))
 
+    # ── 16/11 · el rubro depende del destino (bug de Petrus, «Austral/varios») ─────────────────
+    print("\n16/11 · un rubro que se repite entre destinos («varios») se elige por el destino (§5.12 v1.12)")
+    from app.interpretar import _en_el_destino
+    varios_obra, varios_austral = m.rubro("Materiales", "Varios"), m.rubro("Varios", "Varios")
+    check("el maestro tiene los dos «Varios»: Materiales › Varios (obra, 1.28) y Varios › Varios (estructura, A12.1)",
+          varios_obra and varios_austral and (varios_obra.afecta, varios_austral.afecta) == ("obra", "estructura"),
+          (varios_obra, varios_austral))
+    orellana = Adjunto(url="https://drive.google.com/file/d/ORELLANAVARIOSxxxxxxxxxxx/view", mime="image/jpeg", nombre="o.jpg")
+    r, f = leer_con("Austral/varios", adjuntos=[orellana],
+                    lector=lector_con(importe=300000, fecha="2026-11-16", razon_social="ORELLANA, MARCELO",
+                                      medio_pago="Transferencia", tipo_comprobante="Transferencia"))
+    check("«Austral/varios» + la transferencia a ORELLANA, MARCELO ($ 300.000) → Varios › Varios (Austral), no Materiales",
+          (f.campos["obra"], f.campos["rubro_1"], f.campos["rubro_2"], f.campos["importe"]) == ("Austral", "Varios", "Varios", 300000)
+          and not campos_de(r, "rubro"),
+          (f.campos["obra"], f.campos["contratista"], f.campos["rubro_1"], f.campos["rubro_2"], [p.campo for p in r.preguntas]))
+    r, f = leer_con("Austral/varios $ 300.000")
+    check("«Austral/varios $ 300.000» sin comprobante → Varios › Varios, sin preguntar el rubro",
+          (f.campos["rubro_1"], f.campos["rubro_2"]) == ("Varios", "Varios") and not campos_de(r, "rubro"),
+          (f.campos["rubro_1"], f.campos["rubro_2"], [(p.campo, p.opciones[:3]) for p in r.preguntas]))
+    r, f = leer_con("Moreno/Tucu varios $ 50.000")
+    check("«Moreno/Tucu varios» → Materiales › Varios (obra)",
+          (f.campos["obra"], f.campos["contratista"], f.campos["rubro_1"], f.campos["rubro_2"])
+          == ("Moreno", "Tucu", "Materiales", "Varios"),
+          (f.campos["obra"], f.campos["contratista"], f.campos["rubro_1"], f.campos["rubro_2"]))
+    original = {"campos": {"tipo": "EGRESO", "obra": "Austral", "contratista": "Marcelo Orellana", "rubro_1": "Materiales",
+                           "rubro_2": "Varios", "importe": 300000, "fecha": "2026-11-16", "cuenta": "Banco"},
+                "origen_campo": {}, "extras": {}}
+    r = interpretar(InterpretarIn(texto="varios", fecha_mensaje="2026-11-17T12:00:00Z", telefono=titular.telefono,
+                                  contexto_previo=original), libros={"estudio": libro(), "personal": None})
+    f = r.fichas[0]
+    check("«corregir M-…» + «varios» en un movimiento de Austral (cargado con Materiales › Varios) → Varios › Varios",
+          (f.campos["obra"], f.campos["rubro_1"], f.campos["rubro_2"]) == ("Austral", "Varios", "Varios")
+          and not campos_de(r, "rubro"), (f.campos["obra"], f.campos["rubro_1"], f.campos["rubro_2"]))
+    r = interpretar(InterpretarIn(fecha_mensaje="2026-11-17T12:00:00Z", telefono=titular.telefono, contexto_previo=original,
+                                  respuestas=[Respuesta(ficha=0, campo="rubro", valor="Varios")]),
+                    libros={"estudio": libro(), "personal": None})
+    check("… y «Varios» como respuesta a «¿Qué rubro?» en esa ficha → Varios › Varios",
+          (r.fichas[0].campos["rubro_1"], r.fichas[0].campos["rubro_2"]) == ("Varios", "Varios"),
+          (r.fichas[0].campos["rubro_1"], r.fichas[0].campos["rubro_2"]))
+    r = interpretar(InterpretarIn(texto="Austral", fecha_mensaje="2026-11-17T12:00:00Z", telefono=titular.telefono,
+                                  contexto_previo={**original, "campos": {**original["campos"], "obra": "Moreno"}}),
+                    libros={"estudio": libro(), "personal": None})
+    check("la ficha anterior con Materiales › Varios en Moreno, corregida a Austral → Varios › Varios",
+          (r.fichas[0].campos["obra"], r.fichas[0].campos["rubro_1"], r.fichas[0].campos["rubro_2"])
+          == ("Austral", "Varios", "Varios"), (r.fichas[0].campos["obra"], r.fichas[0].campos["rubro_2"]))
+    from app import maestros as _maestros
+    tucu = _maestros.cargar().contratista("Tucu")  # el que usa interpretar (la caché pudo renovarse en la corrida)
+    habitual_antes = (tucu.rubro_1, tucu.rubro_2)
+    tucu.rubro_1, tucu.rubro_2 = "Materiales", "Varios"
+    try:
+        r, f = leer_con("Austral/Tucu $ 1.000")
+        check("el habitual de obra (Tucu, Materiales › Varios) pagado en Austral → Varios › Varios",
+              (f.campos["rubro_1"], f.campos["rubro_2"]) == ("Varios", "Varios"), (f.campos["rubro_1"], f.campos["rubro_2"]))
+    finally:
+        tucu.rubro_1, tucu.rubro_2 = habitual_antes
+    con_varios = libro(dict(id_mov="M-000001", fecha="2026-11-01", tipo="EGRESO", importe=1000, obra="Moreno",
+                            contratista="Tucu", rubro_1="Materiales", rubro_2="Varios", tipo_gasto="obra"))
+    r, f = leer_con("Austral/Tucu $ 2.000", estudio=con_varios)
+    check("la última vez (Tucu en Moreno, Materiales › Varios), ahora en Austral → Varios › Varios",
+          (f.campos["rubro_1"], f.campos["rubro_2"]) == ("Varios", "Varios"), (f.campos["rubro_1"], f.campos["rubro_2"]))
+    check("lo que sugiera el LLM pasa por el mismo filtro: Materiales › Varios en Austral → Varios › Varios; en una obra, igual",
+          _en_el_destino(varios_obra, "estructura", m) is varios_austral and _en_el_destino(varios_obra, "obra", m) is varios_obra
+          and _en_el_destino(m.rubro("Materiales", "Riego"), "estructura", m) is None)
+    r, f = leer_con("Moreno/Tucu riego $ 50.000")
+    check("«riego» en una obra (Materiales › Riego y Mano de obra › Riego, los dos de obra) → se pregunta con esos dos",
+          f.campos["rubro_1"] is None and any(p.campo == "rubro" and sorted(p.opciones) == ["Mano de obra / Riego", "Materiales / Riego"]
+                                              for p in r.preguntas),
+          (f.campos["rubro_1"], f.campos["rubro_2"], [(p.campo, p.opciones) for p in r.preguntas]))
+    r, f = leer_con("Austral/Mathias $ 1.000")
+    opciones_austral = [o for p in r.preguntas if p.campo == "rubro" for o in p.opciones]
+    check("en Austral, las opciones de «¿Qué rubro?» nunca traen un rubro de obra",
+          not any((x := m.rubro_por_nombre(o)) is not None and x.afecta == "obra" for o in opciones_austral), opciones_austral)
+
     print("\nFix del arranque · 1.2 el invariante, sobre todos los casos de este archivo")
     check(f"21/10 · ninguna ficha con la obra resuelta trae la pregunta «obra» ({len(obra_repreguntada)} con problemas)",
           not obra_repreguntada, obra_repreguntada)

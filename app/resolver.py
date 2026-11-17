@@ -39,6 +39,8 @@ PALABRAS_HONORARIOS = {"hon", "honorario", "honorarios"}
 PALABRAS_RUIDO = {"e", "y", "imputar", "ingresar", "ingresarlo", "registrar", "cargar", "tambien",
                   "como", "aparte", "separado", "correccion", "corregir"}
 STOPWORDS_RUBRO = {"y", "de", "del", "la", "el", "los", "las", "a"}
+# Una palabra suelta que aparece en más rubros que estos no nombra un rubro (16/11).
+MAX_RUBROS_POR_PALABRA = 4
 
 # §5.12 v1.8: la palabra de tipo con un error de tipeo («INGRRSO», «ingrso»). Solo la primera
 # palabra del mensaje, que es donde la escribe, y solo las largas: «pago» o «cobro» con un
@@ -101,7 +103,9 @@ class Resolucion:
     metodo: str     # alias | exacto | palabra | difuso | cuit | llm
     token: str
     puntaje: float = 100.0
-    opciones: list[str] = field(default_factory=list)  # para ambiguo
+    # Para ambiguo. En un rubro, todos los que nombra el token («varios»: Materiales › Varios y
+    # Varios › Varios, §5.12 v1.12): cuál va lo decide interpretar por el destino.
+    opciones: list[str] = field(default_factory=list)
     # Solo para obras escritas con la sintaxis `<obra>[<etapa>][C]` (§5.15 y §5.8).
     etapa: str | None = None
     caja: bool = False
@@ -310,6 +314,13 @@ def _rubro_valor(r) -> str:
     return f"{r.rubro_1} / {r.rubro_2}" if r.rubro_2 else r.rubro_1
 
 
+def _resolucion_rubro(rubros: list, metodo: str, token: str, puntaje: float = 100.0) -> Resolucion:
+    """Un rubro, o varios con el mismo nombre en distintos destinos (16/11: «varios» es Materiales
+    › Varios y Varios › Varios). Con varios, el valor es el primero y van todos en `opciones`."""
+    valores = [_rubro_valor(r) for r in rubros]
+    return Resolucion("rubro", valores[0], metodo, token, puntaje, opciones=valores if len(valores) > 1 else [])
+
+
 def _obra_exacta(n: str, token: str, m: Maestros) -> Resolucion | None:
     """El token normalizado, entero, contra ALIAS de obra, OBRAS.obra y OBRAS.codigo."""
     for a in m.alias:
@@ -441,8 +452,12 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
             exactos.append(Resolucion("contratista", _canonico_contratista(m, a.valor_canonico), "alias", token))
         elif a.tipo == "obra":
             exactos.append(Resolucion("obra", _canonico_obra(m, a.valor_canonico), "alias", token))
-        elif a.tipo == "rubro" and (rubro := m.rubro_por_nombre(a.valor_canonico)):
-            exactos.append(Resolucion("rubro", _rubro_valor(rubro), "alias", token))
+        elif a.tipo == "rubro":
+            # Un alias a un nombre que se repite entre destinos («varios») trae todos.
+            rubros = [rubro] if (rubro := m.rubro_por_nombre(a.valor_canonico)) else \
+                [r for r in m.rubros_activos if normalizar(r.rubro_2) == normalizar(a.valor_canonico)]
+            if rubros:
+                exactos.append(_resolucion_rubro(rubros, "alias", token))
     if not exactos:
         exactos += [Resolucion("obra", o.nombre, "exacto", token) for o in m.obras
                     if n in (normalizar(o.nombre), normalizar(o.codigo))]
@@ -454,8 +469,8 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
     if len(cuentas) == 1:
         exactos.append(Resolucion("cuenta", cuentas[0].nombre, "exacto", token))
     rubros = [r for r in m.rubros_activos if n == normalizar(r.rubro_2)]  # §5.4 v1.13: un inactivo nunca
-    if len(rubros) == 1:
-        exactos.append(Resolucion("rubro", _rubro_valor(rubros[0]), "exacto", token))
+    if rubros and not any(r.categoria == "rubro" for r in exactos):
+        exactos.append(_resolucion_rubro(rubros, "exacto", token))
 
     entidades = [r for r in exactos if r.categoria in ("obra", "contratista")]
     if len({(r.categoria, r.valor) for r in entidades}) > 1:
@@ -482,6 +497,11 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
             contratistas = [c for c in m.contratistas if normalizar(c.nombre).split()[0] == n and vigente(c.nombre)]
             if len(contratistas) == 1 and not any(normalizar(o.nombre).split()[0] == n for o in m.obras):
                 return [Resolucion("contratista", contratistas[0].nombre, "palabra", token, 90)]
+        # 16/11: una palabra de unos pocos rubros de distintos destinos («higiene»: Asesoría › Seguridad
+        # e higiene, de obra, y Asesorías externas › Seguridad e Higiene, de Austral) no se pierde:
+        # van todos y el destino elige. Con muchos no es un rubro.
+        if 1 < len(rubros) <= MAX_RUBROS_POR_PALABRA and len({r.afecta for r in rubros}) > 1:
+            return [_resolucion_rubro(rubros, "palabra", token, 90)]
 
     # 3. Difuso.
     claves: dict[str, tuple[str, str]] = {}
@@ -496,8 +516,14 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
             claves.setdefault(normalizar(a.como_lo_dice), ("contratista", _canonico_contratista(m, a.valor_canonico)))
         elif a.tipo == "obra":
             claves.setdefault(normalizar(a.como_lo_dice), ("obra", _canonico_obra(m, a.valor_canonico)))
+    # 16/11: un nombre de rubro que se repite entre destinos («varios») guarda todos; antes se
+    # quedaba con el primero de la hoja (Materiales › Varios) aunque el pago fuera de Austral.
+    rubros_de_clave: dict[str, list] = {}
     for r in m.rubros_activos:
-        claves.setdefault(normalizar(r.rubro_2), ("rubro", _rubro_valor(r)))
+        clave = normalizar(r.rubro_2)
+        claves.setdefault(clave, ("rubro", _rubro_valor(r)))
+        if claves[clave][0] == "rubro":
+            rubros_de_clave.setdefault(clave, []).append(r)
     claves.pop("", None)
 
     matches = process.extract(n, list(claves), scorer=fuzz.ratio, limit=3)
@@ -507,6 +533,9 @@ def resolver_token(token: str, m: Maestros, incluir_inactivos: bool = False) -> 
         empatados = {claves[k] for k, s in buenos if s == mejor}
         if len(empatados) == 1:
             cat, valor = empatados.pop()
+            clave = next(k for k, s in buenos if s == mejor)
+            if cat == "rubro":
+                return [_resolucion_rubro(rubros_de_clave[clave], "difuso", token, mejor)]
             return [Resolucion(cat, valor, "difuso", token, mejor)]
         return [Resolucion("ambiguo", "", "difuso", token, mejor, opciones=[f"{c}: {v}" for c, v in empatados])]
     return []

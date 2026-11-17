@@ -1,7 +1,7 @@
 {
   "_meta": {
     "fuente": "1yoakmhO1--WXCtWWStNrmczgYkaT1g0H54fTK2QCc9A",
-    "tomado": "2026-10-27",
+    "tomado": "2026-11-17",
     "nota": "Copia literal de las hojas maestras. Se regenera con scripts/snapshot_maestros.py."
   },
   "OBRAS": [
@@ -2031,6 +2031,13 @@
       "Educación",
       "personal",
       "R9",
+      "activo"
+    ],
+    [
+      "Varios",
+      "Varios",
+      "estructura",
+      "A12.1",
       "activo"
     ]
   ],
