@@ -233,6 +233,31 @@ Detalle, reconstrucción de las fallas del 20/10 y deploy al final de
   - los saldos se muestran con su signo (`_con_signo`, `consultas.pesos`).
 - Un «4» suelto sin ficha es `intencion = "otro"`.
 
+### Lo del 17/11: el rubro depende del destino en todos los caminos (`af3b01e`)
+
+**El bug del 16/11 (Petrus).** «Austral/varios», con la transferencia a ORELLANA, MARCELO
+($ 300.000), daba Materiales › Varios (obra, 1.28) en vez de Varios › Varios (Austral, A12.1).
+«varios» es el `rubro_2` de los dos, y el difuso del resolver se quedaba con el primero de la
+hoja. Hay cinco nombres que se repiten entre los activos: Varios, Servicios, Rentas, Seguridad
+e higiene y Riego.
+
+Cómo quedó:
+- **El resolver devuelve todos los rubros que nombra un token**, en `Resolucion.opciones`:
+  - en el exacto, por alias y en el difuso;
+  - por palabra, si son pocos y de distintos destinos.
+- **Los filtra `interpretar`, por el afecta del destino** (`_del_destino`): Austral → estructura,
+  personal → personal, obra → obra; si no queda ninguno de ese tipo, los «otro».
+  - Si queda uno solo, se usa sin preguntar.
+  - Si quedan varios, se pregunta con esos (`extras.rubro_candidatos`).
+  - Si el destino todavía no se sabe, esperan.
+- **El habitual, la última vez, el LLM, la ficha anterior y la respuesta a «¿Qué rubro?»** pasan
+  al mismo nombre en el destino cuando hay uno solo (`_en_el_destino`).
+- **Tests en `test_casos` (16/11):** «Austral/varios» con y sin comprobante; «Moreno/Tucu varios»;
+  la corrección con «varios»; la respuesta; el habitual; la última vez; «riego» en una obra.
+- **Métrica igual antes y después:** 45/50, 38/50 y 1,54 preguntas por movimiento, con
+  invariantes en 0.
+- El snapshot de los tests se regeneró: le faltaba A12.1.
+
 ### Lo del 27/10: los rubros del estudio (v1.13)
 
 Detalle y conteos al final de `docs/handoff-rubros-tablero-2026-10-27.md`.
